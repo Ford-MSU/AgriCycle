@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --color-agri-green-50: #f0f7f4;
+  --color-agri-green-100: #dcece3;
+  --color-agri-green-200: #bedbc8;
+  --color-agri-green-300: #96c4a8;
+  --color-agri-green-400: #6ca784;
+  --color-agri-green-500: #4e8a67; /* Primary sage green */
+  --color-agri-green-600: #3b6d50;
+  --color-agri-green-700: #315742;
+  
+  --color-agri-cream-50: #fdfbf7;
+  --color-agri-cream-100: #f8f4e6; /* Warm cream */
+  --color-agri-cream-200: #efe7d0; /* Light beige */
+  --color-agri-cream-300: #e2d3b2;
+  
+  --color-agri-earth-500: #8c7a6b; /* Soft earth tone */
+  --color-agri-earth-600: #716053;
+  
+  --color-agri-accent-500: #d67b5a; /* Muted terracotta */
+  --color-agri-accent-600: #ba6041;
+}
+
+@layer base {
+  body {
+    @apply bg-[var(--color-agri-cream-50)] text-gray-800 antialiased;
+  }
+}
+
+/* Custom Leaflet Map Overrides */
+.leaflet-container {
+  font-family: inherit;
+  z-index: 10;
+}
+.custom-leaflet-marker {
+  background: transparent;
+  border: none;
+}
+.agricycle-popup .leaflet-popup-content-wrapper {
+  @apply rounded-lg shadow-lg border border-gray-100;
+}
+.agricycle-popup .leaflet-popup-content {
+  @apply m-2 min-w-[200px];
+}

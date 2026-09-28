@@ -1,0 +1,8 @@
+{
+  "name": "Remix AgriCycle",
+  "description": "A Community-Based Biomass Availability Information Management System with Aggregation and Inquiry-Based Market Linkage Coordination for Agricultural Waste-to-Value Management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
