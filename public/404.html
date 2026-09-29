@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Redirecting...</title>
+    <script>
+      // Single Page Apps for GitHub Pages redirection script
+      var pathSegmentsToKeep = 1;
+      var l = window.location;
+      var repoName = l.pathname.split('/')[1] || '';
+      var cleanPath = l.pathname.slice(1);
+      if (cleanPath.startsWith(repoName)) {
+        cleanPath = cleanPath.slice(repoName.length).replace(/^\/+/, '');
+      }
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        (repoName ? '/' + repoName : '') + '/#/' + cleanPath +
+        (l.search ? '&' + l.search.slice(1) : '') +
+        l.hash
+      );
+    </script>
+  </head>
+  <body>
+    Redirecting to application...
+  </body>
+</html>
