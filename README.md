@@ -1,0 +1,1 @@
+The general objective of this study is to design, develop, and evaluate AgriCycle: A Community-Based Biomass Information Management and Market Linkage System. The study also formalizes the CB-BAIM Model as a practical guide for local biomass data flow, validation, aggregation, buyer inquiry, and planning support.
