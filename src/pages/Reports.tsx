@@ -1,16 +1,24 @@
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { db } from '../store/mockDb';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useAuth } from '../store/AuthContext';
-import { Role, RecordStatus, InquiryStatus } from '../types';
+import { useData } from '../store/DataContext';
+import { Role, RecordStatus } from '../types';
 import { Button } from '../components/ui/Button';
-import { FileText, AlertTriangle, CheckCircle, Activity, Layers, Download } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Activity, Layers, Download } from 'lucide-react';
 
 const COLORS = ['#22c55e', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#64748b'];
 
 export const Reports: React.FC = () => {
   const { user } = useAuth();
+  const {
+    records,
+    inquiries,
+    referenceData,
+    getRecord,
+    getSource,
+    getAggregationGroup,
+  } = useData();
 
   if (!user || user.role === Role.BUYER) {
     return <div className="text-center py-10">Unauthorized access.</div>;
@@ -19,48 +27,55 @@ export const Reports: React.FC = () => {
   // Filter records based on role (Coordinator sees their hub's stuff, LGU/Admin see all)
   const accessibleRecords = useMemo(() => {
     if (user.role === Role.COORDINATOR) {
-      // Assuming a simplistic authorization: coordinator sees records they submitted or from their cooperative
-      return db.records.filter(r => r.submitterId === user.id || r.sourceId.includes('src-1') || r.sourceId.includes('src-2'));
+      return records.filter(
+        (r) =>
+          r.submitterId === user.id ||
+          r.submitterId === user.name ||
+          r.sourceId.includes('src-1') ||
+          r.sourceId.includes('src-2') ||
+          getSource(r.sourceId)?.cooperativeId === user.organizationId
+      );
     }
-    return db.records;
-  }, [user]);
+    return records;
+  }, [user, records, getSource]);
 
   const accessibleInquiries = useMemo(() => {
     if (user.role === Role.COORDINATOR) {
-      return db.inquiries.filter(i => {
+      return inquiries.filter((i) => {
         if (i.targetType === 'RECORD') {
-          const rec = db.getRecord(i.targetId);
-          return rec && accessibleRecords.some(ar => ar.id === rec.id);
+          const rec = getRecord(i.targetId);
+          return rec && accessibleRecords.some((ar) => ar.id === rec.id);
         }
-        return false;
+        const grp = getAggregationGroup(i.targetId);
+        return grp && (grp.createdBy === user.id || grp.hubId === user.organizationId || grp.hubId === 'org-2');
       });
     }
-    return db.inquiries;
-  }, [user, accessibleRecords]);
+    return inquiries;
+  }, [user, inquiries, accessibleRecords, getRecord, getAggregationGroup]);
 
-  const staleRecords = accessibleRecords.filter(r => r.status === RecordStatus.STALE);
-  const validatedRecords = accessibleRecords.filter(r => r.status === RecordStatus.VALIDATED);
+  const staleRecords = accessibleRecords.filter((r) => r.status === RecordStatus.STALE);
+  const validatedRecords = accessibleRecords.filter((r) => r.status === RecordStatus.VALIDATED);
 
   // Group by biomass type AND unit to prevent mixed units
   const biomassQuantities = useMemo(() => {
-    const map = new Map<string, { typeName: string, unitName: string, quantity: number, count: number }>();
-    
-    validatedRecords.forEach(r => {
-      const typeLabel = db.referenceData.find(ref => ref.id === r.biomassTypeId)?.label || 'Unknown';
-      const unitLabel = db.referenceData.find(ref => ref.id === r.originalUnit)?.label || 'Unknown';
-      
+    const map = new Map<string, { typeName: string; unitName: string; quantity: number; count: number }>();
+
+    validatedRecords.forEach((r) => {
+      const typeLabel = referenceData.find((ref) => ref.id === r.biomassTypeId)?.label || 'Unknown';
+      const unitLabel = referenceData.find((ref) => ref.id === r.originalUnit)?.label || 'Unknown';
+
       const key = `${typeLabel}_${unitLabel}`;
       if (!map.has(key)) {
         map.set(key, { typeName: typeLabel, unitName: unitLabel, quantity: 0, count: 0 });
       }
-      
+
       const current = map.get(key)!;
       current.quantity += r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity;
       current.count += 1;
     });
 
     return Array.from(map.values());
-  }, [validatedRecords]);
+  }, [validatedRecords, referenceData]);
 
   // Status Distribution for Pie Chart
   const statusDistribution = useMemo(() => {
@@ -81,7 +96,7 @@ export const Reports: React.FC = () => {
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
   }, [accessibleInquiries]);
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       return (
         <div className="bg-white p-3 border border-gray-100 shadow-md rounded-lg">
@@ -98,18 +113,15 @@ export const Reports: React.FC = () => {
 
   const exportFreshnessCSV = () => {
     const headers = ['Record ID', 'Biomass Type', 'Status', 'Availability Window', 'Last Updated'];
-    const rows = staleRecords.map(r => [
+    const rows = staleRecords.map((r) => [
       r.id,
-      db.referenceData.find(ref => ref.id === r.biomassTypeId)?.label || 'Unknown',
+      referenceData.find((ref) => ref.id === r.biomassTypeId)?.label || 'Unknown',
       r.status,
       new Date(r.availabilityPeriodEnd).toLocaleDateString(),
-      new Date(r.lastUpdatedDate).toLocaleDateString()
+      new Date(r.lastUpdatedDate).toLocaleDateString(),
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(e => e.join(','))
-    ].join('\n');
+    const csvContent = [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -153,7 +165,7 @@ export const Reports: React.FC = () => {
             </div>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardContent className="p-5 flex items-center">
             <div className="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center text-yellow-600 mr-4">
@@ -173,7 +185,7 @@ export const Reports: React.FC = () => {
             </div>
             <div>
               <p className="text-xs font-medium text-agri-earth-500">Recorded Sources</p>
-              <p className="text-xl font-bold text-gray-900">{new Set(accessibleRecords.map(r => r.sourceId)).size}</p>
+              <p className="text-xl font-bold text-gray-900">{new Set(accessibleRecords.map((r) => r.sourceId)).size}</p>
             </div>
           </CardContent>
         </Card>
@@ -192,7 +204,6 @@ export const Reports: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
         <Card className="flex flex-col">
           <CardHeader>
             <CardTitle>Reported Biomass Quantities</CardTitle>
@@ -213,7 +224,7 @@ export const Reports: React.FC = () => {
                   <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
                   <Tooltip content={<CustomTooltip />} />
                   <Bar dataKey="quantity" fill="#16a34a" radius={[4, 4, 0, 0]} maxBarSize={50}>
-                    {biomassQuantities.map((entry, index) => (
+                    {biomassQuantities.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Bar>
@@ -231,7 +242,7 @@ export const Reports: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex-1 min-h-[300px]">
-             {statusDistribution.length === 0 ? (
+            {statusDistribution.length === 0 ? (
               <div className="h-full flex items-center justify-center text-gray-500 text-sm">
                 No records available yet.
               </div>
@@ -249,20 +260,24 @@ export const Reports: React.FC = () => {
                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                     labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
                   >
-                    {statusDistribution.map((entry, index) => (
+                    {statusDistribution.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '8px', border: '1px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: '8px',
+                      border: '1px solid #f1f5f9',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                    }}
                   />
                 </PieChart>
               </ResponsiveContainer>
-             )}
+            )}
           </CardContent>
         </Card>
       </div>
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="flex flex-col">
           <CardHeader>
@@ -272,7 +287,7 @@ export const Reports: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex-1 min-h-[300px]">
-             {inquiryDistribution.length === 0 ? (
+            {inquiryDistribution.length === 0 ? (
               <div className="h-full flex items-center justify-center text-gray-500 text-sm">
                 No inquiries available yet.
               </div>
@@ -290,16 +305,20 @@ export const Reports: React.FC = () => {
                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                     labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
                   >
-                    {inquiryDistribution.map((entry, index) => (
+                    {inquiryDistribution.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[(index + 2) % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '8px', border: '1px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: '8px',
+                      border: '1px solid #f1f5f9',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                    }}
                   />
                 </PieChart>
               </ResponsiveContainer>
-             )}
+            )}
           </CardContent>
         </Card>
       </div>
@@ -334,7 +353,7 @@ export const Reports: React.FC = () => {
                     <tr key={r.id} className="hover:bg-red-50/30 transition-colors">
                       <td className="px-5 py-3 font-mono text-xs text-gray-600">{r.id}</td>
                       <td className="px-5 py-3 font-medium text-gray-900">
-                        {db.referenceData.find(ref => ref.id === r.biomassTypeId)?.label}
+                        {referenceData.find((ref) => ref.id === r.biomassTypeId)?.label}
                       </td>
                       <td className="px-5 py-3">
                         <span className="text-xs bg-red-100 text-red-800 font-semibold px-2 py-1 rounded uppercase">
@@ -355,7 +374,6 @@ export const Reports: React.FC = () => {
           </div>
         </CardContent>
       </Card>
-      
     </div>
   );
 };

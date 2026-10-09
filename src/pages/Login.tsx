@@ -4,20 +4,18 @@ import { useAuth } from '../store/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
-import { 
-  Leaf, 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  Shield, 
-  Tractor, 
-  CheckSquare, 
-  Layers, 
-  Briefcase, 
-  Building, 
-  TestTube,
-  ArrowLeft
+import {
+  Leaf,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Shield,
+  Layers,
+  Briefcase,
+  Building,
+  ArrowLeft,
+  User as UserIcon,
 } from 'lucide-react';
 import { Role } from '../types';
 
@@ -30,37 +28,64 @@ const ROLE_OPTIONS = [
 
 export const Login: React.FC = () => {
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const { login, isLoading } = useAuth();
+  const [infoMessage, setInfoMessage] = useState('');
+  const { login, register, isLoading, isSupabaseAuth } = useAuth();
   const navigate = useNavigate();
 
   const handleRoleSelect = (role: Role) => {
     setSelectedRole(role);
     setError('');
-    
-    // Auto-fill test credentials based on selected role to make prototype testing easier
-    const rolePrefix = role.toLowerCase().replace('_', '');
-    setEmail(`${rolePrefix}@test.com`);
-    setPassword('password');
+    setInfoMessage('');
+
+    if (!isSupabaseAuth) {
+      const rolePrefix = role.toLowerCase().replace('_', '');
+      setEmail(`${rolePrefix}@test.com`);
+      setPassword('password');
+    }
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
-    if (!email || !password || !selectedRole) {
-      setError('Please provide all credentials.');
+    setInfoMessage('');
+
+    if (!email || !password) {
+      setError('Please provide your email and password.');
       return;
     }
 
     try {
-      await login(email, password, selectedRole);
-      navigate('/');
-    } catch (err) {
-      setError('Invalid credentials. (Hint: use password "password")');
+      if (isRegisterMode) {
+        if (!name.trim()) {
+          setError('Please enter your full name or organization name.');
+          return;
+        }
+        const { requiresEmailConfirmation } = await register(name, email, password);
+        if (requiresEmailConfirmation) {
+          setInfoMessage(
+            'Account created! Please check your email inbox to confirm your registration before signing in.'
+          );
+          setIsRegisterMode(false);
+        } else {
+          navigate('/');
+        }
+      } else {
+        await login(email, password, selectedRole || undefined);
+        navigate('/');
+      }
+    } catch (err: any) {
+      setError(
+        err?.message ||
+          (isSupabaseAuth
+            ? 'Authentication failed. Please check your email and password.'
+            : 'Invalid credentials. (Hint: use password "password")')
+      );
     }
   };
 
@@ -86,9 +111,11 @@ export const Login: React.FC = () => {
         {!selectedRole ? (
           <Card className="shadow-lg border-none">
             <CardHeader className="pb-4">
-              <CardTitle className="text-xl text-center">Select Your Role</CardTitle>
+              <CardTitle className="text-xl text-center">Select Your Portal</CardTitle>
               <CardDescription className="text-center">
-                Choose a persona to explore the prototype
+                {isSupabaseAuth
+                  ? 'Select a portal to sign in with your registered account (permissions are enforced by your database profile role)'
+                  : 'Choose a persona to explore the prototype'}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -115,32 +142,61 @@ export const Login: React.FC = () => {
           <Card className="shadow-lg border-none sm:max-w-md mx-auto">
             <CardHeader>
               <div className="flex items-center justify-between mb-2">
-                <button 
-                  onClick={() => setSelectedRole(null)}
+                <button
+                  onClick={() => {
+                    setSelectedRole(null);
+                    setIsRegisterMode(false);
+                    setError('');
+                    setInfoMessage('');
+                  }}
                   className="p-1.5 -ml-1.5 text-agri-earth-500 hover:text-agri-green-600 hover:bg-agri-green-50 rounded-md transition-colors"
                   aria-label="Back to role selection"
                 >
                   <ArrowLeft size={20} />
                 </button>
                 <div className="px-2.5 py-1 rounded-full bg-agri-green-100 text-agri-green-800 text-xs font-semibold">
-                  {ROLE_OPTIONS.find(r => r.id === selectedRole)?.name}
+                  {ROLE_OPTIONS.find((r) => r.id === selectedRole)?.name}
                 </div>
               </div>
-              <CardTitle className="text-xl">Sign in to your account</CardTitle>
+              <CardTitle className="text-xl">
+                {isRegisterMode ? 'Create an Account' : 'Sign in to your account'}
+              </CardTitle>
               <CardDescription className="text-sm mt-1">
-                Test credentials have been pre-filled for this role.
+                {isRegisterMode
+                  ? 'New accounts are registered with Buyer permissions by default until assigned a staff role by an Administrator.'
+                  : isSupabaseAuth
+                  ? 'Enter your Supabase account credentials.'
+                  : 'Test credentials have been pre-filled for this role.'}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form className="space-y-6" onSubmit={handleLogin}>
+              <form className="space-y-5" onSubmit={handleSubmit}>
                 {error && (
                   <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm">
                     {error}
                   </div>
                 )}
-                
+
+                {infoMessage && (
+                  <div className="bg-agri-green-50 border border-agri-green-200 text-agri-green-800 px-4 py-3 rounded-md text-sm">
+                    {infoMessage}
+                  </div>
+                )}
+
+                {isRegisterMode && (
+                  <Input
+                    label="Full Name / Organization"
+                    type="text"
+                    placeholder="Enter your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    icon={<UserIcon size={18} />}
+                    required
+                  />
+                )}
+
                 <Input
-                  label="Email / Username"
+                  label="Email Address"
                   type="email"
                   placeholder="Enter your email"
                   value={email}
@@ -157,11 +213,11 @@ export const Login: React.FC = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   icon={<Lock size={18} />}
                   suffix={
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="hover:text-agri-green-600 focus:outline-none"
-                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
                     >
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
@@ -169,21 +225,34 @@ export const Login: React.FC = () => {
                   required
                 />
 
-                <Button 
-                  type="submit" 
-                  className="w-full" 
-                  size="lg"
-                  isLoading={isLoading}
-                >
-                  Sign In
+                <Button type="submit" className="w-full" size="lg" isLoading={isLoading}>
+                  {isRegisterMode ? 'Register Account' : 'Sign In'}
                 </Button>
+
+                {isSupabaseAuth && (
+                  <div className="text-center pt-2 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRegisterMode(!isRegisterMode);
+                        setError('');
+                        setInfoMessage('');
+                      }}
+                      className="text-xs font-medium text-agri-green-700 hover:text-agri-green-800"
+                    >
+                      {isRegisterMode
+                        ? 'Already have an account? Sign in'
+                        : "Don't have an account? Register as Buyer"}
+                    </button>
+                  </div>
+                )}
               </form>
             </CardContent>
           </Card>
         )}
-        
+
         <div className="mt-8 text-center text-xs text-agri-earth-500">
-          <p>Academic Research Prototype &bull; Butuan City, Philippines</p>
+          <p>AgriCycle CB-BAIM System &bull; Butuan City, Philippines</p>
         </div>
       </div>
     </div>

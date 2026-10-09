@@ -2,52 +2,74 @@ import React, { useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { RecordStatus, Role } from '../types';
-import { Tractor, FileText, CheckCircle, AlertTriangle, Users, Activity, MessageSquare, Layers } from 'lucide-react';
+import { Tractor, FileText, CheckCircle, AlertTriangle, Users, Activity, MessageSquare } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
+import { useData } from '../store/DataContext';
 import { hasPermission, Permission } from '../utils/rbac';
-import { db } from '../store/mockDb';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const {
+    records,
+    inquiries,
+    referenceData,
+    auditLogs,
+    profiles,
+    getRecord,
+    getSource,
+    getAggregationGroup,
+  } = useData();
+
   if (!user) return null;
 
   const accessibleRecords = useMemo(() => {
     if (user.role === Role.COORDINATOR) {
-      return db.records.filter(r => r.submitterId === user.id || r.sourceId.includes('src-1') || r.sourceId.includes('src-2'));
+      return records.filter(
+        (r) =>
+          r.submitterId === user.id ||
+          r.submitterId === user.name ||
+          r.sourceId.includes('src-1') ||
+          r.sourceId.includes('src-2') ||
+          getSource(r.sourceId)?.cooperativeId === user.organizationId
+      );
     }
-    return db.records;
-  }, [user]);
+    if (user.role === Role.BUYER) {
+      return records.filter((r) => r.status === RecordStatus.VALIDATED);
+    }
+    return records;
+  }, [user, records, getSource]);
 
   const accessibleInquiries = useMemo(() => {
     if (user.role === Role.BUYER) {
-      return db.inquiries.filter(i => i.buyerUserId === user.id);
+      return inquiries.filter((i) => i.buyerUserId === user.id || i.buyerUserId === user.name);
     }
     if (user.role === Role.COORDINATOR) {
-      return db.inquiries.filter(i => {
+      return inquiries.filter((i) => {
         if (i.targetType === 'RECORD') {
-          const rec = db.getRecord(i.targetId);
-          return rec && accessibleRecords.some(ar => ar.id === rec.id);
+          const rec = getRecord(i.targetId);
+          return rec && accessibleRecords.some((ar) => ar.id === rec.id);
         }
-        return false;
+        const grp = getAggregationGroup(i.targetId);
+        return grp && (grp.createdBy === user.id || grp.hubId === user.organizationId || grp.hubId === 'org-2');
       });
     }
-    return db.inquiries;
-  }, [user, accessibleRecords]);
+    return inquiries;
+  }, [user, inquiries, accessibleRecords, getRecord, getAggregationGroup]);
 
-  // Derived metrics
-  const totalUsers = 4; // Mock representation based on standard roles available
-  const totalSources = new Set(accessibleRecords.map(r => r.sourceId)).size;
-  const mySubmissions = db.records.filter(r => r.submitterId === user.id).length;
-  const pendingValidation = db.records.filter(r => r.status === RecordStatus.SUBMITTED).length;
-  const validatedRecords = accessibleRecords.filter(r => r.status === RecordStatus.VALIDATED).length;
-  
-  const recentRecords = accessibleRecords
+  // Derived metrics from persisted dataset
+  const totalUsers = profiles.length > 0 ? profiles.length : 4;
+  const totalSources = new Set(accessibleRecords.map((r) => r.sourceId)).size;
+  const mySubmissions = records.filter((r) => r.submitterId === user.id || r.submitterId === user.name).length;
+  const pendingValidation = records.filter((r) => r.status === RecordStatus.SUBMITTED).length;
+  const validatedRecords = accessibleRecords.filter((r) => r.status === RecordStatus.VALIDATED).length;
+
+  const recentRecords = [...accessibleRecords]
     .sort((a, b) => new Date(b.lastUpdatedDate).getTime() - new Date(a.lastUpdatedDate).getTime())
     .slice(0, 5);
 
-  const recentLogs = db.auditLogs
+  const recentLogs = [...auditLogs]
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 5);
 
@@ -56,9 +78,7 @@ export const Dashboard: React.FC = () => {
       <div className="flex justify-between items-end">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
-            {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS) 
-              ? 'System Overview' 
-              : 'My Dashboard'}
+            {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS) ? 'System Overview' : 'My Dashboard'}
           </h2>
           <p className="text-sm text-agri-earth-500 mt-1 capitalize">
             {user.role.toLowerCase().replace(/_/g, ' ')} Portal &bull; Recorded Biomass Information
@@ -75,7 +95,7 @@ export const Dashboard: React.FC = () => {
                   <Users size={24} />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-agri-earth-500">Active Roles</p>
+                  <p className="text-sm font-medium text-agri-earth-500">Registered Profiles</p>
                   <p className="text-2xl font-bold text-gray-900">{totalUsers}</p>
                 </div>
               </CardContent>
@@ -156,8 +176,9 @@ export const Dashboard: React.FC = () => {
           <Card className="lg:col-span-2">
             <CardHeader>
               <CardTitle>
-                {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS) || hasPermission(user.role, Permission.VIEW_VALIDATION_QUEUE)
-                  ? 'Recent Community Records' 
+                {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS) ||
+                hasPermission(user.role, Permission.VIEW_VALIDATION_QUEUE)
+                  ? 'Recent Community Records'
                   : 'My Recent Records'}
               </CardTitle>
               <CardDescription>Latest biomass entries and their current statuses.</CardDescription>
@@ -177,14 +198,16 @@ export const Dashboard: React.FC = () => {
                   <tbody className="divide-y divide-agri-green-50">
                     {recentRecords.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-gray-500">No records found.</td>
+                        <td colSpan={5} className="px-4 py-6 text-center text-gray-500">
+                          No records found.
+                        </td>
                       </tr>
                     ) : (
-                      recentRecords.map(record => {
-                        const typeLabel = db.referenceData.find(r => r.id === record.biomassTypeId)?.label;
-                        const unitLabel = db.referenceData.find(r => r.id === record.originalUnit)?.label;
-                        const source = db.getSource(record.sourceId);
-                        
+                      recentRecords.map((record) => {
+                        const typeLabel = referenceData.find((r) => r.id === record.biomassTypeId)?.label;
+                        const unitLabel = referenceData.find((r) => r.id === record.originalUnit)?.label;
+                        const source = getSource(record.sourceId);
+
                         return (
                           <tr key={record.id} className="hover:bg-agri-green-50/50 transition-colors">
                             <td className="px-4 py-3 font-medium text-gray-900">{typeLabel}</td>
@@ -192,7 +215,9 @@ export const Dashboard: React.FC = () => {
                               {record.quantity.toLocaleString()} {unitLabel}
                             </td>
                             <td className="px-4 py-3 text-agri-earth-600">{source?.name}</td>
-                            <td className="px-4 py-3"><StatusBadge status={record.status} /></td>
+                            <td className="px-4 py-3">
+                              <StatusBadge status={record.status} />
+                            </td>
                             <td className="px-4 py-3 text-agri-earth-500">
                               {format(new Date(record.lastUpdatedDate), 'MMM d, yyyy')}
                             </td>
@@ -248,7 +273,7 @@ export const Dashboard: React.FC = () => {
           </Card>
         ) : (
           <Card className={user.role === Role.BUYER ? 'lg:col-span-3' : ''}>
-             <CardHeader>
+            <CardHeader>
               <CardTitle>My Recent Actions</CardTitle>
               <CardDescription>Your interactions with the system.</CardDescription>
             </CardHeader>

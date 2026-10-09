@@ -1,18 +1,32 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
-import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { RecordStatus, Role, AggregationGroup, AggregationStatus } from '../types';
-import { db } from '../store/mockDb';
 import { useAuth } from '../store/AuthContext';
-import { hasPermission, Permission } from '../utils/rbac';
-import { Search, Filter, Plus, Layers, Info, MapPin, CheckCircle2, ArrowLeft, AlertTriangle } from 'lucide-react';
+import { useData } from '../store/DataContext';
+import { Plus, Info, MapPin, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 
 export const AggregationHubs: React.FC = () => {
   const { user } = useAuth();
+  const {
+    records,
+    referenceData,
+    organizations,
+    aggregationGroups,
+    aggregationMembers,
+    isLoading,
+    getBiomassTypes,
+    getRecord,
+    getSource,
+    getLocation,
+    getOrganization,
+    getAggregationMembers,
+    addAggregationGroup,
+  } = useData();
+
   const [view, setView] = useState<'LIST' | 'CREATE' | 'DETAIL'>('LIST');
   const [selectedGroup, setSelectedGroup] = useState<AggregationGroup | null>(null);
 
@@ -20,35 +34,41 @@ export const AggregationHubs: React.FC = () => {
   const [formBiomassType, setFormBiomassType] = useState('');
   const [formHub, setFormHub] = useState('');
   const [formName, setFormName] = useState('');
+  const [formNotes, setFormNotes] = useState('');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!user) return null;
 
   // Retrieve groups based on role
-  let visibleGroups = db.aggregationGroups;
+  let visibleGroups = aggregationGroups;
   if (user.role === Role.COORDINATOR) {
-    // Coordinators see groups they created or belong to their hub
-    visibleGroups = visibleGroups.filter(g => g.createdBy === user.id || g.hubId === 'org-2'); // simplistic mock filter
+    visibleGroups = visibleGroups.filter(
+      (g) =>
+        g.createdBy === user.id ||
+        g.createdBy === user.name ||
+        g.hubId === user.organizationId ||
+        g.hubId === 'org-2'
+    );
   } else if (user.role === Role.BUYER) {
-    // Buyers only see ACTIVE groups
-    visibleGroups = visibleGroups.filter(g => g.status === AggregationStatus.ACTIVE);
+    visibleGroups = visibleGroups.filter((g) => g.status === AggregationStatus.ACTIVE);
   }
 
   // Calculate dynamic totals for a group
   const getGroupTotals = (groupId: string) => {
-    const members = db.getAggregationMembers(groupId);
+    const members = getAggregationMembers(groupId);
     let total = 0;
     let unit = '';
     let isMixed = false;
     let validCount = 0;
 
-    members.forEach(m => {
-      const record = db.getRecord(m.biomassRecordId);
+    members.forEach((m) => {
+      const record = getRecord(m.biomassRecordId);
       // ONLY count Validated records in the current eligible total
       if (record && record.status === RecordStatus.VALIDATED) {
         validCount++;
-        const recordUnit = db.referenceData.find(r => r.id === record.originalUnit)?.label || '';
+        const recordUnit = referenceData.find((r) => r.id === record.originalUnit)?.label || '';
         if (!unit) {
           unit = recordUnit;
         } else if (unit !== recordUnit) {
@@ -63,12 +83,13 @@ export const AggregationHubs: React.FC = () => {
       unit: isMixed ? 'Mixed Units' : unit,
       isMixed,
       memberCount: members.length,
-      validCount
+      validCount,
     };
   };
 
-  const handleCreateSubmit = () => {
-    if (!formBiomassType || !formHub || !formName || selectedMembers.length === 0) {
+  const handleCreateSubmit = async () => {
+    setFormError('');
+    if (!formBiomassType || !formHub || !formName.trim() || selectedMembers.length === 0) {
       setFormError('Please complete all fields and select at least one eligible member.');
       return;
     }
@@ -76,8 +97,8 @@ export const AggregationHubs: React.FC = () => {
     // Check for mixed units
     let unit = '';
     let isMixed = false;
-    selectedMembers.forEach(id => {
-      const rec = db.getRecord(id);
+    selectedMembers.forEach((id) => {
+      const rec = getRecord(id);
       if (rec) {
         if (!unit) unit = rec.originalUnit;
         else if (unit !== rec.originalUnit) isMixed = true;
@@ -89,23 +110,26 @@ export const AggregationHubs: React.FC = () => {
       return;
     }
 
-    const newGroup: AggregationGroup = {
-      id: `AG-${Math.floor(Math.random() * 1000)}`,
-      name: formName,
-      biomassTypeId: formBiomassType,
-      hubId: formHub,
-      status: AggregationStatus.ACTIVE, // Normally would be PROPOSED or DRAFT, setting ACTIVE for prototype demo
-      createdBy: user.id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    db.addAggregationGroup(newGroup, selectedMembers, user.id);
-    setView('LIST');
-    setFormBiomassType('');
-    setFormHub('');
-    setFormName('');
-    setSelectedMembers([]);
+    setIsSubmitting(true);
+    try {
+      await addAggregationGroup(
+        formName.trim(),
+        formBiomassType,
+        formHub,
+        selectedMembers,
+        formNotes.trim() || undefined
+      );
+      setView('LIST');
+      setFormBiomassType('');
+      setFormHub('');
+      setFormName('');
+      setFormNotes('');
+      setSelectedMembers([]);
+    } catch (err: any) {
+      setFormError(err?.message || 'Failed to create aggregation group.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const renderList = () => (
@@ -117,7 +141,7 @@ export const AggregationHubs: React.FC = () => {
             Information-level coordination of compatible biomass records.
           </p>
         </div>
-        {user.role === Role.COORDINATOR && (
+        {(user.role === Role.COORDINATOR || user.role === Role.ADMINISTRATOR) && (
           <Button icon={<Plus size={18} />} onClick={() => setView('CREATE')}>
             Create Aggregation Group
           </Button>
@@ -127,20 +151,25 @@ export const AggregationHubs: React.FC = () => {
       <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex gap-3 text-blue-800 text-sm">
         <Info className="shrink-0 mt-0.5 text-blue-500" size={18} />
         <p>
-          <strong>Information-Level Aggregation:</strong> Totals shown are based on reported quantities from current eligible member records. 
-          This does <em>not</em> represent physically collected, transported, or stored biomass inventory.
+          <strong>Information-Level Aggregation:</strong> Totals shown are based on reported quantities from current
+          eligible member records. This does <em>not</em> represent physically collected, transported, or stored biomass
+          inventory.
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {visibleGroups.length === 0 ? (
+        {isLoading && visibleGroups.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-gray-500 bg-gray-50 rounded-lg border border-gray-100">
+            Loading aggregation groups...
+          </div>
+        ) : visibleGroups.length === 0 ? (
           <div className="col-span-full py-12 text-center text-gray-500 bg-gray-50 rounded-lg border border-gray-100 border-dashed">
             No aggregation groups found.
           </div>
         ) : (
-          visibleGroups.map(group => {
-            const biomassType = db.referenceData.find(r => r.id === group.biomassTypeId)?.label;
-            const hub = db.getOrganization(group.hubId)?.name;
+          visibleGroups.map((group) => {
+            const biomassType = referenceData.find((r) => r.id === group.biomassTypeId)?.label;
+            const hub = getOrganization(group.hubId)?.name;
             const totals = getGroupTotals(group.id);
 
             return (
@@ -150,23 +179,32 @@ export const AggregationHubs: React.FC = () => {
                     <span className="text-xs font-semibold px-2 py-1 bg-gray-100 text-gray-600 rounded">
                       {group.id}
                     </span>
-                    <span className={`text-xs font-semibold px-2 py-1 rounded ${
-                      group.status === AggregationStatus.ACTIVE ? 'bg-agri-green-100 text-agri-green-800' :
-                      group.status === AggregationStatus.STALE ? 'bg-purple-100 text-purple-800' :
-                      group.status === AggregationStatus.NEEDS_UPDATE ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
+                    <span
+                      className={`text-xs font-semibold px-2 py-1 rounded ${
+                        group.status === AggregationStatus.ACTIVE
+                          ? 'bg-agri-green-100 text-agri-green-800'
+                          : group.status === AggregationStatus.STALE
+                          ? 'bg-purple-100 text-purple-800'
+                          : group.status === AggregationStatus.NEEDS_UPDATE
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
                       {group.status}
                     </span>
                   </div>
-                  
+
                   <h3 className="font-bold text-gray-900 text-lg mb-1">{group.name}</h3>
-                  <p className="text-sm text-agri-earth-600 mb-4">{biomassType} &bull; {hub}</p>
-                  
+                  <p className="text-sm text-agri-earth-600 mb-4">
+                    {biomassType} &bull; {hub}
+                  </p>
+
                   <div className="bg-gray-50 rounded-md p-3 mb-4 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Member Sources:</span>
-                      <span className="font-medium text-gray-900">{totals.memberCount} ({totals.validCount} Validated)</span>
+                      <span className="font-medium text-gray-900">
+                        {totals.memberCount} ({totals.validCount} Validated)
+                      </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Eligible Total:</span>
@@ -175,18 +213,22 @@ export const AggregationHubs: React.FC = () => {
                       </span>
                     </div>
                   </div>
-                  
+
                   <div className="flex justify-between items-center gap-2">
-                    <p className="text-xs text-gray-400">
-                      Updated {format(new Date(group.updatedAt), 'MMM d')}
-                    </p>
+                    <p className="text-xs text-gray-400">Updated {format(new Date(group.updatedAt), 'MMM d')}</p>
                     <div className="flex gap-2">
                       <Link to={`/map?groupId=${group.id}`}>
-                        <Button variant="outline" size="sm" icon={<MapPin size={14}/>}>
+                        <Button variant="outline" size="sm" icon={<MapPin size={14} />}>
                           Map
                         </Button>
                       </Link>
-                      <Button size="sm" onClick={() => { setSelectedGroup(group); setView('DETAIL'); }}>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setSelectedGroup(group);
+                          setView('DETAIL');
+                        }}
+                      >
                         Details
                       </Button>
                     </div>
@@ -201,22 +243,23 @@ export const AggregationHubs: React.FC = () => {
   );
 
   const renderCreate = () => {
-    // Determine eligible records based on selected form filters
-    const allRecords = db.records;
-    let eligibleRecords = allRecords.filter(r => 
-      r.status === RecordStatus.VALIDATED && // ONLY Validated records
-      (!formBiomassType || r.biomassTypeId === formBiomassType)
+    let eligibleRecords = records.filter(
+      (r) =>
+        r.status === RecordStatus.VALIDATED && (!formBiomassType || r.biomassTypeId === formBiomassType)
     );
 
     // Prevent double counting (filter out records already in an active group)
-    const activeMemberIds = new Set(db.aggregationMembers.filter(m => m.isActive).map(m => m.biomassRecordId));
-    eligibleRecords = eligibleRecords.filter(r => !activeMemberIds.has(r.id));
+    const activeMemberIds = new Set(aggregationMembers.filter((m) => m.isActive).map((m) => m.biomassRecordId));
+    eligibleRecords = eligibleRecords.filter((r) => !activeMemberIds.has(r.id));
 
     return (
       <div className="space-y-6 max-w-4xl mx-auto">
         <div className="flex items-center gap-4">
-          <button 
-            onClick={() => { setView('LIST'); setFormError(''); }}
+          <button
+            onClick={() => {
+              setView('LIST');
+              setFormError('');
+            }}
             className="p-2 -ml-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
           >
             <ArrowLeft size={20} />
@@ -228,7 +271,7 @@ export const AggregationHubs: React.FC = () => {
         </div>
 
         {formError && (
-          <div className="bg-red-50 text-red-600 p-4 rounded-lg text-sm flex items-center gap-2">
+          <div className="bg-red-50 text-red-600 p-4 rounded-lg text-sm flex items-center gap-2 border border-red-200">
             <AlertTriangle size={18} /> {formError}
           </div>
         )}
@@ -240,40 +283,61 @@ export const AggregationHubs: React.FC = () => {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Group Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Group Name *</label>
                 <input
                   type="text"
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                   placeholder="e.g. Butuan Hub Rice Husk Batch A"
                   value={formName}
-                  onChange={e => setFormName(e.target.value)}
+                  onChange={(e) => setFormName(e.target.value)}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Hub / Cooperative</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Hub / Cooperative *</label>
                 <select
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                   value={formHub}
-                  onChange={e => setFormHub(e.target.value)}
+                  onChange={(e) => setFormHub(e.target.value)}
                 >
                   <option value="">Select Hub...</option>
-                  {db.organizations.filter(o => o.type === 'HUB' || o.type === 'COOPERATIVE').map(org => (
-                    <option key={org.id} value={org.id}>{org.name}</option>
+                  {organizations
+                    .filter((o) => o.type === 'HUB' || o.type === 'COOPERATIVE')
+                    .map((org) => (
+                      <option key={org.id} value={org.id}>
+                        {org.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Biomass Type (Filters eligible records) *
+                </label>
+                <select
+                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  value={formBiomassType}
+                  onChange={(e) => {
+                    setFormBiomassType(e.target.value);
+                    setSelectedMembers([]);
+                  }}
+                >
+                  <option value="">Select Biomass Type...</option>
+                  {getBiomassTypes().map((bt) => (
+                    <option key={bt.id} value={bt.id}>
+                      {bt.label}
+                    </option>
                   ))}
                 </select>
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Biomass Type (Filters eligible records)</label>
-                <select
+                <label className="block text-sm font-medium text-gray-700 mb-1">Coordination Notes (Optional)</label>
+                <input
+                  type="text"
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  value={formBiomassType}
-                  onChange={e => { setFormBiomassType(e.target.value); setSelectedMembers([]); }}
-                >
-                  <option value="">Select Biomass Type...</option>
-                  {db.getBiomassTypes().map(bt => (
-                    <option key={bt.id} value={bt.id}>{bt.label}</option>
-                  ))}
-                </select>
+                  placeholder="e.g. Consolidated Libertad and Ampayon validated rice husk sources"
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                />
               </div>
             </div>
           </CardContent>
@@ -282,7 +346,9 @@ export const AggregationHubs: React.FC = () => {
         <Card>
           <CardHeader>
             <CardTitle>2. Select Eligible Members</CardTitle>
-            <CardDescription>Only VALIDATED, ungrouped records matching the selected Biomass Type are shown.</CardDescription>
+            <CardDescription>
+              Only VALIDATED, ungrouped records matching the selected Biomass Type are shown.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {!formBiomassType ? (
@@ -291,35 +357,41 @@ export const AggregationHubs: React.FC = () => {
               <p className="text-sm text-gray-500 py-4 text-center">No eligible validated records found for this type.</p>
             ) : (
               <div className="space-y-2">
-                {eligibleRecords.map(record => {
-                  const source = db.getSource(record.sourceId);
-                  const location = source ? db.getLocation(source.locationId) : null;
-                  const unit = db.referenceData.find(u => u.id === record.originalUnit)?.label;
+                {eligibleRecords.map((record) => {
+                  const source = getSource(record.sourceId);
+                  const location = source ? getLocation(source.locationId) : getLocation(record.locationId);
+                  const unit = referenceData.find((u) => u.id === record.originalUnit)?.label;
                   const isSelected = selectedMembers.includes(record.id);
+                  const availQty = record.remainingQuantity !== undefined ? record.remainingQuantity : record.quantity;
 
                   return (
-                    <label 
-                      key={record.id} 
+                    <label
+                      key={record.id}
                       className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
                         isSelected ? 'border-agri-green-500 bg-agri-green-50' : 'border-gray-200 hover:bg-gray-50'
                       }`}
                     >
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         className="mt-1 shrink-0 text-agri-green-600 focus:ring-agri-green-500"
                         checked={isSelected}
                         onChange={(e) => {
                           if (e.target.checked) setSelectedMembers([...selectedMembers, record.id]);
-                          else setSelectedMembers(selectedMembers.filter(id => id !== record.id));
+                          else setSelectedMembers(selectedMembers.filter((id) => id !== record.id));
                         }}
                       />
                       <div className="flex-1">
                         <div className="flex justify-between items-start">
                           <p className="font-semibold text-gray-900">{source?.name}</p>
-                          <p className="font-bold text-agri-green-700">{record.quantity.toLocaleString()} <span className="text-xs font-normal text-gray-500">{unit}</span></p>
+                          <p className="font-bold text-agri-green-700">
+                            {availQty.toLocaleString()}{' '}
+                            <span className="text-xs font-normal text-gray-500">{unit}</span>
+                          </p>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">
-                          {location?.barangay} &bull; Avail: {format(new Date(record.availabilityPeriodStart), 'MMM d')} - {format(new Date(record.availabilityPeriodEnd), 'MMM d')}
+                          {location?.barangay} &bull; Avail:{' '}
+                          {format(new Date(record.availabilityPeriodStart), 'MMM d')} -{' '}
+                          {format(new Date(record.availabilityPeriodEnd), 'MMM d')}
                         </p>
                       </div>
                     </label>
@@ -331,8 +403,10 @@ export const AggregationHubs: React.FC = () => {
         </Card>
 
         <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={() => setView('LIST')}>Cancel</Button>
-          <Button onClick={handleCreateSubmit} disabled={selectedMembers.length === 0}>
+          <Button variant="outline" onClick={() => setView('LIST')}>
+            Cancel
+          </Button>
+          <Button onClick={handleCreateSubmit} disabled={selectedMembers.length === 0} isLoading={isSubmitting}>
             Create Group
           </Button>
         </div>
@@ -343,16 +417,19 @@ export const AggregationHubs: React.FC = () => {
   const renderDetail = () => {
     if (!selectedGroup) return null;
     const totals = getGroupTotals(selectedGroup.id);
-    const hub = db.getOrganization(selectedGroup.hubId);
-    const type = db.referenceData.find(r => r.id === selectedGroup.biomassTypeId);
-    const members = db.getAggregationMembers(selectedGroup.id);
+    const hub = getOrganization(selectedGroup.hubId);
+    const type = referenceData.find((r) => r.id === selectedGroup.biomassTypeId);
+    const members = getAggregationMembers(selectedGroup.id);
 
     return (
       <div className="space-y-6 max-w-5xl mx-auto">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button 
-              onClick={() => { setView('LIST'); setSelectedGroup(null); }}
+            <button
+              onClick={() => {
+                setView('LIST');
+                setSelectedGroup(null);
+              }}
               className="p-2 -ml-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
             >
               <ArrowLeft size={20} />
@@ -364,18 +441,22 @@ export const AggregationHubs: React.FC = () => {
                   {selectedGroup.status}
                 </span>
               </div>
-              <p className="text-sm text-agri-earth-500 mt-1">{selectedGroup.id} &bull; {hub?.name}</p>
+              <p className="text-sm text-agri-earth-500 mt-1">
+                {selectedGroup.id} &bull; {hub?.name}
+              </p>
             </div>
           </div>
           <Link to={`/map?groupId=${selectedGroup.id}`}>
-            <Button variant="outline" icon={<MapPin size={18} />}>View on Map</Button>
+            <Button variant="outline" icon={<MapPin size={18} />}>
+              View on Map
+            </Button>
           </Link>
         </div>
 
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex gap-3 text-yellow-800 text-sm">
           <Info className="shrink-0 mt-0.5 text-yellow-600" size={18} />
           <p>
-            <strong>Disclaimer:</strong> This group total is derived dynamically from current eligible member records. 
+            <strong>Disclaimer:</strong> This group total is derived dynamically from current eligible member records.
             It does not represent physically collected or stored biomass.
           </p>
         </div>
@@ -396,10 +477,16 @@ export const AggregationHubs: React.FC = () => {
                   <span>Member Sources</span> <span className="font-semibold text-white">{totals.memberCount}</span>
                 </p>
                 <p className="flex justify-between border-b border-agri-green-500 pb-1">
-                  <span>Validated Status</span> <span className="font-semibold text-white">{totals.validCount} / {totals.memberCount} Valid</span>
+                  <span>Validated Status</span>{' '}
+                  <span className="font-semibold text-white">
+                    {totals.validCount} / {totals.memberCount} Valid
+                  </span>
                 </p>
                 <p className="flex justify-between pt-1">
-                  <span>Last Updated</span> <span className="font-semibold text-white">{format(new Date(selectedGroup.updatedAt), 'MMM d, yyyy')}</span>
+                  <span>Last Updated</span>{' '}
+                  <span className="font-semibold text-white">
+                    {format(new Date(selectedGroup.updatedAt), 'MMM d, yyyy')}
+                  </span>
                 </p>
               </div>
             </CardContent>
@@ -416,21 +503,22 @@ export const AggregationHubs: React.FC = () => {
                   <thead>
                     <tr className="border-b border-gray-100 text-gray-500">
                       <th className="pb-3 font-medium">Source / Location</th>
-                      <th className="pb-3 font-medium">Original Qty</th>
+                      <th className="pb-3 font-medium">Available Qty</th>
                       <th className="pb-3 font-medium">Availability</th>
                       <th className="pb-3 font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {members.map(m => {
-                      const record = db.getRecord(m.biomassRecordId);
+                    {members.map((m) => {
+                      const record = getRecord(m.biomassRecordId);
                       if (!record) return null;
-                      const source = db.getSource(record.sourceId);
-                      const loc = source ? db.getLocation(source.locationId) : null;
-                      const unit = db.referenceData.find(u => u.id === record.originalUnit)?.label;
-                      
+                      const source = getSource(record.sourceId);
+                      const loc = source ? getLocation(source.locationId) : getLocation(record.locationId);
+                      const unit = referenceData.find((u) => u.id === record.originalUnit)?.label;
+                      const availQty =
+                        record.remainingQuantity !== undefined ? record.remainingQuantity : record.quantity;
                       const isValidated = record.status === RecordStatus.VALIDATED;
-                      
+
                       return (
                         <tr key={m.id} className={isValidated ? '' : 'bg-red-50/50 opacity-75'}>
                           <td className="py-3">
@@ -438,11 +526,12 @@ export const AggregationHubs: React.FC = () => {
                             <p className="text-xs text-gray-500">{loc?.barangay}</p>
                           </td>
                           <td className="py-3">
-                            <span className="font-semibold text-gray-900">{record.quantity.toLocaleString()}</span>
+                            <span className="font-semibold text-gray-900">{availQty.toLocaleString()}</span>
                             <span className="text-xs text-gray-500 ml-1">{unit}</span>
                           </td>
                           <td className="py-3 text-xs text-gray-600">
-                            {format(new Date(record.availabilityPeriodStart), 'MMM d')} - {format(new Date(record.availabilityPeriodEnd), 'MMM d')}
+                            {format(new Date(record.availabilityPeriodStart), 'MMM d')} -{' '}
+                            {format(new Date(record.availabilityPeriodEnd), 'MMM d')}
                           </td>
                           <td className="py-3">
                             <StatusBadge status={record.status} />

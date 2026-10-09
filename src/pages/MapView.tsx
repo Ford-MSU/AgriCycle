@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import React, { useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { Button } from '../components/ui/Button';
 import { RecordStatus, Role, BiomassRecord } from '../types';
-import { db } from '../store/mockDb';
 import { useAuth } from '../store/AuthContext';
-import { MapPin, Filter, Layers, Navigation, Calendar } from 'lucide-react';
+import { useData } from '../store/DataContext';
+import { Filter } from 'lucide-react';
 import { format } from 'date-fns';
 import { useSearchParams, Link } from 'react-router-dom';
 import L from 'leaflet';
@@ -24,7 +24,7 @@ L.Icon.Default.mergeOptions({
 const createStatusIcon = (status: RecordStatus) => {
   let colorClass = 'bg-gray-400';
   if (status === RecordStatus.VALIDATED) colorClass = 'bg-agri-green-500';
-  if (status === RecordStatus.UNDER_REVIEW) colorClass = 'bg-yellow-500';
+  if (status === RecordStatus.UNDER_REVIEW || status === RecordStatus.SUBMITTED) colorClass = 'bg-yellow-500';
   if (status === RecordStatus.STALE) colorClass = 'bg-purple-500';
   if (status === RecordStatus.UNAVAILABLE) colorClass = 'bg-red-500';
 
@@ -41,44 +41,61 @@ const INITIAL_CENTER: [number, number] = [8.9475, 125.5406]; // Butuan City cent
 
 export const MapView: React.FC = () => {
   const { user } = useAuth();
+  const {
+    records,
+    referenceData,
+    getBiomassTypes,
+    getSource,
+    getLocation,
+    getAggregationMembers,
+  } = useData();
   const [searchParams] = useSearchParams();
   const groupIdFilter = searchParams.get('groupId');
-  
+
   const [activeBiomassType, setActiveBiomassType] = useState<string>('ALL');
   const [activeStatus, setActiveStatus] = useState<string>('ALL');
-  const [selectedRecord, setSelectedRecord] = useState<BiomassRecord | null>(null);
+  const [, setSelectedRecord] = useState<BiomassRecord | null>(null);
 
   if (!user) return null;
 
   // Retrieve authorized records
-  let mapRecords = db.records;
-  
+  let mapRecords = records;
+
   // Apply Group Filter if present in URL
   if (groupIdFilter) {
-    const memberRecordIds = db.getAggregationMembers(groupIdFilter).map(m => m.biomassRecordId);
-    mapRecords = mapRecords.filter(r => memberRecordIds.includes(r.id));
+    const memberRecordIds = getAggregationMembers(groupIdFilter).map((m) => m.biomassRecordId);
+    mapRecords = mapRecords.filter((r) => memberRecordIds.includes(r.id));
   } else {
     if (user.role === Role.BUYER) {
-      mapRecords = mapRecords.filter(r => r.status === RecordStatus.VALIDATED);
+      mapRecords = mapRecords.filter((r) => r.status === RecordStatus.VALIDATED);
     } else if (user.role === Role.COORDINATOR) {
-      mapRecords = mapRecords.filter(r => r.submitterId === user.id || r.sourceId.includes('src-1') || r.sourceId.includes('src-2'));
+      mapRecords = mapRecords.filter(
+        (r) =>
+          r.submitterId === user.id ||
+          r.submitterId === user.name ||
+          r.sourceId.includes('src-1') ||
+          r.sourceId.includes('src-2') ||
+          getSource(r.sourceId)?.cooperativeId === user.organizationId
+      );
     }
   }
 
   // Apply filters
   if (activeBiomassType !== 'ALL') {
-    mapRecords = mapRecords.filter(r => r.biomassTypeId === activeBiomassType);
+    mapRecords = mapRecords.filter((r) => r.biomassTypeId === activeBiomassType);
   }
   if (activeStatus !== 'ALL') {
-    mapRecords = mapRecords.filter(r => r.status === activeStatus);
+    mapRecords = mapRecords.filter((r) => r.status === activeStatus);
   }
 
   // Combine records with locations
-  const mappedPoints = mapRecords.map(record => {
-    const source = db.getSource(record.sourceId);
-    const location = source ? db.getLocation(source.locationId) : null;
-    return { record, source, location };
-  }).filter(item => item.location?.coordinates); // Only items with coordinates
+  const mappedPoints = mapRecords
+    .map((record) => {
+      const source = getSource(record.sourceId);
+      const location = source ? getLocation(source.locationId) : getLocation(record.locationId);
+      return { record, source, location };
+    })
+    .filter((item) => item.location?.coordinates);
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
@@ -93,7 +110,9 @@ export const MapView: React.FC = () => {
         </div>
         {groupIdFilter && (
           <Link to="/aggregation-hubs">
-            <Button variant="outline" size="sm">Back to Aggregation Group</Button>
+            <Button variant="outline" size="sm">
+              Back to Aggregation Group
+            </Button>
           </Link>
         )}
       </div>
@@ -109,21 +128,23 @@ export const MapView: React.FC = () => {
           <CardContent className="p-4 space-y-5">
             <div>
               <label className="block text-xs font-semibold text-gray-700 uppercase mb-2">Biomass Type</label>
-              <select 
+              <select
                 className="w-full p-2 border border-gray-200 rounded text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                 value={activeBiomassType}
                 onChange={(e) => setActiveBiomassType(e.target.value)}
               >
                 <option value="ALL">All Types</option>
-                {db.getBiomassTypes().map(type => (
-                  <option key={type.id} value={type.id}>{type.label}</option>
+                {getBiomassTypes().map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.label}
+                  </option>
                 ))}
               </select>
             </div>
-            
+
             <div>
               <label className="block text-xs font-semibold text-gray-700 uppercase mb-2">Validation Status</label>
-              <select 
+              <select
                 className="w-full p-2 border border-gray-200 rounded text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                 value={activeStatus}
                 onChange={(e) => setActiveStatus(e.target.value)}
@@ -137,9 +158,10 @@ export const MapView: React.FC = () => {
 
             <div className="pt-4 border-t border-gray-100">
               <p className="text-xs text-agri-earth-500 italic">
-                Note: Map location implies source presence, not guaranteed current supply. Refer to record status for actual availability.
+                Note: Map location implies source presence, not guaranteed current supply. Refer to record status for
+                actual availability.
               </p>
-              
+
               <div className="mt-4 space-y-2">
                 <div className="flex items-center gap-2 text-xs">
                   <div className="w-3 h-3 rounded-full bg-agri-green-500 border border-white shrink-0"></div>
@@ -147,7 +169,7 @@ export const MapView: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2 text-xs">
                   <div className="w-3 h-3 rounded-full bg-yellow-500 border border-white shrink-0"></div>
-                  <span>Under Review</span>
+                  <span>Submitted / Under Review</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
                   <div className="w-3 h-3 rounded-full bg-purple-500 border border-white shrink-0"></div>
@@ -160,30 +182,25 @@ export const MapView: React.FC = () => {
 
         {/* Map Container */}
         <div className="flex-1 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden relative z-0 shadow-inner">
-          <MapContainer 
-            center={INITIAL_CENTER} 
-            zoom={12} 
-            scrollWheelZoom={true} 
-            className="w-full h-full"
-          >
+          <MapContainer center={INITIAL_CENTER} zoom={12} scrollWheelZoom={true} className="w-full h-full">
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
             />
-            
+
             {mappedPoints.map((item, index) => {
               if (!item.location?.coordinates) return null;
-              
-              const type = db.referenceData.find(r => r.id === item.record.biomassTypeId)?.label;
-              const unit = db.referenceData.find(r => r.id === item.record.originalUnit)?.label;
-              
+
+              const type = referenceData.find((r) => r.id === item.record.biomassTypeId)?.label;
+              const unit = referenceData.find((r) => r.id === item.record.originalUnit)?.label;
+
               return (
-                <Marker 
-                  key={`${item.record.id}-${index}`} 
+                <Marker
+                  key={`${item.record.id}-${index}`}
                   position={[item.location.coordinates.lat, item.location.coordinates.lng]}
                   icon={createStatusIcon(item.record.status)}
                   eventHandlers={{
-                    click: () => setSelectedRecord(item.record)
+                    click: () => setSelectedRecord(item.record),
                   }}
                 >
                   <Popup className="agricycle-popup">
@@ -195,7 +212,7 @@ export const MapView: React.FC = () => {
                       <p className="text-xs text-agri-earth-600 mb-2 border-b border-gray-100 pb-2">
                         {item.source?.name} &bull; {item.location.barangay}
                       </p>
-                      
+
                       <div className="space-y-1 mb-3">
                         <p className="text-sm">
                           <span className="font-medium">Quantity:</span> {item.record.quantity.toLocaleString()} {unit}
@@ -204,11 +221,18 @@ export const MapView: React.FC = () => {
                           <span className="font-medium">Condition:</span> {item.record.condition}
                         </p>
                         <p className="text-xs text-gray-500">
-                          <span className="font-medium text-gray-700">Updated:</span> {format(new Date(item.record.lastUpdatedDate), 'MMM d, yyyy')}
+                          <span className="font-medium text-gray-700">Updated:</span>{' '}
+                          {format(new Date(item.record.lastUpdatedDate), 'MMM d, yyyy')}
                         </p>
                       </div>
-                      
-                      <Link to={`/biomass-records?recordId=${item.record.id}`}>
+
+                      <Link
+                        to={
+                          user.role === Role.BUYER
+                            ? `/listings/record/${item.record.id}`
+                            : `/biomass-records?recordId=${item.record.id}`
+                        }
+                      >
                         <Button size="sm" className="w-full text-xs">
                           View Record
                         </Button>

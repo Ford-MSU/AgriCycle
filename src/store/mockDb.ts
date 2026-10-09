@@ -16,7 +16,7 @@ export const MOCK_LOCATIONS: Location[] = [
 
 // Mock Sources
 export const MOCK_SOURCES: BiomassSource[] = [
-  { id: 'src-1', name: 'Lumbocan Lumber & Sawmill', type: 'Industrial', locationId: 'loc-1', contactPerson: 'Juan Dela Cruz', cooperativeId: 'org-1' },
+  { id: 'src-1', name: 'Lumbocan Lumber & Sawmill', type: 'Industrial', locationId: 'loc-1', contactPerson: 'Juan Dela Cruz' },
   { id: 'src-2', name: 'Libertad Rice Farmers Coop', type: 'Agricultural Coop', locationId: 'loc-2', contactPerson: 'Maria Clara', cooperativeId: 'org-2' },
   { id: 'src-3', name: 'Ampayon Corn Growers', type: 'Agricultural Coop', locationId: 'loc-3', contactPerson: 'Pedro Penduko', cooperativeId: 'org-2' },
 ];
@@ -188,7 +188,7 @@ export const MOCK_AGGREGATION_GROUPS: AggregationGroup[] = [
     id: 'AG-001',
     name: 'Rice Husk - Batch 1 (Libertad)',
     biomassTypeId: 'ref-bio-1',
-    hubId: 'org-2',
+    hubId: 'org-1',
     status: AggregationStatus.ACTIVE,
     notes: 'Information-level grouping of available rice husk.',
     createdBy: 'user-coord',
@@ -213,11 +213,11 @@ export const MOCK_INQUIRIES: Inquiry[] = [
     id: 'INQ-1001',
     buyerUserId: 'user-buyer',
     targetType: 'RECORD',
-    targetId: 'REC-1002', // A validated record
-    biomassTypeId: 'ref-bio-2', // Rice Straw
+    targetId: 'REC-1002', // Wood Chips record
+    biomassTypeId: 'ref-bio-7', // Wood Chips (consistent with REC-1002)
     requestedQuantity: 200,
     requestedUnit: 'ref-unit-1', // kg
-    intendedUse: 'Livestock Bedding',
+    intendedUse: 'Industrial Boiler Fuel',
     preferredAvailabilityPeriod: 'Mid-September',
     status: InquiryStatus.UNDER_REVIEW,
     submittedAt: daysAgo(2),
@@ -255,6 +255,30 @@ class MockDatabase {
   aggregationGroups: AggregationGroup[] = [...MOCK_AGGREGATION_GROUPS];
   aggregationMembers: AggregationMember[] = [...MOCK_AGGREGATION_MEMBERS];
   inquiries: Inquiry[] = [...MOCK_INQUIRIES];
+
+  syncFromDataset(dataset: {
+    records: BiomassRecord[];
+    locations: Location[];
+    sources: BiomassSource[];
+    referenceData: ReferenceData[];
+    validationRecords: ValidationRecord[];
+    auditLogs: AuditLog[];
+    organizations: Organization[];
+    aggregationGroups: AggregationGroup[];
+    aggregationMembers: AggregationMember[];
+    inquiries: Inquiry[];
+  }) {
+    this.records = dataset.records;
+    this.locations = dataset.locations;
+    this.sources = dataset.sources;
+    this.referenceData = dataset.referenceData;
+    this.validationRecords = dataset.validationRecords;
+    this.auditLogs = dataset.auditLogs;
+    this.organizations = dataset.organizations;
+    this.aggregationGroups = dataset.aggregationGroups;
+    this.aggregationMembers = dataset.aggregationMembers;
+    this.inquiries = dataset.inquiries;
+  }
 
   getBiomassTypes() {
     return this.referenceData.filter(r => r.category === 'BIOMASS_TYPE' && r.isActive);

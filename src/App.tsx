@@ -1,6 +1,7 @@
 import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './store/AuthContext';
+import { DataProvider } from './store/DataContext';
 import { MainLayout } from './layouts/MainLayout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
@@ -48,28 +49,38 @@ const ProtectedRoute = ({
 export default function App() {
   return (
     <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          
-          <Route path="/" element={
-            <ProtectedRoute>
-              <MainLayout />
-            </ProtectedRoute>
-          }>
-            <Route index element={<Dashboard />} />
-            <Route path="biomass-records" element={<BiomassRecords />} />
-            <Route path="aggregation-hubs" element={<AggregationHubs />} />
-            <Route path="listings" element={<BiomassListings />} />
-            <Route path="listings/:type/:id" element={<ListingDetail />} />
-            <Route path="inquiries" element={<Inquiries />} />
-            <Route path="reports" element={<Reports />} />
-            <Route path="audit-logs" element={<AuditLogs />} />
-            <Route path="map" element={<MapView />} />
-            <Route path="*" element={<PlaceholderPage />} />
-          </Route>
-        </Routes>
-      </Router>
+      <DataProvider>
+        <Router>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            
+            <Route path="/" element={
+              <ProtectedRoute>
+                <MainLayout />
+              </ProtectedRoute>
+            }>
+              <Route index element={<Dashboard />} />
+              <Route path="biomass-records" element={<BiomassRecords />} />
+              <Route path="aggregation-hubs" element={<AggregationHubs />} />
+              <Route path="listings" element={<BiomassListings />} />
+              <Route path="listings/:type/:id" element={<ListingDetail />} />
+              <Route path="inquiries" element={<Inquiries />} />
+              <Route path="reports" element={
+                <ProtectedRoute allowedRoles={[Role.ADMINISTRATOR, Role.COORDINATOR, Role.LGU]}>
+                  <Reports />
+                </ProtectedRoute>
+              } />
+              <Route path="audit-logs" element={
+                <ProtectedRoute allowedRoles={[Role.ADMINISTRATOR]}>
+                  <AuditLogs />
+                </ProtectedRoute>
+              } />
+              <Route path="map" element={<MapView />} />
+              <Route path="*" element={<PlaceholderPage />} />
+            </Route>
+          </Routes>
+        </Router>
+      </DataProvider>
     </AuthProvider>
   );
 }

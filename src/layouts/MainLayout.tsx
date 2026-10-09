@@ -1,14 +1,13 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../store/AuthContext';
+import { useData } from '../store/DataContext';
 import { Role } from '../types';
 import { cn } from '../utils/cn';
 import { 
   Leaf, 
   LayoutDashboard, 
-  Tractor, 
   FileText, 
-  CheckSquare, 
   Map as MapIcon, 
   Layers, 
   List, 
@@ -16,18 +15,16 @@ import {
   BarChart3, 
   ShieldCheck, 
   Users, 
-  Settings,
   LogOut,
   Menu,
   X,
   Bell,
   User as UserIcon,
-  Flag,
   Database,
-  Search,
   Activity,
   ClipboardList,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 
 const getRoleSpecificNavItems = (role: Role | undefined) => {
@@ -77,11 +74,12 @@ const getRoleSpecificNavItems = (role: Role | undefined) => {
 
 export const MainLayout: React.FC = () => {
   const { user, logout } = useAuth();
+  const { isUsingSupabase, error, isLoading, refreshData } = useData();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/login');
   };
 
@@ -174,14 +172,26 @@ export const MainLayout: React.FC = () => {
             </h1>
           </div>
           
-          <div className="hidden md:flex items-center justify-center flex-1">
-             <span className="bg-yellow-100 text-yellow-800 border border-yellow-200 text-[10px] uppercase font-bold tracking-wider px-3 py-1 rounded-full flex items-center gap-1 shadow-sm">
-               <AlertTriangle size={12} />
-               Academic Prototype - Demo Data Only
-             </span>
-          </div>
+          {!isUsingSupabase && (
+            <div className="hidden md:flex items-center justify-center flex-1">
+              <span className="bg-yellow-100 text-yellow-800 border border-yellow-200 text-[10px] uppercase font-bold tracking-wider px-3 py-1 rounded-full flex items-center gap-1 shadow-sm">
+                <AlertTriangle size={12} />
+                Local Fallback Mode — Configure VITE_SUPABASE_URL for Live Database
+              </span>
+            </div>
+          )}
 
           <div className="flex items-center gap-4">
+            {isUsingSupabase && (
+              <button
+                onClick={() => refreshData()}
+                disabled={isLoading}
+                title="Refresh data from database"
+                className="text-agri-earth-500 hover:text-agri-green-600 p-1.5 rounded-md hover:bg-agri-green-50 transition-colors"
+              >
+                <RefreshCw size={18} className={isLoading ? 'animate-spin text-agri-green-600' : ''} />
+              </button>
+            )}
             <button className="text-agri-earth-500 hover:text-agri-green-600 relative">
               <Bell size={20} />
               <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-agri-accent-500 ring-2 ring-white"></span>
@@ -197,6 +207,20 @@ export const MainLayout: React.FC = () => {
 
         {/* Page Content */}
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
+          {error && (
+            <div className="max-w-7xl mx-auto mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={18} className="shrink-0" />
+                <span>{error}</span>
+              </div>
+              <button
+                onClick={() => refreshData()}
+                className="px-3 py-1 bg-white border border-red-200 rounded text-xs font-semibold hover:bg-red-100 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          )}
           <Outlet />
         </main>
       </div>
