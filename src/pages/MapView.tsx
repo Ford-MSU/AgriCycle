@@ -37,7 +37,14 @@ const createStatusIcon = (status: RecordStatus) => {
   });
 };
 
-const INITIAL_CENTER: [number, number] = [8.9475, 125.5406]; // Butuan City center
+const INITIAL_CENTER: [number, number] = [8.9475, 125.5406]; // Butuan City
+
+// Geographic bounds for the Mindanao region.
+// These bounds are approximate and intended to restrict map navigation.
+const MINDANAO_BOUNDS: L.LatLngBoundsExpression = [
+  [4.4, 119.3], // Southwest
+  [9.9, 127.7], // Northeast
+];
 
 export const MapView: React.FC = () => {
   const { user } = useAuth();
@@ -182,10 +189,20 @@ export const MapView: React.FC = () => {
 
         {/* Map Container */}
         <div className="flex-1 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden relative z-0 shadow-inner">
-          <MapContainer center={INITIAL_CENTER} zoom={12} scrollWheelZoom={true} className="w-full h-full">
+          <MapContainer
+            center={INITIAL_CENTER}
+            zoom={7}
+            minZoom={7}
+            maxZoom={18}
+            maxBounds={MINDANAO_BOUNDS}
+            maxBoundsViscosity={1.0}
+            scrollWheelZoom={true}
+            className="w-full h-full"
+          >
             <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+              url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>'
+              maxZoom={19}
             />
 
             {mappedPoints.map((item, index) => {
