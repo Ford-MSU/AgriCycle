@@ -38,8 +38,39 @@ export const Login: React.FC = () => {
   const { login, register, isLoading, isSupabaseAuth } = useAuth();
   const navigate = useNavigate();
 
+  const getRoleDisplayName = (role: Role | null) => {
+    switch (role) {
+      case Role.ADMINISTRATOR:
+        return 'an Admin';
+      case Role.COORDINATOR:
+        return 'a Coordinator';
+      case Role.LGU:
+        return 'an LGU Validator';
+      case Role.BUYER:
+        return 'a Buyer';
+      default:
+        return 'an Account';
+    }
+  };
+
+  const getRoleShortName = (role: Role | null) => {
+    switch (role) {
+      case Role.ADMINISTRATOR:
+        return 'Admin';
+      case Role.COORDINATOR:
+        return 'Coordinator';
+      case Role.LGU:
+        return 'LGU Validator';
+      case Role.BUYER:
+        return 'Buyer';
+      default:
+        return 'User';
+    }
+  };
+
   const handleRoleSelect = (role: Role) => {
     setSelectedRole(role);
+    setIsRegisterMode(false);
     setError('');
     setInfoMessage('');
 
@@ -47,6 +78,30 @@ export const Login: React.FC = () => {
       const rolePrefix = role.toLowerCase().replace('_', '');
       setEmail(`${rolePrefix}@test.com`);
       setPassword('password');
+    } else {
+      setEmail('');
+      setPassword('');
+    }
+  };
+
+  const toggleRegisterMode = () => {
+    const nextMode = !isRegisterMode;
+    setIsRegisterMode(nextMode);
+    setError('');
+    setInfoMessage('');
+
+    if (!isSupabaseAuth) {
+      if (nextMode) {
+        // Clear for fresh registration
+        setName('');
+        setEmail('');
+        setPassword('');
+      } else if (selectedRole) {
+        // Restore demo credentials
+        const rolePrefix = selectedRole.toLowerCase().replace('_', '');
+        setEmail(`${rolePrefix}@test.com`);
+        setPassword('password');
+      }
     }
   };
 
@@ -66,10 +121,11 @@ export const Login: React.FC = () => {
           setError('Please enter your full name or organization name.');
           return;
         }
-        const { requiresEmailConfirmation } = await register(name, email, password);
+        const targetRole = selectedRole || Role.BUYER;
+        const { requiresEmailConfirmation } = await register(name, email, password, targetRole);
         if (requiresEmailConfirmation) {
           setInfoMessage(
-            'Account created! Please check your email inbox to confirm your registration before signing in.'
+            `Account created for ${getRoleShortName(targetRole)}! Please check your email inbox to confirm your registration before signing in.`
           );
           setIsRegisterMode(false);
         } else {
@@ -159,13 +215,21 @@ export const Login: React.FC = () => {
                 </div>
               </div>
               <CardTitle className="text-xl">
-                {isRegisterMode ? 'Create an Account' : 'Sign in to your account'}
+                {isRegisterMode
+                  ? `Register as ${getRoleDisplayName(selectedRole)}`
+                  : `Sign in as ${getRoleShortName(selectedRole)}`}
               </CardTitle>
               <CardDescription className="text-sm mt-1">
                 {isRegisterMode
-                  ? 'New accounts are registered with Buyer permissions by default until assigned a staff role by an Administrator.'
+                  ? selectedRole === Role.ADMINISTRATOR
+                    ? 'Create an administrator account to oversee users, hubs, and system compliance.'
+                    : selectedRole === Role.COORDINATOR
+                    ? 'Create a coordinator account to manage biomass aggregation and listings.'
+                    : selectedRole === Role.LGU
+                    ? 'Create an institutional validator account to monitor and verify regional biomass records.'
+                    : 'Create a buyer account to browse biomass listings and submit commercial inquiries.'
                   : isSupabaseAuth
-                  ? 'Enter your Supabase account credentials.'
+                  ? `Enter your credentials for ${getRoleShortName(selectedRole)} access.`
                   : 'Test credentials have been pre-filled for this role.'}
               </CardDescription>
             </CardHeader>
@@ -226,26 +290,22 @@ export const Login: React.FC = () => {
                 />
 
                 <Button type="submit" className="w-full" size="lg" isLoading={isLoading}>
-                  {isRegisterMode ? 'Register Account' : 'Sign In'}
+                  {isRegisterMode
+                    ? `Register as ${getRoleShortName(selectedRole)}`
+                    : `Sign In as ${getRoleShortName(selectedRole)}`}
                 </Button>
 
-                {isSupabaseAuth && (
-                  <div className="text-center pt-2 border-t border-gray-100">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsRegisterMode(!isRegisterMode);
-                        setError('');
-                        setInfoMessage('');
-                      }}
-                      className="text-xs font-medium text-agri-green-700 hover:text-agri-green-800"
-                    >
-                      {isRegisterMode
-                        ? 'Already have an account? Sign in'
-                        : "Don't have an account? Register as Buyer"}
-                    </button>
-                  </div>
-                )}
+                <div className="text-center pt-2 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={toggleRegisterMode}
+                    className="text-xs font-medium text-agri-green-700 hover:text-agri-green-800 transition-colors"
+                  >
+                    {isRegisterMode
+                      ? `Already have an account? Sign in as ${getRoleShortName(selectedRole)}`
+                      : `Don't have an account? Register as ${getRoleDisplayName(selectedRole)}`}
+                  </button>
+                </div>
               </form>
             </CardContent>
           </Card>

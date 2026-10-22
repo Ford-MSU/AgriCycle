@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './store/AuthContext';
 import { DataProvider } from './store/DataContext';
 import { MainLayout } from './layouts/MainLayout';
 import { Login } from './pages/Login';
+import { ConfirmEmail } from './pages/ConfirmEmail';
 import { Dashboard } from './pages/Dashboard';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { BiomassRecords } from './pages/BiomassRecords';
@@ -53,6 +54,8 @@ export default function App() {
         <Router>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/confirm-email" element={<ConfirmEmail />} />
+            <Route path="/auth/callback" element={<ConfirmEmail />} />
             
             <Route path="/" element={
               <ProtectedRoute>

@@ -285,7 +285,11 @@ export async function fetchAllDataFromSupabase(): Promise<AgriCycleDataset> {
   };
 }
 
-export async function fetchUserProfileFromSupabase(userId: string, email?: string): Promise<User | null> {
+export async function fetchUserProfileFromSupabase(
+  userId: string,
+  email?: string,
+  fallbackRole: Role = Role.BUYER
+): Promise<User | null> {
   if (!isSupabaseConfigured || !supabase) return null;
 
   const { data, error } = await supabase
@@ -303,7 +307,7 @@ export async function fetchUserProfileFromSupabase(userId: string, email?: strin
     return mapProfileRow(data);
   }
 
-  // If profile trigger hasn't created the row yet, create default BUYER profile
+  // If profile trigger hasn't created the row yet, create initial profile
   if (email) {
     const defaultName = email.split('@')[0];
     const { data: inserted, error: insertError } = await supabase
@@ -312,7 +316,7 @@ export async function fetchUserProfileFromSupabase(userId: string, email?: strin
         id: userId,
         name: defaultName,
         email,
-        role: Role.BUYER,
+        role: fallbackRole,
       })
       .select('*')
       .single();

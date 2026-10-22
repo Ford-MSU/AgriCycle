@@ -6,7 +6,7 @@ import { fetchUserProfileFromSupabase } from '../services/agriCycleService';
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string, expectedRole?: Role) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<{ requiresEmailConfirmation: boolean }>;
+  register: (name: string, email: string, password: string, role?: Role) => Promise<{ requiresEmailConfirmation: boolean }>;
   logout: () => Promise<void>;
   isLoading: boolean;
   isSupabaseAuth: boolean;
@@ -178,36 +178,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (
     name: string,
     email: string,
-    password: string
+    password: string,
+    role: Role = Role.BUYER
   ): Promise<{ requiresEmailConfirmation: boolean }> => {
-    if (!isSupabaseConfigured || !supabase) {
-      throw new Error('Registration requires Supabase connection (VITE_SUPABASE_URL & VITE_SUPABASE_PUBLISHABLE_KEY).');
-    }
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: {
-            name: name.trim(),
+      if (isSupabaseConfigured && supabase) {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            data: {
+              name: name.trim(),
+              role: role,
+              requested_role: role,
+            },
           },
-        },
-      });
+        });
 
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      if (data.session && data.user) {
-        const profile = await fetchUserProfileFromSupabase(data.user.id, data.user.email);
-        if (profile) {
-          setUser(profile);
+        if (error) {
+          throw new Error(error.message);
         }
-        return { requiresEmailConfirmation: false };
+
+        if (data.session && data.user) {
+          const profile = await fetchUserProfileFromSupabase(data.user.id, data.user.email, role);
+          if (profile) {
+            setUser(profile);
+          }
+          return { requiresEmailConfirmation: false };
+        }
+
+        return { requiresEmailConfirmation: true };
       }
 
-      return { requiresEmailConfirmation: true };
+      // Offline demo mode fallback registration
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      const defaultIdByRole: Record<Role, string> = {
+        [Role.ADMINISTRATOR]: 'user-admin',
+        [Role.COORDINATOR]: 'user-coord',
+        [Role.LGU]: 'user-lgu',
+        [Role.BUYER]: 'user-buyer',
+      };
+      const fallbackUser: User = {
+        id: defaultIdByRole[role] || 'usr_' + Math.random().toString(36).substring(2, 9),
+        name: name.trim() || email.split('@')[0],
+        email: email.trim(),
+        role: role,
+      };
+      setUser(fallbackUser);
+      localStorage.setItem('agricycle_user', JSON.stringify(fallbackUser));
+      return { requiresEmailConfirmation: false };
     } finally {
       setIsLoading(false);
     }
