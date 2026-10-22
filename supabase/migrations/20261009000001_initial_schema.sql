@@ -156,8 +156,15 @@ CREATE TABLE IF NOT EXISTS public.biomass_sources (
 );
 
 -- 8. Biomass Records Table
--- Preserves distinction between theoretical biomass potential (is_theoretical_estimate = true)
--- and practically available biomass (is_theoretical_estimate = false).
+-- QUANTITY & STATUS SEMANTICS (CB-BAIM Thesis Requirements):
+-- 1. `is_theoretical_estimate`: strictly distinguishes theoretical biomass estimates
+--    (macro planning, not available on marketplace) from field-reported practical availability.
+-- 2. `current_use`: strictly descriptive text (e.g., 'Used as fuel', 'Left in field / Available').
+--    It MUST NEVER be parsed, converted to numeric, or subtracted from inventory calculations.
+-- 3. `reserved_quantity`: represents coordinator-flagged physical holds. Buyer inquiries are
+--    non-binding market linkage inquiries and DO NOT automatically reserve or lock inventory.
+-- 4. `remaining_quantity`: practical availability remaining for linkage. Must satisfy:
+--    remaining_quantity >= 0 AND remaining_quantity <= (quantity - reserved_quantity).
 -- Note: submitter_id is a nullable UUID FK to public.profiles(id) so initial seed records
 -- do not require fabricated auth.users rows; submitter_label stores the display label.
 CREATE TABLE IF NOT EXISTS public.biomass_records (

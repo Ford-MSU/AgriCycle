@@ -400,17 +400,21 @@ export async function createBiomassRecordInSupabase(
 
   const created = mapBiomassRecordRow(data);
 
-  // Record audit log entry
+  // Record audit log entry (gracefully handled if direct inserts are restricted to administrators)
   if (isValidUuid(user.id)) {
-    await client.from('audit_logs').insert({
-      user_id: user.id,
-      user_label: user.name || user.email,
-      action: SystemAction.CREATE,
-      entity_type: 'BiomassRecord',
-      entity_id: created.id,
-      new_state: { status: created.status, quantity: created.quantity },
-      details: `Created biomass record ${created.id}`,
-    });
+    try {
+      await client.from('audit_logs').insert({
+        user_id: user.id,
+        user_label: user.name || user.email,
+        action: SystemAction.CREATE,
+        entity_type: 'BiomassRecord',
+        entity_id: created.id,
+        new_state: { status: created.status, quantity: created.quantity },
+        details: `Created biomass record ${created.id}`,
+      });
+    } catch {
+      // Direct audit logging restricted to admin/server RPCs; client continues gracefully
+    }
   }
 
   return created;
@@ -452,15 +456,19 @@ export async function updateBiomassRecordInSupabase(
   const updated = mapBiomassRecordRow(data);
 
   if (isValidUuid(user.id)) {
-    await client.from('audit_logs').insert({
-      user_id: user.id,
-      user_label: user.name || user.email,
-      action,
-      entity_type: 'BiomassRecord',
-      entity_id: id,
-      new_state: { status: updated.status },
-      details: `Updated record ${id} via ${action}`,
-    });
+    try {
+      await client.from('audit_logs').insert({
+        user_id: user.id,
+        user_label: user.name || user.email,
+        action,
+        entity_type: 'BiomassRecord',
+        entity_id: id,
+        new_state: { status: updated.status },
+        details: `Updated record ${id} via ${action}`,
+      });
+    } catch {
+      // Direct audit logging restricted to admin/server RPCs; client continues gracefully
+    }
   }
 
   return updated;

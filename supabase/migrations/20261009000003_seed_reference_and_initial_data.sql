@@ -9,6 +9,8 @@
 -- ============================================================================
 
 -- 1. Seed Controlled Reference Data (Biomass Types, Units, Source Types)
+-- Safe for databases that already contain matching categories and codes under different IDs:
+-- Uses `ON CONFLICT (category, code) DO UPDATE` to keep labels, descriptions, and statuses in sync.
 INSERT INTO public.reference_data (id, category, code, label, description, is_active) VALUES
   ('ref-bio-1', 'BIOMASS_TYPE', 'RICE_HUSK', 'Rice Husk', 'Outer covering of rice grains from milling operations', true),
   ('ref-bio-2', 'BIOMASS_TYPE', 'RICE_STRAW', 'Rice Straw', 'Post-harvest rice stalks and field residue', true),
@@ -25,7 +27,10 @@ INSERT INTO public.reference_data (id, category, code, label, description, is_ac
   ('ref-src-2', 'SOURCE_TYPE', 'INDUSTRIAL', 'Industrial', 'Rice mill, sawmill, or agro-industrial processor', true),
   ('ref-src-3', 'SOURCE_TYPE', 'FARM', 'Farm', 'Individual or consolidated agricultural farm', true),
   ('ref-src-4', 'SOURCE_TYPE', 'LGU_FACILITY', 'LGU Facility', 'Municipal or barangay material recovery/collection site', true)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (category, code) DO UPDATE
+  SET label = EXCLUDED.label,
+      description = EXCLUDED.description,
+      is_active = EXCLUDED.is_active;
 
 -- 2. Seed Butuan City Barangays & Coordinates
 INSERT INTO public.locations (id, barangay, city, province, latitude, longitude) VALUES
@@ -35,7 +40,7 @@ INSERT INTO public.locations (id, barangay, city, province, latitude, longitude)
   ('loc-4', 'Bancasi', 'Butuan City', 'Agusan del Norte', 8.948200, 125.474600),
   ('loc-5', 'Baan KM 3', 'Butuan City', 'Agusan del Norte', 8.951100, 125.562100),
   ('loc-6', 'Los Angeles', 'Butuan City', 'Agusan del Norte', 9.011200, 125.598400)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (barangay, city, province) DO NOTHING;
 
 -- 3. Seed Organizations (Hubs, Cooperatives, LGU, Buyer Orgs)
 INSERT INTO public.organizations (id, name, type, location_id) VALUES
@@ -43,7 +48,7 @@ INSERT INTO public.organizations (id, name, type, location_id) VALUES
   ('org-2', 'Agusan Farmers Cooperative', 'COOPERATIVE', 'loc-2'),
   ('org-3', 'Butuan City Agriculturist Office (LGU)', 'LGU', 'loc-2'),
   ('org-4', 'Caraga Green Energy & Biochar Corp.', 'BUYER', 'loc-5')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name) DO NOTHING;
 
 -- 4. Seed Biomass Sources (created_by is NULL because no auth.users are fabricated;
 -- src-1 is an independent Industrial sawmill, so cooperative_id is NULL rather than HUB org-1)
@@ -51,10 +56,16 @@ INSERT INTO public.biomass_sources (id, name, type, location_id, contact_person,
   ('src-1', 'Lumbocan Lumber & Sawmill', 'Industrial', 'loc-1', 'Juan Dela Cruz', NULL, NULL),
   ('src-2', 'Libertad Rice Farmers Coop', 'Agricultural Coop', 'loc-2', 'Maria Clara', 'org-2', NULL),
   ('src-3', 'Ampayon Corn Growers', 'Agricultural Coop', 'loc-3', 'Pedro Penduko', 'org-2', NULL)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 -- 5. Seed Initial Biomass Records
--- submitter_id is explicitly NULL (no fabricated auth user); submitter_label stores the sample label.
+-- Note on Demonstration Records:
+-- - REC-1001: Actively available VALIDATED Rice Husk (500 bags reported, 450 remaining, period ending in +25 days).
+-- - REC-1002: Lapsed / STALE Wood Chips (expired 10 days ago). Explicitly marked STALE to demonstrate automated
+--   exclusion from active marketplace listings while preserving historical auditability.
+-- - REC-1003: SUBMITTED Corn Stalk awaiting LGU field validation.
+-- - REC-1004: UNDER_REVIEW Coconut Husk currently being evaluated by LGU.
+-- Dynamic foreign-key lookup resolves the canonical reference IDs safely regardless of existing database sequences.
 INSERT INTO public.biomass_records (
   id, biomass_type_id, quantity, original_unit, source_id, location_id,
   status, is_theoretical_estimate, availability_period_start, availability_period_end,
@@ -62,34 +73,50 @@ INSERT INTO public.biomass_records (
   storage, access_location_notes, submitter_id, submitter_label, created_at, last_updated_date, validation_date
 ) VALUES
   (
-    'REC-1001', 'ref-bio-1', 500, 'ref-unit-3', 'src-2', 'loc-2',
+    'REC-1001',
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'BIOMASS_TYPE' AND code = 'RICE_HUSK' LIMIT 1), 'ref-bio-1'),
+    500,
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'UNIT' AND code = 'BAGS_50KG' LIMIT 1), 'ref-unit-3'),
+    'src-2', 'loc-2',
     'VALIDATED', false, now() - interval '5 days', now() + interval '25 days',
     'Available / not currently used', 50, 450, 'Dry', 'Stored in covered warehouse.',
     'Warehouse', 'Accessible by 6-wheeler truck', NULL, 'user-coord',
     now() - interval '10 days', now() - interval '8 days', now() - interval '8 days'
   ),
   (
-    'REC-1002', 'ref-bio-7', 8000, 'ref-unit-1', 'src-1', 'loc-1',
+    'REC-1002',
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'BIOMASS_TYPE' AND code = 'WOOD_CHIPS' LIMIT 1), 'ref-bio-7'),
+    8000,
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'UNIT' AND code = 'KG' LIMIT 1), 'ref-unit-1'),
+    'src-1', 'loc-1',
     'STALE', false, now() - interval '60 days', now() - interval '10 days',
-    'Used as fuel', 0, 8000, 'Mixed', '',
+    'Used as fuel', 0, 8000, 'Mixed', 'Availability window lapsed; kept for historical demonstration.',
     'Open yard', 'Accessible by 10-wheeler', NULL, 'user-coord',
     now() - interval '65 days', now() - interval '65 days', now() - interval '62 days'
   ),
   (
-    'REC-1003', 'ref-bio-4', 12, 'ref-unit-4', 'src-3', 'loc-3',
+    'REC-1003',
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'BIOMASS_TYPE' AND code = 'CORN_STALK' LIMIT 1), 'ref-bio-4'),
+    12,
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'UNIT' AND code = 'TRUCKLOADS' LIMIT 1), 'ref-unit-4'),
+    'src-3', 'loc-3',
     'SUBMITTED', false, now() - interval '1 day', now() + interval '14 days',
     'Left in field / Available', 0, 12, 'Fresh/Wet', 'Needs harvesting assistance',
     'Field', 'Muddy access, needs tractor', NULL, 'user-coord-2',
     now() - interval '2 days', now() - interval '1 day', NULL
   ),
   (
-    'REC-1004', 'ref-bio-6', 2000, 'ref-unit-1', 'src-2', 'loc-2',
+    'REC-1004',
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'BIOMASS_TYPE' AND code = 'COCONUT_HUSK' LIMIT 1), 'ref-bio-6'),
+    2000,
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'UNIT' AND code = 'KG' LIMIT 1), 'ref-unit-1'),
+    'src-2', 'loc-2',
     'UNDER_REVIEW', false, now(), now() + interval '30 days',
     'Available', 0, 2000, 'Dry', '',
     'Covered Shed', 'Easy access', NULL, 'user-coord',
     now() - interval '1 day', now() - interval '1 day', NULL
   )
-ON CONFLICT DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 -- 6. Seed Validation Records (validator_id is NULL; validator_label stores sample label)
 INSERT INTO public.validation_records (
@@ -103,7 +130,7 @@ INSERT INTO public.validation_records (
     'val-2', 'REC-1002', NULL, 'user-lgu', 'VALIDATED', 'Phone Verification',
     'Spoke with Juan Dela Cruz, confirmed availability.', now() - interval '62 days'
   )
-ON CONFLICT DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 -- 7. Seed Initial Aggregation Group & Member (created_by / added_by are NULL)
 -- AG-001 uses 'org-1' (Butuan Central Hub, type = 'HUB') as its hub_id.
@@ -111,11 +138,13 @@ INSERT INTO public.aggregation_groups (
   id, name, biomass_type_id, hub_id, status, notes, created_by, created_by_label, created_at, updated_at
 ) VALUES
   (
-    'AG-001', 'Rice Husk - Batch 1 (Libertad)', 'ref-bio-1', 'org-1', 'ACTIVE',
+    'AG-001', 'Rice Husk - Batch 1 (Libertad)',
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'BIOMASS_TYPE' AND code = 'RICE_HUSK' LIMIT 1), 'ref-bio-1'),
+    'org-1', 'ACTIVE',
     'Information-level grouping of available rice husk.', NULL, 'user-coord',
     now() - interval '5 days', now() - interval '2 days'
   )
-ON CONFLICT DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.aggregation_members (
   id, group_id, biomass_record_id, added_by, added_by_label, added_at, is_active
@@ -123,34 +152,41 @@ INSERT INTO public.aggregation_members (
   (
     'agm-1', 'AG-001', 'REC-1001', NULL, 'user-coord', now() - interval '5 days', true
   )
-ON CONFLICT DO NOTHING;
+ON CONFLICT (group_id, biomass_record_id) DO NOTHING;
 
 -- 8. Seed Initial Inquiry & History
--- Corrected consistency: INQ-1001 targets REC-1002 (Wood Chips, 'ref-bio-7') with matching biomass_type_id 'ref-bio-7'.
--- buyer_user_id and changed_by are explicitly NULL.
+-- INQ-1001 targets active, VALIDATED record REC-1001 (Rice Husk) matching biomass_type_id 'ref-bio-1'
+-- and requested unit 'ref-unit-3' (Bags 50kg).
+-- buyer_user_id and changed_by are NULL (no fabricated auth users).
+-- Under tightened RLS, this inquiry is visible to Administrators, Coordinators, and LGU.
+-- (To associate with a test buyer in local prototyping:
+--  UPDATE public.inquiries SET buyer_user_id = '<buyer-auth-uuid>' WHERE id = 'INQ-1001';)
 INSERT INTO public.inquiries (
   id, buyer_user_id, buyer_user_label, target_type, target_id, biomass_type_id,
   requested_quantity, requested_unit, intended_use, preferred_availability_period,
   status, submitted_at, updated_at
 ) VALUES
   (
-    'INQ-1001', NULL, 'user-buyer', 'RECORD', 'REC-1002', 'ref-bio-7',
-    200, 'ref-unit-1', 'Industrial Boiler Fuel', 'Mid-September',
+    'INQ-1001', NULL, 'user-buyer', 'RECORD', 'REC-1001',
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'BIOMASS_TYPE' AND code = 'RICE_HUSK' LIMIT 1), 'ref-bio-1'),
+    100,
+    COALESCE((SELECT id FROM public.reference_data WHERE category = 'UNIT' AND code = 'BAGS_50KG' LIMIT 1), 'ref-unit-3'),
+    'Mushroom Cultivation & Soil Conditioner', 'Immediate delivery',
     'UNDER_REVIEW', now() - interval '2 days', now() - interval '1 day'
   )
-ON CONFLICT DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.inquiry_history (
   id, inquiry_id, previous_status, new_status, changed_by, changed_by_label, changed_at, notes
 ) VALUES
   (
-    'inqh-1', 'INQ-1001', NULL, 'SUBMITTED', NULL, 'user-buyer', now() - interval '2 days', NULL
+    'inqh-1', 'INQ-1001', NULL, 'SUBMITTED', NULL, 'user-buyer', now() - interval '2 days', 'Initial inquiry submitted for active Rice Husk'
   ),
   (
     'inqh-2', 'INQ-1001', 'SUBMITTED', 'UNDER_REVIEW', NULL, 'user-coord', now() - interval '1 day',
-    'Checking exact availability with the source.'
+    'Checking exact warehouse pickup schedule with the cooperative.'
   )
-ON CONFLICT DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 -- 9. Seed Initial Audit Logs (user_id is explicitly NULL)
 INSERT INTO public.audit_logs (
@@ -159,7 +195,7 @@ INSERT INTO public.audit_logs (
   ('log-1', NULL, 'user-coord', 'CREATE', 'BiomassRecord', 'REC-1001', now() - interval '10 days', 'Initial record created'),
   ('log-2', NULL, 'user-coord', 'SUBMIT', 'BiomassRecord', 'REC-1001', now() - interval '10 days', 'Submitted for LGU validation'),
   ('log-3', NULL, 'user-lgu', 'VALIDATE', 'ValidationRecord', 'val-1', now() - interval '8 days', 'Validated REC-1001 via Field Inspection')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
 -- 10. Hardened Administrator & Role Provisioning Helper

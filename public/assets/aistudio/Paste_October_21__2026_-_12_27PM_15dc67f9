@@ -1,0 +1,492 @@
+# MASTER PROMPT: Update AgriCycle Code and Supabase to Match the Thesis
+
+Act as a senior full-stack developer, Supabase/PostgreSQL database architect, software analyst, and academic thesis compliance reviewer.
+
+I am developing **AgriCycle: A Community-Based Biomass Information Management and Market Linkage System**. I need you to inspect and update my existing application so that the code, database schema, permissions, workflows, and user interface are consistent with the approved thesis and documented system functions.
+
+**Do not rebuild the application from scratch.** Preserve the existing architecture, design, features, and working components wherever possible. Modify only what is necessary to achieve consistency, correctness, security, and usability.
+
+## 1. Source materials and order of authority
+
+Inspect all available project files before making changes:
+
+1. The AgriCycle thesis document.
+2. The System Functions documentation and screenshots for Buyers, LGU, Cooperative, and Admin.
+3. The existing AgriCycle source code.
+4. The current Supabase database schema, migrations, Row Level Security (RLS) policies, triggers, functions, and storage configuration, if available.
+
+Use the thesis as the authority for the research scope and formal system roles. Use the system-function screenshots as evidence of the documented interface. Use the actual source code and database configuration to determine what is currently implemented.
+
+Do not assume that a screenshot proves a function works. Do not assume that a function works merely because it appears in a component or service file.
+
+For each important finding, distinguish between:
+- Confirmed by the thesis.
+- Present in the user interface.
+- Implemented in code.
+- Verified to work end-to-end.
+- Recommended improvement.
+- Unresolved decision requiring confirmation.
+
+If you cannot access the live Supabase project, explicitly state that limitation. Do not pretend to have inspected or changed the live database.
+
+## 2. Thesis scope that must be preserved
+
+AgriCycle is a community-based biomass information management and market-linkage system. Its core functions are:
+
+- User account and permission management.
+- Registration and management of biomass sources.
+- Recording and updating biomass availability information.
+- Review and validation of biomass records.
+- Biomass availability monitoring.
+- Map-based viewing, search, and filtering.
+- Grouping compatible biomass records for information-level aggregation.
+- Biomass listings for institutional buyers.
+- Buyer inquiries and inquiry-status monitoring.
+- Reports and analytics.
+- Change history and audit logging.
+
+Do not introduce features that are outside the thesis scope, including:
+
+- Physical biomass collection, transport, or delivery management.
+- Warehouse, processing facility, or power plant operations.
+- Fleet tracking, real-time GPS tracking, or route optimization.
+- Payment processing, bidding, contracts, or financial settlement.
+- Laboratory testing or formal certification.
+- Advanced spatial prediction or satellite monitoring.
+- Claims that the application guarantees biomass quality, quantity, availability, or a successful transaction.
+
+An inquiry is a request for information or coordination. It is not automatically a reservation, purchase, contract, or completed sale.
+
+An aggregation group is an information-level grouping unless the thesis and approved system design explicitly establish otherwise. Do not imply that grouping records means the physical materials have been collected or stored together.
+
+## 3. Formal user roles and permissions
+
+Use these four formal roles consistently across the code, database, UI, and documentation:
+
+### A. System Administrator
+- Manage authorized user accounts and roles.
+- Manage approved system settings and reference data.
+- View authorized system-wide records.
+- View audit logs.
+- Access administrative reports when the permission matrix authorizes it.
+
+### B. Cooperative/Hub Coordinator
+- Register and update biomass sources.
+- Create and update biomass records.
+- Encode information provided by farmers or other biomass contributors.
+- Assist with data entry.
+- Manage authorized hub-related information.
+- Create and manage information-level aggregation groups.
+- Manage biomass listings where authorized.
+- Respond to and monitor buyer inquiries.
+- View authorized reports.
+
+### C. LGU Representative
+- View authorized biomass records.
+- Review and validate biomass records if this role is confirmed as the approved validation authority.
+- Return records for correction or reject records when justified.
+- View authorized GIS/map information.
+- Monitor records and inquiries where permitted.
+- Generate authorized reports.
+
+### D. Institutional Buyer
+- Browse eligible, validated biomass listings.
+- Search, filter, and view listing details.
+- Submit inquiries.
+- View their own inquiries and responses.
+- Withdraw an inquiry where the rules permit it.
+
+**Important validation-role conflict:** The existing code appears to grant validation permission to the LGU, while a record-screen implementation may also permit administrators to validate. The thesis and cooperative workflow must be checked before changing this behavior.
+
+Do not silently give validation authority to all four roles. Implement the approved permission matrix only after checking the available evidence. If the intended validation authority remains unclear, document the conflict and ask for confirmation rather than guessing.
+
+Farmers, processors, mills, and other biomass contributors are information providers. They do not automatically require separate system accounts. Distinguish the contributor from the authorized user who enters the information.
+
+Use consistent internal role names and a centralized permission system. If existing role values are `ADMINISTRATOR`, `COORDINATOR`, `LGU`, and `BUYER`, preserve them where practical and map them consistently to the formal names above. Do not create duplicate role systems.
+
+## 4. Inspect and reconcile the existing implementation
+
+Inspect the complete project before editing. Pay particular attention to:
+
+- Authentication and role assignment.
+- Route protection.
+- Shared permission utilities and role-based access control.
+- Biomass source creation and editing.
+- Biomass record creation and updating.
+- Validation and review screens.
+- Aggregation-group creation and editing.
+- Buyer listing eligibility.
+- Inquiry submission and status updates.
+- Dashboard statistics.
+- Maps and location visibility.
+- Reports and exports.
+- Audit logging.
+- Supabase queries, mutations, triggers, and policies.
+- Mock-data fallbacks and Supabase configuration.
+- Database migrations, enums, foreign keys, indexes, and constraints.
+
+Create a list of inconsistencies before modifying code.
+
+Pay special attention to differences between UI permissions, frontend permission checks, API/service behavior, and database RLS policies. Hiding a button is not sufficient security.
+
+Do not replace existing working features with mock implementations. Do not introduce duplicate tables or columns if an equivalent structure already exists. Reuse existing entities and refactor them when appropriate.
+
+## 5. Establish clear and consistent data definitions
+
+Use the following definitions throughout the system.
+
+- **Biomass contributor:** The person or organization providing biomass information.
+- **Encoder:** The authorized account holder entering or updating information.
+- **Biomass source:** The farm, mill, processor, or other origin of biomass.
+- **Biomass record:** A time-bound record describing the biomass type, quantity, unit, source, location, period, condition, and availability information.
+- **Validation:** A documented review decision based on an identified verification basis. Validation is not a guarantee of future availability or material quality.
+- **Listing:** The buyer-facing presentation of eligible biomass information.
+- **Aggregation hub:** A designated coordination point. Its existence does not imply physical storage.
+- **Aggregation group:** A group of compatible records used for information-level aggregation.
+- **Buyer inquiry:** A request for information or coordination concerning a listing.
+- **Audit log:** A record of significant system actions, including the actor, time, action, and relevant change details where supported.
+
+Use these definitions in field labels, page descriptions, status explanations, validation messages, and reports.
+
+## 6. Separate review status, availability, and information currency
+
+The existing biomass status values appear to mix several different concepts, including:
+
+`DRAFT`, `SUBMITTED`, `UNDER_REVIEW`, `VALIDATED`, `RETURNED`, `REJECTED`, `STALE`, `UNAVAILABLE`, `UNSUITABLE`, `RESERVED`, `ALREADY_USED`, and `ARCHIVED`.
+
+Do not blindly preserve this as one status field if doing so creates contradictory states.
+
+Evaluate whether the existing database should distinguish:
+
+1. **Review status:** Draft, Submitted, Under Review, Validated, Returned, or Rejected.
+2. **Availability status:** Available, Partially Available, Unavailable, Reserved, or Already Used, as applicable to the approved workflow.
+3. **Information currency:** Current, Stale, or Expired.
+4. **Listing eligibility or publication state:** Whether a record is eligible to appear in buyer-facing results.
+
+These are proposed conceptual dimensions, not an instruction to create all four fields without inspecting the current schema. Reuse an existing appropriate field if one already exists. Document any migration needed to separate concepts currently mixed together.
+
+Establish explicit rules for:
+- Which review statuses are allowed to transition to other statuses.
+- Which roles may perform each transition.
+- Which statuses are visible to buyers.
+- Which conditions make a record eligible for listing.
+- What happens when a validated record is edited.
+- Whether a returned record can be resubmitted.
+- How stale and expired records are identified.
+- How unavailable or already-used records are removed from eligible listings.
+
+Do not invent automatic expiration periods or freshness thresholds. Make them configurable or request confirmation when the approved policy is unknown.
+
+A record must not remain buyer-eligible merely because its review status is Validated if it is also expired, unavailable, or otherwise ineligible.
+
+## 7. Clarify quantities and prevent incorrect aggregation
+
+Inspect the existing quantity-related fields, including:
+
+- Quantity.
+- Original unit or unit of measurement.
+- Current use.
+- Reserved quantity.
+- Remaining quantity.
+- Estimated or theoretical quantity indicators.
+- Availability start and end dates.
+- Biomass condition and storage information.
+
+Determine what each field actually means in the current application and database.
+
+Implement quantity calculations only after the semantics have been established.
+
+Requirements:
+
+- Store an explicit unit of measurement.
+- Distinguish measured, estimated, and theoretical quantities where the existing design supports these classifications.
+- Clearly distinguish total quantity from remaining available quantity.
+- Do not subtract current use twice if the recorded quantity already represents the remaining amount.
+- Do not treat a missing reserved quantity as zero unless the data model explicitly defines that behavior.
+- Do not interpret an unknown quantity as zero.
+- Prevent negative remaining quantities.
+- Do not combine incompatible units without an implemented and justified conversion.
+- Avoid double-counting member records and their aggregation-group totals in reports.
+- Do not include theoretical estimates in confirmed practical-availability totals without labeling them clearly.
+
+If the existing schema cannot safely distinguish these concepts, propose a migration and explain how existing data will be preserved.
+
+Do not implement material reservations or partial-reservation workflows unless they are confirmed to be within the approved system functions.
+
+## 8. Standardize the biomass-record workflow
+
+Review the following workflow and adapt it to the confirmed implementation:
+
+1. An authorized user registers or selects an existing biomass source.
+2. The encoder creates a biomass record using the required fields.
+3. The system checks required information and basic data validity.
+4. The record is submitted for review.
+5. An authorized reviewer validates it, returns it for correction, or rejects it.
+6. The encoder corrects returned information and resubmits it if permitted.
+7. Eligible validated records may appear in buyer-facing listings.
+8. Authorized users update availability and other relevant information.
+9. Changes that affect validated information follow the approved re-review rules.
+10. Stale, expired, unavailable, or archived information is excluded from buyer results when required by policy.
+
+Do not claim that this workflow is already implemented unless it has been verified. Implement missing steps only where consistent with the thesis and existing architecture.
+
+## 9. Standardize buyer inquiries
+
+Inspect the existing inquiry statuses, which appear to include:
+
+`SUBMITTED`, `UNDER_REVIEW`, `RESPONDED`, `FOLLOW_UP`, `CLOSED`, `WITHDRAWN`, `NO_LONGER_AVAILABLE`, and `EXPIRED`.
+
+Define valid transitions and permitted actions for each status.
+
+Requirements:
+
+- Buyers can submit inquiries for eligible listings.
+- Buyers can view only their own inquiries unless a specific administrative permission applies.
+- Authorized coordinators can view and respond to inquiries assigned to their scope.
+- Inquiry responses must be distinguishable from final transactions.
+- Withdrawal, closure, expiry, and unavailability must have clear meanings.
+- The system must not automatically reserve or deduct biomass quantities merely because an inquiry was submitted.
+- The system must not mark an inquiry as a completed sale.
+- An inquiry referring to unavailable or expired information must be handled according to an explicit rule.
+- Status changes should be recorded in the audit trail where audit logging is supported.
+
+Do not introduce new inquiry statuses unless needed and justified. If existing statuses overlap, recommend a minimal, backward-compatible correction.
+
+## 10. Review aggregation groups
+
+Implement information-level grouping only.
+
+Before records can be grouped, check whether they are compatible according to the confirmed rules, including:
+
+- Biomass type.
+- Unit of measurement.
+- Relevant availability period.
+- Record eligibility.
+- Duplicate membership.
+- Quantity basis, such as measured versus estimated.
+
+Do not sum quantities if their units or meanings are incompatible.
+
+Prevent the same record from being included multiple times in one group. Prevent reports from counting both an aggregate total and its member records as independent biomass.
+
+Do not claim that aggregation creates physical inventory, guarantees supply, or confirms material has been transported to a hub.
+
+If the current code lacks compatibility checks, add them without introducing unapproved logistics or inventory-management functionality.
+
+## 11. Supabase database and security requirements
+
+Inspect the current schema and compare it with the requirements above.
+
+Review or update, as necessary:
+
+- User profile and role relationships.
+- Biomass sources.
+- Biomass records.
+- Validation or review history.
+- Aggregation groups and their membership relationships.
+- Buyer inquiries and inquiry responses.
+- Audit logs.
+- Reference data.
+- Existing enums and check constraints.
+- Foreign keys and deletion behavior.
+- Required-field constraints.
+- Unique constraints.
+- Indexes for commonly used filters and relationships.
+- Row Level Security policies.
+- Database functions, triggers, and grants.
+
+Use normalized relational structures where appropriate. Avoid duplicating information that can be referenced safely through foreign keys.
+
+### Security requirements
+
+Enable and verify RLS for tables exposed to application users through Supabase APIs.
+
+Policies must enforce the approved role and ownership rules at the database level.
+
+Examples of required behavior:
+
+- Buyers can read only eligible buyer-facing listings and their own inquiries.
+- Buyers cannot change validation status or other users' inquiry records.
+- Coordinators can manage records only within their authorized scope.
+- LGU representatives can perform only their approved review, monitoring, and reporting actions.
+- Administrators can perform approved administrative operations.
+- Unauthorized users cannot modify roles, validation decisions, audit entries, or restricted reference data.
+
+These are policy goals; inspect the existing ownership and scope model before writing the actual SQL. Do not invent a cooperative-to-user relationship or hub assignment if none exists.
+
+Never expose the Supabase service-role key in client-side code. Do not rely solely on frontend checks for security. Avoid overly broad policies such as unrestricted authenticated-user access.
+
+Do not create policies that conflict with existing policies or accidentally lock legitimate users out.
+
+## 12. Preserve auditability and assisted data entry
+
+Where supported by the thesis and existing schema, maintain clear attribution for:
+
+- The contributor or organization that supplied the information.
+- The authenticated encoder who entered or updated the record.
+- The reviewer who made a validation decision.
+- The time of submission and validation.
+- The latest update time.
+- Relevant status transitions and material field changes.
+
+Do not assume all these fields already exist.
+
+Recommend additions where necessary, and distinguish required fields from optional fields. Use stable user identifiers and appropriate foreign keys for authenticated actors.
+
+Audit events should be written through a trustworthy server-side or database-controlled process where feasible. Prevent ordinary users from editing or deleting audit records through unrestricted client operations.
+
+Do not store sensitive credentials or unnecessary personal data in audit logs.
+
+If before-and-after values are required, implement them deliberately and safely. Do not claim a complete audit trail when only some actions are recorded.
+
+## 13. Maps, reports, and access control
+
+Inspect the existing map and report screens.
+
+- Respect role-based access to biomass information.
+- Avoid exposing precise source coordinates to unauthorized users.
+- Do not invent a location-generalization policy; identify the current behavior and recommend a policy if needed.
+- Ensure map markers and dashboard statistics follow the same eligibility rules as listings.
+- Ensure unavailable, expired, or otherwise excluded records are not misleadingly represented as available.
+- Ensure report totals follow the same quantity and aggregation rules as the rest of the application.
+- Verify whether reports and exports are actually implemented and which roles may use them.
+- Do not claim that a screenshot demonstrates working exports or correct calculations.
+
+Preserve existing useful map and report features that are within scope.
+
+## 14. Usability and academic evaluation alignment
+
+Align the implementation with ISO/IEC 25010:2011, focusing on:
+
+**Functional Suitability**
+- Functional completeness.
+- Functional correctness.
+- Functional appropriateness.
+
+**Usability**
+- Ease of use.
+- Learnability.
+- Interface clarity.
+- Efficiency of user interaction.
+
+The four usability indicators above are the study's defined indicators; do not present them as four official ISO/IEC 25010:2011 subcharacteristics.
+
+Improve consistency and clarity through:
+
+- Consistent role and page labels.
+- Clear required-field indicators.
+- Quantity units shown beside quantities.
+- Plain-language explanations of statuses.
+- Clear validation errors.
+- Feedback after saving, submitting, updating, or withdrawing.
+- Clear empty states.
+- Visible review progress.
+- Confirmation before destructive actions.
+- Consistent loading and error handling.
+
+Avoid unnecessary redesign. Keep the existing visual style unless a change is needed to resolve a usability or functional inconsistency.
+
+## 15. Migration safety and data preservation
+
+Before changing the schema:
+
+1. Inspect the existing migration history and database objects.
+2. Identify existing records and relationships that could be affected.
+3. Prepare a migration plan.
+4. Preserve valid existing data.
+5. Map old status values to new values explicitly where necessary.
+6. Avoid destructive column or enum changes without a safe migration strategy.
+7. Do not reset or drop production tables.
+8. Do not assume that applying SQL locally means the production database has been updated.
+
+Prefer additive, reversible migrations when practical. If an existing enum must change, use a migration approach supported by the actual PostgreSQL version and deployment process.
+
+Include data backfill steps, validation queries, rollback considerations, and deployment order where relevant.
+
+Never execute destructive production changes without explicit approval.
+
+## 16. Implementation and testing requirements
+
+Make code changes only after documenting the findings and proposed plan.
+
+Then:
+
+- Update shared role and permission definitions.
+- Update relevant frontend components and routes.
+- Update service or data-access logic.
+- Update database types and generated types where applicable.
+- Update Supabase migrations and RLS policies as necessary.
+- Remove inconsistent duplicate permission checks.
+- Preserve the existing mock-data mode if it is intentionally supported.
+- Clearly distinguish mock mode from live Supabase persistence.
+- Handle loading, errors, empty results, and unauthorized actions consistently.
+
+Test the following scenarios:
+
+1. An unauthorized user attempts to access a restricted route.
+2. A buyer attempts to modify a biomass record.
+3. A buyer attempts to read another buyer's inquiry.
+4. An authorized encoder submits a record.
+5. An authorized reviewer validates, returns, or rejects a record.
+6. A returned record is corrected and resubmitted, if permitted.
+7. An ineligible record is excluded from buyer listings.
+8. An inquiry is submitted, answered, withdrawn, or closed according to the rules.
+9. Quantity calculations handle missing values, different units, and current use correctly.
+10. Aggregation prevents duplicate membership and double-counting.
+11. Audit events are created for the required actions.
+12. RLS policies prevent unauthorized database reads and writes.
+13. Maps, dashboards, and reports use consistent eligibility rules.
+14. Both the configured Supabase mode and the mock-data mode behave as intended, if both are supported.
+
+Use automated tests where the project supports them. Report which tests actually ran and their results. Do not claim that a test passed if it was not executed.
+
+## 17. Required deliverables
+
+Complete the work in this order.
+
+### Deliverable A — Findings report
+List each inconsistency found, its source, its impact, and the proposed resolution.
+
+### Deliverable B — Role and workflow matrix
+Show each formal role, its authorized actions, and any unresolved permission decisions.
+
+### Deliverable C — Database change plan
+List:
+- Existing tables, columns, enums, constraints, and policies that can be reused.
+- Required schema changes.
+- Required indexes and relationships.
+- RLS policy changes.
+- Triggers and database functions that need modification.
+- Data migration and backfill requirements.
+- Decisions requiring confirmation.
+
+### Deliverable D — Updated code
+Apply the necessary changes to the existing project. Identify changed files and explain each meaningful change.
+
+### Deliverable E — Supabase migration SQL
+Provide complete, ordered SQL migration files appropriate for the existing schema. Include safe backfills and verification queries where necessary. Do not provide disconnected SQL snippets that depend on unstated assumptions.
+
+### Deliverable F — Testing report
+List tests executed, results, unresolved failures, and any steps that require manual testing in the actual Supabase project.
+
+### Deliverable G — Remaining decisions
+Clearly identify any decisions that cannot be settled from the thesis, screenshots, code, or database evidence. Do not silently make academic or operational decisions on the user's behalf.
+
+## 18. Rules you must follow
+
+- Do not rebuild the application from scratch.
+- Do not change the research scope.
+- Do not invent completed functionality.
+- Do not fabricate schema names or claim access to a database you cannot inspect.
+- Do not automatically introduce separate farmer accounts.
+- Do not treat inquiries as reservations or sales.
+- Do not treat aggregation as physical collection or inventory.
+- Do not assume missing quantities are zero.
+- Do not assume every validated record is currently available.
+- Do not give every role the same permissions.
+- Do not rely on the frontend alone for authorization.
+- Do not destroy or reset existing data.
+- Do not claim that the code, migrations, or tests are complete without evidence.
+- Keep changes focused, explainable, and consistent with the thesis.
+
+**Start by inspecting the available thesis, screenshots, codebase, and database configuration. Produce Deliverable A and a proposed change plan before making destructive or ambiguous changes. Then implement the confirmed changes and produce all remaining deliverables. If a decision is essential and the available evidence cannot resolve it, ask a concise question rather than guessing.**

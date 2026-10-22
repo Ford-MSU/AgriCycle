@@ -213,12 +213,12 @@ export const MOCK_INQUIRIES: Inquiry[] = [
     id: 'INQ-1001',
     buyerUserId: 'user-buyer',
     targetType: 'RECORD',
-    targetId: 'REC-1002', // Wood Chips record
-    biomassTypeId: 'ref-bio-7', // Wood Chips (consistent with REC-1002)
-    requestedQuantity: 200,
-    requestedUnit: 'ref-unit-1', // kg
-    intendedUse: 'Industrial Boiler Fuel',
-    preferredAvailabilityPeriod: 'Mid-September',
+    targetId: 'REC-1001', // Active Validated Rice Husk record
+    biomassTypeId: 'ref-bio-1', // Rice Husk
+    requestedQuantity: 100,
+    requestedUnit: 'ref-unit-3', // Bags 50kg
+    intendedUse: 'Mushroom Cultivation & Soil Conditioner',
+    preferredAvailabilityPeriod: 'Immediate delivery',
     status: InquiryStatus.UNDER_REVIEW,
     submittedAt: daysAgo(2),
     updatedAt: daysAgo(1),
@@ -228,7 +228,8 @@ export const MOCK_INQUIRIES: Inquiry[] = [
         inquiryId: 'INQ-1001',
         newStatus: InquiryStatus.SUBMITTED,
         changedBy: 'user-buyer',
-        changedAt: daysAgo(2)
+        changedAt: daysAgo(2),
+        notes: 'Initial inquiry submitted for active Rice Husk'
       },
       {
         id: 'inqh-2',
@@ -237,7 +238,7 @@ export const MOCK_INQUIRIES: Inquiry[] = [
         newStatus: InquiryStatus.UNDER_REVIEW,
         changedBy: 'user-coord',
         changedAt: daysAgo(1),
-        notes: 'Checking exact availability with the source.'
+        notes: 'Checking exact warehouse pickup schedule with the cooperative.'
       }
     ]
   }
