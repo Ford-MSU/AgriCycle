@@ -235,6 +235,22 @@ export const Inquiries: React.FC = () => {
                     <span className="text-gray-500 block text-xs">Submitted At</span>
                     <span>{format(new Date(selectedInquiry.submittedAt), 'MMM d, yyyy HH:mm')}</span>
                   </div>
+                  {selectedInquiry.preferredCollectionDate && (
+                    <div>
+                      <span className="text-gray-500 block text-xs">Preferred Collection Date</span>
+                      <span className="font-medium text-gray-900">
+                        {selectedInquiry.preferredCollectionDate}
+                      </span>
+                    </div>
+                  )}
+                  {selectedInquiry.preferredPickupTime && (
+                    <div>
+                      <span className="text-gray-500 block text-xs">Preferred Pickup Time</span>
+                      <span className="font-medium text-gray-900">
+                        {selectedInquiry.preferredPickupTime}
+                      </span>
+                    </div>
+                  )}
                   {selectedInquiry.intendedUse && (
                     <div>
                       <span className="text-gray-500 block text-xs">Intended Use</span>
@@ -249,8 +265,8 @@ export const Inquiries: React.FC = () => {
                   )}
                   {selectedInquiry.additionalRequirements && (
                     <div className="col-span-2">
-                      <span className="text-gray-500 block text-xs">Notes/Requirements</span>
-                      <p className="whitespace-pre-wrap mt-1 text-gray-700 bg-gray-50 p-3 rounded-md">
+                      <span className="text-gray-500 block text-xs">Notes & Requirements</span>
+                      <p className="whitespace-pre-wrap mt-1 text-gray-700 bg-gray-50 p-3 rounded-md border border-gray-100">
                         {selectedInquiry.additionalRequirements}
                       </p>
                     </div>

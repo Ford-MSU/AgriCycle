@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { NavLink, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
+import { InactivityTracker } from '../components/InactivityTracker';
 import { Role } from '../types';
 import { cn } from '../utils/cn';
+import { format } from 'date-fns';
 import { 
   Leaf, 
   LayoutDashboard, 
@@ -13,18 +15,19 @@ import {
   List, 
   MessageSquare, 
   BarChart3, 
-  ShieldCheck, 
   Users, 
   LogOut,
   Menu,
   X,
   Bell,
   User as UserIcon,
-  Database,
   Activity,
   ClipboardList,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  CheckCheck,
+  CheckCircle2,
+  Clock
 } from 'lucide-react';
 
 const getRoleSpecificNavItems = (role: Role | undefined) => {
@@ -37,8 +40,6 @@ const getRoleSpecificNavItems = (role: Role | undefined) => {
       return [
         ...baseItems,
         { name: 'Users', path: '/users', icon: Users },
-        { name: 'Roles & Permissions', path: '/roles-permissions', icon: ShieldCheck },
-        { name: 'Reference Data', path: '/reference-data', icon: Database },
         { name: 'Reports & Analytics', path: '/reports', icon: BarChart3 },
         { name: 'Audit Logs', path: '/audit-logs', icon: ClipboardList },
       ];
@@ -74,9 +75,47 @@ const getRoleSpecificNavItems = (role: Role | undefined) => {
 
 export const MainLayout: React.FC = () => {
   const { user, logout } = useAuth();
-  const { isUsingSupabase, error, isLoading, refreshData } = useData();
+  const {
+    isUsingSupabase,
+    error,
+    isLoading,
+    refreshData,
+    notifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+  } = useData();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close notifications dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setNotificationsOpen(false);
+      }
+    };
+    if (notificationsOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [notificationsOpen]);
+
+  const userNotifications = notifications.filter(
+    (n) => !n.recipientRole || n.recipientRole === user?.role || n.recipientUserId === user?.id
+  );
+  const unreadCount = userNotifications.filter((n) => !n.isRead).length;
+
+  const handleNotificationClick = (n: any) => {
+    markNotificationRead(n.id);
+    setNotificationsOpen(false);
+    if (n.link) {
+      navigate(n.link);
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -87,6 +126,7 @@ export const MainLayout: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-agri-cream-50 overflow-hidden">
+      <InactivityTracker />
       {/* Mobile sidebar backdrop */}
       {mobileMenuOpen && (
         <div 
@@ -167,7 +207,6 @@ export const MainLayout: React.FC = () => {
               <Menu size={24} />
             </button>
             <h1 className="text-xl font-semibold text-gray-800 capitalize hidden sm:block">
-              {/* Dynamic title could go here based on route */}
               Platform Dashboard
             </h1>
           </div>
@@ -192,10 +231,85 @@ export const MainLayout: React.FC = () => {
                 <RefreshCw size={18} className={isLoading ? 'animate-spin text-agri-green-600' : ''} />
               </button>
             )}
-            <button className="text-agri-earth-500 hover:text-agri-green-600 relative">
-              <Bell size={20} />
-              <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-agri-accent-500 ring-2 ring-white"></span>
-            </button>
+
+            {/* Notification Bell with Dropdown */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setNotificationsOpen(!notificationsOpen)}
+                className="text-agri-earth-500 hover:text-agri-green-600 relative p-1.5 rounded-lg hover:bg-agri-green-50 transition-colors"
+                title="System Notifications"
+                aria-label="System Notifications"
+              >
+                <Bell size={20} />
+                {unreadCount > 0 && (
+                  <span className="absolute top-0 right-0 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full ring-2 ring-white shadow-sm animate-pulse">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-gray-900">Notifications</span>
+                      {unreadCount > 0 && (
+                        <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full font-semibold">
+                          {unreadCount} new
+                        </span>
+                      )}
+                    </div>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={() => markAllNotificationsRead()}
+                        className="text-xs text-agri-green-600 hover:text-agri-green-700 font-semibold flex items-center gap-1"
+                      >
+                        <CheckCheck size={14} /> Mark all read
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-[380px] overflow-y-auto divide-y divide-gray-50">
+                    {userNotifications.length === 0 ? (
+                      <div className="py-8 text-center text-sm text-gray-400">
+                        No notifications yet
+                      </div>
+                    ) : (
+                      userNotifications.slice(0, 15).map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={() => handleNotificationClick(n)}
+                          className={cn(
+                            "px-4 py-3 hover:bg-agri-green-50/50 cursor-pointer transition-colors flex gap-3 items-start",
+                            !n.isRead ? "bg-emerald-50/30" : ""
+                          )}
+                        >
+                          <div className={cn(
+                            "w-2 h-2 mt-2 rounded-full shrink-0",
+                            !n.isRead ? "bg-agri-green-600 ring-4 ring-agri-green-100" : "bg-transparent"
+                          )} />
+                          <div className="flex-1 min-w-0">
+                            <p className={cn(
+                              "text-xs truncate",
+                              !n.isRead ? "font-bold text-gray-900" : "font-medium text-gray-700"
+                            )}>
+                              {n.title}
+                            </p>
+                            <p className="text-xs text-agri-earth-600 mt-0.5 line-clamp-2">
+                              {n.message}
+                            </p>
+                            <span className="text-[10px] text-gray-400 mt-1 block">
+                              {format(new Date(n.createdAt), 'MMM d, h:mm a')}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="hidden sm:flex items-center gap-2 border-l border-agri-green-100 pl-4">
               <span className="text-sm font-medium text-gray-700">{user?.name}</span>
               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-agri-green-100 text-agri-green-800 capitalize">

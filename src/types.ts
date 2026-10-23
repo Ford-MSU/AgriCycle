@@ -140,6 +140,8 @@ export interface Inquiry {
   requestedUnit: string;
   intendedUse?: string;
   preferredAvailabilityPeriod?: string;
+  preferredCollectionDate?: string;
+  preferredPickupTime?: string;
   additionalRequirements?: string;
   status: InquiryStatus;
   submittedAt: string;
@@ -158,12 +160,14 @@ export interface BiomassRecord {
   
   // Status and tracing
   status: RecordStatus;
+  externalAvailability?: 'AVAILABLE_TO_OTHERS' | 'NOT_AVAILABLE';
   isTheoreticalEstimate: boolean; // MUST distinguish theoretical vs reported practical availability
   
   // Practical details
   availabilityPeriodStart: string; // ISO date
   availabilityPeriodEnd: string; // ISO date
   currentUse: string;
+  currentUseQuantity?: number;
   reservedQuantity?: number;
   remainingQuantity?: number;
   condition: string;
@@ -171,6 +175,10 @@ export interface BiomassRecord {
   storage: string;
   accessLocationNotes: string;
   
+  // Feedback from validation
+  rejectionReason?: string;
+  returnReason?: string;
+
   // Audit stamps
   submitterId: string;
   createdAt: string; // ISO date
@@ -199,6 +207,26 @@ export interface AuditLog {
   notes?: string;
   details?: string;
   timestamp: string; // ISO date
+}
+
+export interface SystemNotification {
+  id: string;
+  recipientUserId?: string;
+  recipientRole?: Role;
+  title: string;
+  message: string;
+  link?: string;
+  isRead: boolean;
+  createdAt: string;
+  type:
+    | 'RECORD_SUBMITTED'
+    | 'RECORD_VALIDATED'
+    | 'RECORD_RETURNED'
+    | 'RECORD_REJECTED'
+    | 'INQUIRY_SUBMITTED'
+    | 'INQUIRY_RESPONDED'
+    | 'INQUIRY_STATUS_CHANGED'
+    | 'SYSTEM';
 }
 
 

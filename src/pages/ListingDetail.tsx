@@ -28,6 +28,8 @@ export const ListingDetail: React.FC = () => {
   const [inquiryQty, setInquiryQty] = useState<number | ''>('');
   const [inquiryUse, setInquiryUse] = useState('');
   const [inquiryPeriod, setInquiryPeriod] = useState('');
+  const [collectionDate, setCollectionDate] = useState('');
+  const [pickupTime, setPickupTime] = useState('09:00');
   const [inquiryNotes, setInquiryNotes] = useState('');
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -65,6 +67,11 @@ export const ListingDetail: React.FC = () => {
       }
     }
 
+    const schedulingNote = collectionDate
+      ? `[Preferred Collection Date: ${collectionDate}, Time: ${pickupTime || 'Flexible'}]`
+      : '';
+    const combinedRequirements = [schedulingNote, inquiryNotes.trim()].filter(Boolean).join('\n');
+
     setIsSubmitting(true);
     try {
       await addInquiry({
@@ -75,7 +82,9 @@ export const ListingDetail: React.FC = () => {
         requestedUnit: requestedUnitId,
         intendedUse: inquiryUse.trim() || undefined,
         preferredAvailabilityPeriod: inquiryPeriod.trim() || undefined,
-        additionalRequirements: inquiryNotes.trim() || undefined,
+        preferredCollectionDate: collectionDate || undefined,
+        preferredPickupTime: pickupTime || undefined,
+        additionalRequirements: combinedRequirements || undefined,
       });
       navigate('/inquiries');
     } catch (err: any) {
@@ -268,6 +277,7 @@ export const ListingDetail: React.FC = () => {
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                   value={inquiryQty}
                   onChange={(e) => setInquiryQty(e.target.value ? Number(e.target.value) : '')}
+                  required
                 />
               </div>
               <div>
@@ -275,32 +285,61 @@ export const ListingDetail: React.FC = () => {
                 <input
                   type="text"
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  placeholder="e.g. Fertilizer, Fuel, Biochar"
+                  placeholder="e.g. Organic Fertilizer, Biomass Fuel, Biochar"
                   value={inquiryUse}
                   onChange={(e) => setInquiryUse(e.target.value)}
                 />
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Preferred Collection Date (Optional)
+                </label>
+                <input
+                  type="date"
+                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  value={collectionDate}
+                  onChange={(e) => setCollectionDate(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Preferred Pickup Time Window (Optional)
+                </label>
+                <input
+                  type="time"
+                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  value={pickupTime}
+                  onChange={(e) => setPickupTime(e.target.value)}
+                />
+              </div>
+
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Preferred Availability / Collection Timeline (Optional)
+                  Preferred Availability / Collection Timeline Notes (Optional)
                 </label>
                 <input
                   type="text"
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  placeholder="e.g. Within 2 weeks, Next month"
+                  placeholder="e.g. Within next 2 weeks, Weekdays morning only"
                   value={inquiryPeriod}
                   onChange={(e) => setInquiryPeriod(e.target.value)}
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Additional Notes</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Additional Requirements</label>
                 <textarea
-                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 h-24"
-                  placeholder="Any specific requirements or coordination preferences..."
+                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 h-20"
+                  placeholder="Any logistics requirements, hauling vehicle specifications, or packaging needs..."
                   value={inquiryNotes}
                   onChange={(e) => setInquiryNotes(e.target.value)}
                 />
               </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 leading-relaxed">
+              <strong>Notice:</strong> Preferred collection date and pickup time are <strong>scheduling preferences, not confirmed appointments</strong>. Submitting an inquiry does not automatically reserve stock, guarantee inventory, or create a binding commercial contract.
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
@@ -308,7 +347,7 @@ export const ListingDetail: React.FC = () => {
                 Cancel
               </Button>
               <Button onClick={handleSubmitInquiry} icon={<Send size={16} />} isLoading={isSubmitting}>
-                Submit Non-Binding Inquiry
+                Submit Inquiry
               </Button>
             </div>
           </CardContent>

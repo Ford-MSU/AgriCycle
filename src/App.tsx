@@ -15,6 +15,7 @@ import { Inquiries } from './pages/Inquiries';
 import { MapView } from './pages/MapView';
 import { Reports } from './pages/Reports';
 import { AuditLogs } from './pages/AuditLogs';
+import { UsersPage } from './pages/Users';
 import { Role } from './types';
 
 // Simple protected route wrapper
@@ -71,6 +72,11 @@ export default function App() {
               <Route path="reports" element={
                 <ProtectedRoute allowedRoles={[Role.ADMINISTRATOR, Role.COORDINATOR, Role.LGU]}>
                   <Reports />
+                </ProtectedRoute>
+              } />
+              <Route path="users" element={
+                <ProtectedRoute allowedRoles={[Role.ADMINISTRATOR]}>
+                  <UsersPage />
                 </ProtectedRoute>
               } />
               <Route path="audit-logs" element={

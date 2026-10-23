@@ -1,131 +1,138 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
+import React, { useState, useMemo } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/Card';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
-import { RecordStatus } from '../types';
+import { BiomassRecord, RecordStatus, Role } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
-import { ArrowLeft, Save, Plus, MapPin } from 'lucide-react';
+import { ArrowLeft, Save, Plus, MapPin, Search, Check, AlertCircle, Info } from 'lucide-react';
+
+const BUTUAN_BARANGAYS = [
+  'Agusan Pequeño', 'Amparo', 'Ampayon', 'Anticala', 'Antongalon', 'Aupagan',
+  'Baan KM 3', 'Baan Riverside', 'Babag', 'Bading', 'Bancasi', 'Banza',
+  'Baobaoan', 'Basag', 'Bilay', 'Bit-os', 'Bitan-agan', 'Bobon', 'Bonbon',
+  'Bugabus', 'Cabcabon', 'Camayahan', 'Dagohoy', 'Dankias', 'De Oro',
+  'Diego Silang', 'Doongan', 'Dulag', 'Dumalagan', 'Florida', 'Golden Ribbon',
+  'Holy Redeemer', 'Humabon', 'Kinamlutan', 'Lapu-lapu', 'Lemon', 'Leon Kilat',
+  'Libertad', 'Limaha', 'Los Angeles', 'Lumbocan', 'Maguinda', 'Mahay',
+  'Mahogany', 'Maibu', 'Mandamo', 'Maon', 'Masao', 'Maug', 'New Society Village',
+  'Nong-nong', 'Obrero', 'Ong Yiu', 'Pangabugan', 'Pianing', 'Pigdaulan',
+  'Pinamanculan', 'Port Poyohon', 'Rajahi', 'Salvacion', 'San Ignacio',
+  'San Mateo', 'San Vicente', 'Santo Niño', 'Tagabaca', 'Taguibo', 'Taligaman',
+  'Tiniwisan', 'Tungao', 'Urduja', 'Villa Kananga'
+];
 
 interface CreateRecordFormProps {
+  initialRecord?: BiomassRecord;
   onCancel: () => void;
   onSuccess: (recordId: string) => void;
 }
 
-export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({ onCancel, onSuccess }) => {
+export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
+  initialRecord,
+  onCancel,
+  onSuccess,
+}) => {
   const { user } = useAuth();
   const {
     sources,
     locations,
     referenceData,
-    getBiomassTypes,
     getSource,
+    getLocation,
     addLocation,
     addSource,
     addRecord,
+    updateRecord,
   } = useData();
 
-  // Record Form State
-  const [sourceId, setSourceId] = useState('');
-  const [biomassTypeId, setBiomassTypeId] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [originalUnit, setOriginalUnit] = useState('');
-  const [isTheoreticalEstimate, setIsTheoreticalEstimate] = useState(false);
-  const [availabilityPeriodStart, setAvailabilityPeriodStart] = useState('');
-  const [availabilityPeriodEnd, setAvailabilityPeriodEnd] = useState('');
-  const [currentUse, setCurrentUse] = useState('');
-  const [reservedQuantity, setReservedQuantity] = useState('');
-  const [remainingQuantity, setRemainingQuantity] = useState('');
-  const [condition, setCondition] = useState('');
-  const [conditionNote, setConditionNote] = useState('');
-  const [storage, setStorage] = useState('');
-  const [accessLocationNotes, setAccessLocationNotes] = useState('');
+  const isEditing = Boolean(initialRecord);
 
-  // Source Creation State
+  // Section A: Source State
+  const initialSource = initialRecord ? getSource(initialRecord.sourceId) : undefined;
+  const initialLocation = initialSource
+    ? getLocation(initialSource.locationId)
+    : initialRecord
+    ? getLocation(initialRecord.locationId)
+    : undefined;
+
+  const [sourceId, setSourceId] = useState(initialRecord?.sourceId || '');
+  const [sourceType, setSourceType] = useState(initialSource?.type || 'Farm');
   const [isCreatingSource, setIsCreatingSource] = useState(false);
   const [newSourceName, setNewSourceName] = useState('');
-  const [newSourceType, setNewSourceType] = useState('Agricultural Coop');
-  const [newSourceLocationId, setNewSourceLocationId] = useState('');
   const [newSourceContact, setNewSourceContact] = useState('');
-  const [isSavingSource, setIsSavingSource] = useState(false);
+  const [selectedBarangay, setSelectedBarangay] = useState(initialLocation?.barangay || '');
+  const [barangaySearch, setBarangaySearch] = useState('');
+  const [showBarangayDropdown, setShowBarangayDropdown] = useState(false);
+  const [accessLocationNotes, setAccessLocationNotes] = useState(initialRecord?.accessLocationNotes || '');
 
-  // Location Creation State
-  const [isCreatingLocation, setIsCreatingLocation] = useState(false);
-  const [newBarangay, setNewBarangay] = useState('');
-  const [newCity, setNewCity] = useState('Butuan City');
-  const [newProvince, setNewProvince] = useState('Agusan del Norte');
-  const [newLat, setNewLat] = useState('');
-  const [newLng, setNewLng] = useState('');
-  const [isSavingLocation, setIsSavingLocation] = useState(false);
+  // Section B: Biomass Information State
+  const [biomassTypeId, setBiomassTypeId] = useState(initialRecord?.biomassTypeId || '');
+  const [quantity, setQuantity] = useState(initialRecord ? String(initialRecord.quantity) : '');
+  const [originalUnit, setOriginalUnit] = useState(initialRecord?.originalUnit || 'ref-unit-1');
+  const [condition, setCondition] = useState(initialRecord?.condition || 'Dry');
+  const [conditionNote, setConditionNote] = useState(initialRecord?.conditionNote || '');
+  const [storage, setStorage] = useState(initialRecord?.storage || 'Covered Warehouse');
+  const [isTheoreticalEstimate, setIsTheoreticalEstimate] = useState(initialRecord?.isTheoreticalEstimate || false);
+
+  // Section C: Utilization and Availability State
+  const [currentUseQuantity, setCurrentUseQuantity] = useState(
+    initialRecord?.currentUseQuantity !== undefined ? String(initialRecord.currentUseQuantity) : '0'
+  );
+  const [currentUseDescription, setCurrentUseDescription] = useState(initialRecord?.currentUse || 'Available / not currently used');
+  const [reservedQuantity, setReservedQuantity] = useState(
+    initialRecord?.reservedQuantity !== undefined ? String(initialRecord.reservedQuantity) : '0'
+  );
+  const [externalAvailability, setExternalAvailability] = useState<'AVAILABLE_TO_OTHERS' | 'NOT_AVAILABLE'>(
+    initialRecord?.externalAvailability || 'AVAILABLE_TO_OTHERS'
+  );
+  const [availabilityPeriodStart, setAvailabilityPeriodStart] = useState(
+    initialRecord?.availabilityPeriodStart ? initialRecord.availabilityPeriodStart.slice(0, 10) : ''
+  );
+  const [availabilityPeriodEnd, setAvailabilityPeriodEnd] = useState(
+    initialRecord?.availabilityPeriodEnd ? initialRecord.availabilityPeriodEnd.slice(0, 10) : ''
+  );
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  if (!user) return null;
+  // Filtered barangays for search
+  const filteredBarangays = useMemo(() => {
+    if (!barangaySearch) return BUTUAN_BARANGAYS.slice(0, 20);
+    return BUTUAN_BARANGAYS.filter((b) =>
+      b.toLowerCase().includes(barangaySearch.toLowerCase())
+    );
+  }, [barangaySearch]);
 
-  const handleCreateLocation = async () => {
-    setError('');
-    if (!newBarangay.trim() || !newCity.trim() || !newProvince.trim()) {
-      setError('Please provide Barangay, City, and Province for the new location.');
-      return;
-    }
+  // Derived calculations: Remaining Available Quantity
+  const numQuantity = Number(quantity) || 0;
+  const numCurrentUse = Number(currentUseQuantity) || 0;
+  const numReserved = Number(reservedQuantity) || 0;
+  const calculatedRemaining = Math.max(0, numQuantity - numCurrentUse - numReserved);
 
-    let coordinates: { lat: number; lng: number } | undefined;
-    if (newLat.trim() || newLng.trim()) {
-      const latNum = Number(newLat);
-      const lngNum = Number(newLng);
-      if (isNaN(latNum) || latNum < -90 || latNum > 90 || isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
-        setError('Please enter valid latitude (-90 to 90) and longitude (-180 to 180) coordinates.');
-        return;
-      }
-      coordinates = { lat: latNum, lng: lngNum };
-    }
-
-    setIsSavingLocation(true);
-    try {
-      const createdLoc = await addLocation({
-        barangay: newBarangay.trim(),
-        city: newCity.trim(),
-        province: newProvince.trim(),
-        coordinates,
-      });
-      setNewSourceLocationId(createdLoc.id);
-      setIsCreatingLocation(false);
-      setNewBarangay('');
-      setNewLat('');
-      setNewLng('');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to save location.');
-    } finally {
-      setIsSavingLocation(false);
+  // Dynamic source name label based on selected source type
+  const getSourceNameLabel = (type: string) => {
+    switch (type) {
+      case 'Farm':
+        return 'Farm Name';
+      case 'Rice Mill':
+        return 'Rice Mill Name';
+      case 'Agricultural Processor':
+        return 'Processing Facility Name';
+      default:
+        return 'Farm / Mill / Source Name';
     }
   };
 
-  const handleCreateSource = async () => {
-    setError('');
-    if (!newSourceName.trim() || !newSourceLocationId || !newSourceContact.trim()) {
-      setError('Please fill in all required source fields.');
-      return;
-    }
-
-    setIsSavingSource(true);
-    try {
-      const createdSource = await addSource({
-        name: newSourceName.trim(),
-        type: newSourceType,
-        locationId: newSourceLocationId,
-        contactPerson: newSourceContact.trim(),
-        cooperativeId: user.organizationId,
-      });
-
-      setSourceId(createdSource.id);
-      setIsCreatingSource(false);
-      setNewSourceName('');
-      setNewSourceContact('');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to register new source.');
-    } finally {
-      setIsSavingSource(false);
+  const handleSourceSelect = (selectedId: string) => {
+    setSourceId(selectedId);
+    const src = getSource(selectedId);
+    if (src) {
+      setSourceType(src.type);
+      const loc = getLocation(src.locationId);
+      if (loc) {
+        setSelectedBarangay(loc.barangay);
+      }
     }
   };
 
@@ -133,65 +140,130 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({ onCancel, on
     e.preventDefault();
     setError('');
 
-    if (!sourceId || !biomassTypeId || !quantity || !originalUnit || !availabilityPeriodStart || !availabilityPeriodEnd) {
-      setError('Please fill in all required fields.');
+    if (!biomassTypeId) {
+      setError('Please select a biomass type.');
       return;
     }
 
-    const qty = Number(quantity);
-    if (isNaN(qty) || qty <= 0) {
-      setError('Quantity must be a positive number.');
+    if (numQuantity <= 0 || isNaN(numQuantity)) {
+      setError('Quantity must be a valid positive number.');
       return;
     }
 
-    const reserved = reservedQuantity ? Number(reservedQuantity) : 0;
-    if (isNaN(reserved) || reserved < 0 || reserved > qty) {
-      setError('Reserved quantity cannot be negative or exceed total quantity.');
+    if (numCurrentUse < 0 || numReserved < 0) {
+      setError('Used and reserved quantities cannot be negative.');
       return;
     }
 
-    const remaining = remainingQuantity ? Number(remainingQuantity) : qty - reserved;
-    if (isNaN(remaining) || remaining < 0 || remaining > qty - reserved) {
-      setError('Remaining quantity cannot be negative or exceed (Total Quantity - Reserved Quantity).');
+    if (numCurrentUse + numReserved > numQuantity) {
+      setError('The sum of Current Use and Reserved Quantity cannot exceed Total Quantity.');
+      return;
+    }
+
+    if (!availabilityPeriodStart || !availabilityPeriodEnd) {
+      setError('Please specify both availability start and end dates.');
       return;
     }
 
     if (new Date(availabilityPeriodEnd) < new Date(availabilityPeriodStart)) {
-      setError('Availability end date cannot be before start date.');
-      return;
-    }
-
-    const source = getSource(sourceId);
-    if (!source) {
-      setError('Selected source is invalid.');
+      setError('Availability end date cannot be earlier than start date.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const created = await addRecord({
-        biomassTypeId,
-        quantity: qty,
-        originalUnit,
-        sourceId,
-        locationId: source.locationId,
-        status: RecordStatus.SUBMITTED,
-        isTheoreticalEstimate,
-        availabilityPeriodStart: new Date(availabilityPeriodStart).toISOString(),
-        availabilityPeriodEnd: new Date(availabilityPeriodEnd).toISOString(),
-        currentUse: currentUse.trim() || 'Not specified',
-        reservedQuantity: reserved,
-        remainingQuantity: remaining,
-        condition: condition.trim() || 'Not specified',
-        conditionNote: conditionNote.trim(),
-        storage: storage.trim() || 'Not specified',
-        accessLocationNotes: accessLocationNotes.trim() || 'Not specified',
-        submitterId: user.id,
-      });
+      let finalSourceId = sourceId;
+      let finalLocationId = initialRecord?.locationId || '';
 
-      onSuccess(created.id);
+      // If creating new source inline
+      if (isCreatingSource) {
+        if (!newSourceName.trim() || !selectedBarangay) {
+          setError('Please provide a source name and select a barangay.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Find or create location record
+        let loc = locations.find(
+          (l) => l.barangay.toLowerCase() === selectedBarangay.toLowerCase() && l.city === 'Butuan City'
+        );
+        if (!loc) {
+          loc = await addLocation({
+            barangay: selectedBarangay,
+            city: 'Butuan City',
+            province: 'Agusan del Norte',
+          });
+        }
+        finalLocationId = loc.id;
+
+        const newSource = await addSource({
+          name: newSourceName.trim(),
+          type: sourceType,
+          locationId: loc.id,
+          contactPerson: newSourceContact.trim() || user?.name || 'Authorized Contact',
+          cooperativeId: user?.organizationId,
+        });
+        finalSourceId = newSource.id;
+      } else {
+        if (!finalSourceId) {
+          setError('Please select an existing biomass source or create a new one.');
+          setIsSubmitting(false);
+          return;
+        }
+        const src = getSource(finalSourceId);
+        if (src) {
+          finalLocationId = src.locationId;
+        }
+      }
+
+      if (isEditing && initialRecord) {
+        await updateRecord(initialRecord.id, {
+          biomassTypeId,
+          quantity: numQuantity,
+          originalUnit,
+          sourceId: finalSourceId,
+          locationId: finalLocationId,
+          status: initialRecord.status === RecordStatus.RETURNED ? RecordStatus.SUBMITTED : initialRecord.status,
+          externalAvailability,
+          isTheoreticalEstimate,
+          availabilityPeriodStart: new Date(availabilityPeriodStart).toISOString(),
+          availabilityPeriodEnd: new Date(availabilityPeriodEnd).toISOString(),
+          currentUse: currentUseDescription.trim() || 'Not specified',
+          currentUseQuantity: numCurrentUse,
+          reservedQuantity: numReserved,
+          remainingQuantity: calculatedRemaining,
+          condition: condition.trim() || 'Dry',
+          conditionNote: conditionNote.trim(),
+          storage: storage.trim() || 'Covered Warehouse',
+          accessLocationNotes: accessLocationNotes.trim() || 'Accessible location',
+        });
+        onSuccess(initialRecord.id);
+      } else {
+        const created = await addRecord({
+          biomassTypeId,
+          quantity: numQuantity,
+          originalUnit,
+          sourceId: finalSourceId,
+          locationId: finalLocationId,
+          status: RecordStatus.SUBMITTED,
+          externalAvailability,
+          isTheoreticalEstimate,
+          availabilityPeriodStart: new Date(availabilityPeriodStart).toISOString(),
+          availabilityPeriodEnd: new Date(availabilityPeriodEnd).toISOString(),
+          currentUse: currentUseDescription.trim() || 'Not specified',
+          currentUseQuantity: numCurrentUse,
+          reservedQuantity: numReserved,
+          remainingQuantity: calculatedRemaining,
+          condition: condition.trim() || 'Dry',
+          conditionNote: conditionNote.trim(),
+          storage: storage.trim() || 'Covered Warehouse',
+          accessLocationNotes: accessLocationNotes.trim() || 'Accessible location',
+          submitterId: user?.id || 'system',
+        });
+        onSuccess(created.id);
+      }
     } catch (err: any) {
-      setError(err?.message || 'Failed to save biomass record to database.');
+      setError(err?.message || 'Failed to save biomass record.');
     } finally {
       setIsSubmitting(false);
     }
@@ -203,316 +275,189 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({ onCancel, on
         <button
           onClick={onCancel}
           className="p-2 -ml-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
+          aria-label="Back"
         >
           <ArrowLeft size={20} />
         </button>
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Add New Biomass Record</h2>
+          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
+            {isEditing ? 'Edit Biomass Record' : 'Create Biomass Record'}
+          </h2>
           <p className="text-sm text-agri-earth-500 mt-1">
-            Encode a new biomass availability record for validation.
+            Encode agricultural biomass availability, source details, and utilization parameters.
           </p>
         </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 text-red-600 p-4 rounded-lg text-sm border border-red-200">
-          {error}
+        <div className="bg-red-50 text-red-700 p-4 rounded-lg text-sm border border-red-200 flex items-start gap-2">
+          <AlertCircle size={18} className="shrink-0 mt-0.5 text-red-600" />
+          <span>{error}</span>
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
-          <CardHeader className="pb-3 border-b border-gray-100 bg-gray-50/50">
-            <CardTitle className="text-lg">1. Source Information</CardTitle>
+        {/* SECTION A: SOURCE INFORMATION */}
+        <Card className="border border-gray-200 shadow-sm">
+          <CardHeader className="pb-3 border-b border-gray-100 bg-gray-50/60">
+            <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-agri-green-600 text-white text-xs flex items-center justify-center font-bold">
+                A
+              </span>
+              Source Information
+            </CardTitle>
+            <CardDescription className="text-xs text-gray-500">
+              Identify the farm, mill, or agricultural supplier producing this biomass.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="pt-6 space-y-4">
-            {!isCreatingSource ? (
-              <div className="flex flex-col sm:flex-row gap-4 items-end">
-                <div className="flex-1 w-full">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Select Biomass Source *</label>
-                  <select
-                    className="w-full p-2 border border-gray-200 rounded text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                    value={sourceId}
-                    onChange={(e) => setSourceId(e.target.value)}
-                  >
-                    <option value="">-- Select Source --</option>
-                    {sources.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.type})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <Button
+          <CardContent className="pt-5 space-y-4">
+            <div className="flex items-center gap-4">
+              <label className="text-sm font-medium text-gray-700">Source Entry:</label>
+              <div className="flex gap-2">
+                <button
                   type="button"
-                  variant="outline"
+                  onClick={() => setIsCreatingSource(false)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                    !isCreatingSource
+                      ? 'bg-agri-green-50 border-agri-green-500 text-agri-green-800'
+                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  Choose Existing Source
+                </button>
+                <button
+                  type="button"
                   onClick={() => setIsCreatingSource(true)}
-                  icon={<Plus size={16} />}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                    isCreatingSource
+                      ? 'bg-agri-green-50 border-agri-green-500 text-agri-green-800'
+                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
                 >
-                  New Source
-                </Button>
+                  + Register New Source
+                </button>
               </div>
-            ) : (
-              <div className="bg-agri-green-50/30 p-4 rounded-lg border border-agri-green-100 space-y-4">
-                <h4 className="font-semibold text-agri-green-800 text-sm">Register New Source</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Source Name *"
-                    placeholder="e.g. Lumbocan Farm"
-                    value={newSourceName}
-                    onChange={(e) => setNewSourceName(e.target.value)}
-                  />
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Source Type *</label>
-                    <select
-                      className="w-full p-2 border border-gray-200 rounded text-sm focus:ring-agri-green-500 focus:border-agri-green-500 h-10"
-                      value={newSourceType}
-                      onChange={(e) => setNewSourceType(e.target.value)}
-                    >
-                      <option value="Agricultural Coop">Agricultural Coop</option>
-                      <option value="Industrial">Industrial</option>
-                      <option value="Farm">Farm</option>
-                      <option value="LGU Facility">LGU Facility</option>
-                    </select>
-                  </div>
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="block text-sm font-medium text-gray-700">Location *</label>
-                      {!isCreatingLocation && (
-                        <button
-                          type="button"
-                          onClick={() => setIsCreatingLocation(true)}
-                          className="text-xs text-agri-green-700 hover:underline flex items-center gap-1"
-                        >
-                          <MapPin size={12} /> + Add Barangay
-                        </button>
-                      )}
-                    </div>
-                    <select
-                      className="w-full p-2 border border-gray-200 rounded text-sm focus:ring-agri-green-500 focus:border-agri-green-500 h-10"
-                      value={newSourceLocationId}
-                      onChange={(e) => setNewSourceLocationId(e.target.value)}
-                    >
-                      <option value="">-- Select Location --</option>
-                      {locations.map((loc) => (
-                        <option key={loc.id} value={loc.id}>
-                          {loc.barangay}, {loc.city}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <Input
-                    label="Contact Person *"
-                    placeholder="Name of contact"
-                    value={newSourceContact}
-                    onChange={(e) => setNewSourceContact(e.target.value)}
-                  />
-                </div>
+            </div>
 
-                {isCreatingLocation && (
-                  <div className="bg-white p-4 rounded-md border border-gray-200 space-y-3">
-                    <h5 className="text-xs font-semibold uppercase text-gray-700">New Barangay Location</h5>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <Input
-                        label="Barangay *"
-                        placeholder="e.g. Tiniwisan"
-                        value={newBarangay}
-                        onChange={(e) => setNewBarangay(e.target.value)}
-                      />
-                      <Input
-                        label="City *"
-                        value={newCity}
-                        onChange={(e) => setNewCity(e.target.value)}
-                      />
-                      <Input
-                        label="Province *"
-                        value={newProvince}
-                        onChange={(e) => setNewProvince(e.target.value)}
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <Input
-                        label="Latitude (Optional)"
-                        type="number"
-                        step="any"
-                        placeholder="e.g. 8.9612"
-                        value={newLat}
-                        onChange={(e) => setNewLat(e.target.value)}
-                      />
-                      <Input
-                        label="Longitude (Optional)"
-                        type="number"
-                        step="any"
-                        placeholder="e.g. 125.5681"
-                        value={newLng}
-                        onChange={(e) => setNewLng(e.target.value)}
-                      />
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <Button type="button" size="sm" variant="outline" onClick={() => setIsCreatingLocation(false)}>
-                        Cancel
-                      </Button>
-                      <Button type="button" size="sm" onClick={handleCreateLocation} isLoading={isSavingLocation}>
-                        Save Location
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex gap-2 justify-end">
-                  <Button type="button" variant="outline" onClick={() => setIsCreatingSource(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="button" onClick={handleCreateSource} isLoading={isSavingSource}>
-                    Save Source
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3 border-b border-gray-100 bg-gray-50/50">
-            <CardTitle className="text-lg">2. Biomass Availability Details</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {!isCreatingSource ? (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Biomass Type *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Select Existing Source *
+                </label>
                 <select
-                  className="w-full p-2 border border-gray-200 rounded text-sm focus:ring-agri-green-500 focus:border-agri-green-500 h-10"
-                  value={biomassTypeId}
-                  onChange={(e) => setBiomassTypeId(e.target.value)}
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                  value={sourceId}
+                  onChange={(e) => handleSourceSelect(e.target.value)}
                 >
-                  <option value="">-- Select Biomass Type --</option>
-                  {getBiomassTypes().map((bt) => (
-                    <option key={bt.id} value={bt.id}>
-                      {bt.label}
+                  <option value="">-- Choose Source --</option>
+                  {sources.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.type}) — {getLocation(s.locationId)?.barangay || 'Butuan'}
                     </option>
                   ))}
                 </select>
               </div>
+            ) : (
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Source Type *</label>
+                    <select
+                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm bg-white focus:ring-agri-green-500 focus:border-agri-green-500"
+                      value={sourceType}
+                      onChange={(e) => setSourceType(e.target.value)}
+                    >
+                      <option value="Farm">Farm</option>
+                      <option value="Rice Mill">Rice Mill</option>
+                      <option value="Agricultural Processor">Agricultural Processor</option>
+                      <option value="Other">Other Agricultural Source</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {getSourceNameLabel(sourceType)} *
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                      placeholder={`e.g. ${sourceType === 'Farm' ? 'Green Valley Farm' : 'Golden Grain Mill'}`}
+                      value={newSourceName}
+                      onChange={(e) => setNewSourceName(e.target.value)}
+                    />
+                  </div>
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Availability Classification *</label>
-                <select
-                  className="w-full p-2 border border-gray-200 rounded text-sm focus:ring-agri-green-500 focus:border-agri-green-500 h-10"
-                  value={isTheoreticalEstimate ? 'true' : 'false'}
-                  onChange={(e) => setIsTheoreticalEstimate(e.target.value === 'true')}
-                >
-                  <option value="false">Practical Availability (Currently available supply)</option>
-                  <option value="true">Theoretical Estimate (Potential yield, not current supply)</option>
-                </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Barangay (Butuan City) *
+                    </label>
+                    <div className="relative">
+                      <div
+                        className="w-full p-2.5 border border-gray-200 rounded-lg text-sm bg-white flex items-center justify-between cursor-pointer"
+                        onClick={() => setShowBarangayDropdown(!showBarangayDropdown)}
+                      >
+                        <span className={selectedBarangay ? 'text-gray-900 font-medium' : 'text-gray-400'}>
+                          {selectedBarangay || 'Select Barangay'}
+                        </span>
+                        <MapPin size={16} className="text-gray-400" />
+                      </div>
+
+                      {showBarangayDropdown && (
+                        <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-2 max-h-56 overflow-y-auto">
+                          <input
+                            type="text"
+                            placeholder="Type to search barangay..."
+                            className="w-full p-2 text-xs border border-gray-200 rounded-md mb-2 focus:ring-agri-green-500 focus:border-agri-green-500"
+                            value={barangaySearch}
+                            onChange={(e) => setBarangaySearch(e.target.value)}
+                            autoFocus
+                          />
+                          <div className="space-y-1">
+                            {filteredBarangays.map((b) => (
+                              <div
+                                key={b}
+                                onClick={() => {
+                                  setSelectedBarangay(b);
+                                  setShowBarangayDropdown(false);
+                                  setBarangaySearch('');
+                                }}
+                                className={`px-2.5 py-1.5 text-xs rounded cursor-pointer flex items-center justify-between hover:bg-agri-green-50 hover:text-agri-green-800 ${
+                                  selectedBarangay === b ? 'bg-agri-green-50 font-bold text-agri-green-800' : 'text-gray-700'
+                                }`}
+                              >
+                                <span>{b}</span>
+                                {selectedBarangay === b && <Check size={14} className="text-agri-green-600" />}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact Person</label>
+                    <input
+                      type="text"
+                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                      placeholder="e.g. Juan dela Cruz"
+                      value={newSourceContact}
+                      onChange={(e) => setNewSourceContact(e.target.value)}
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Input
-                label="Total Quantity *"
-                type="number"
-                min="0"
-                step="any"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-              />
-              <Input
-                label="Reserved Quantity (Optional)"
-                type="number"
-                min="0"
-                step="any"
-                value={reservedQuantity}
-                onChange={(e) => setReservedQuantity(e.target.value)}
-              />
-              <Input
-                label="Remaining Quantity"
-                type="number"
-                min="0"
-                step="any"
-                value={remainingQuantity}
-                onChange={(e) => setRemainingQuantity(e.target.value)}
-                placeholder={quantity ? String(Math.max(0, Number(quantity) - (Number(reservedQuantity) || 0))) : ''}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Unit *</label>
-                <select
-                  className="w-full p-2 border border-gray-200 rounded text-sm focus:ring-agri-green-500 focus:border-agri-green-500 h-10"
-                  value={originalUnit}
-                  onChange={(e) => setOriginalUnit(e.target.value)}
-                >
-                  <option value="">-- Select Unit --</option>
-                  {referenceData
-                    .filter((r) => r.category === 'UNIT' && r.isActive)
-                    .map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.label}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input
-                label="Availability Start Date *"
-                type="date"
-                value={availabilityPeriodStart}
-                onChange={(e) => setAvailabilityPeriodStart(e.target.value)}
-              />
-              <Input
-                label="Availability End Date *"
-                type="date"
-                value={availabilityPeriodEnd}
-                onChange={(e) => setAvailabilityPeriodEnd(e.target.value)}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3 border-b border-gray-100 bg-gray-50/50">
-            <CardTitle className="text-lg">3. Condition & Logistics</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input
-                label="Condition / Quality Observation"
-                placeholder="e.g. Dry, Wet, Mixed"
-                value={condition}
-                onChange={(e) => setCondition(e.target.value)}
-              />
-              <Input
-                label="Storage Condition"
-                placeholder="e.g. Open yard, Covered warehouse"
-                value={storage}
-                onChange={(e) => setStorage(e.target.value)}
-              />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input
-                label="Quality / Condition Notes (Optional)"
-                placeholder="e.g. Stored in covered warehouse, clean bags"
-                value={conditionNote}
-                onChange={(e) => setConditionNote(e.target.value)}
-              />
-              <Input
-                label="Present/Current Use"
-                placeholder="e.g. Used as fuel, Left in field, Available"
-                value={currentUse}
-                onChange={(e) => setCurrentUse(e.target.value)}
-              />
-            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Access & Practical Availability Notes
+                Access & Location Notes (Optional)
               </label>
-              <textarea
-                className="w-full p-3 border border-gray-200 rounded-md text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                rows={3}
-                placeholder="e.g. Accessible by 10-wheeler truck"
+              <input
+                type="text"
+                className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                placeholder="e.g. Near Km 7 highway, accessible by 6-wheeler trucks, gated warehouse"
                 value={accessLocationNotes}
                 onChange={(e) => setAccessLocationNotes(e.target.value)}
               />
@@ -520,12 +465,265 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({ onCancel, on
           </CardContent>
         </Card>
 
-        <div className="flex justify-end gap-3">
-          <Button type="button" variant="outline" onClick={onCancel}>
+        {/* SECTION B: BIOMASS INFORMATION */}
+        <Card className="border border-gray-200 shadow-sm">
+          <CardHeader className="pb-3 border-b border-gray-100 bg-gray-50/60">
+            <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-agri-green-600 text-white text-xs flex items-center justify-center font-bold">
+                B
+              </span>
+              Biomass Information
+            </CardTitle>
+            <CardDescription className="text-xs text-gray-500">
+              Specify biomass category, total quantity produced, and physical conditions.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-5 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Biomass Category *</label>
+                <select
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                  value={biomassTypeId}
+                  onChange={(e) => setBiomassTypeId(e.target.value)}
+                >
+                  <option value="">-- Choose Category --</option>
+                  {referenceData
+                    .filter((r) => r.category === 'BIOMASS_TYPE')
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.label}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Total Quantity *</label>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="any"
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  placeholder="e.g. 500"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Unit of Measure *</label>
+                <select
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                  value={originalUnit}
+                  onChange={(e) => setOriginalUnit(e.target.value)}
+                >
+                  {referenceData
+                    .filter((r) => r.category === 'UNIT')
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.label}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Condition</label>
+                <select
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                  value={condition}
+                  onChange={(e) => setCondition(e.target.value)}
+                >
+                  <option value="Dry">Dry (&lt;14% moisture)</option>
+                  <option value="Semi-Dry">Semi-Dry (15-25% moisture)</option>
+                  <option value="Wet / Fresh">Wet / Fresh (&gt;25% moisture)</option>
+                  <option value="Baled">Baled / Compacted</option>
+                  <option value="Loose / Bulk">Loose / Bulk Pile</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Storage Setup</label>
+                <select
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                  value={storage}
+                  onChange={(e) => setStorage(e.target.value)}
+                >
+                  <option value="Covered Warehouse">Covered Warehouse</option>
+                  <option value="Open Shed">Open Shed (Roof only)</option>
+                  <option value="Open Field Tarpaulin">Open Field (Tarpaulin covered)</option>
+                  <option value="Open Air Pile">Open Air Pile</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Condition Notes (Optional)</label>
+              <input
+                type="text"
+                className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                placeholder="e.g. Free of soil debris, stored off-ground on pallets"
+                value={conditionNote}
+                onChange={(e) => setConditionNote(e.target.value)}
+              />
+            </div>
+
+            <div className="pt-2">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={isTheoreticalEstimate}
+                  onChange={(e) => setIsTheoreticalEstimate(e.target.checked)}
+                  className="rounded text-agri-green-600 focus:ring-agri-green-500"
+                />
+                <span>
+                  Check if this is a <strong>Theoretical Estimate</strong> (e.g. crop-yield calculation rather than measured scale weight).
+                </span>
+              </label>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* SECTION C: UTILIZATION & AVAILABILITY */}
+        <Card className="border border-gray-200 shadow-sm">
+          <CardHeader className="pb-3 border-b border-gray-100 bg-gray-50/60">
+            <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-agri-green-600 text-white text-xs flex items-center justify-center font-bold">
+                C
+              </span>
+              Utilization & Availability
+            </CardTitle>
+            <CardDescription className="text-xs text-gray-500">
+              Classify current internal utilization versus remaining supply available for coordination and external buyers.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-5 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Quantity Currently Used (Internal Use)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  placeholder="0"
+                  value={currentUseQuantity}
+                  onChange={(e) => setCurrentUseQuantity(e.target.value)}
+                />
+                <p className="text-xs text-gray-500 mt-1">Biomass used for farm soil conditioning, boiler fuel, etc.</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Current Internal Use Description
+                </label>
+                <input
+                  type="text"
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  placeholder="e.g. Mulching, Boiler combustion, Cattle bedding"
+                  value={currentUseDescription}
+                  onChange={(e) => setCurrentUseDescription(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Quantity Reserved / Committed
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  placeholder="0"
+                  value={reservedQuantity}
+                  onChange={(e) => setReservedQuantity(e.target.value)}
+                />
+                <p className="text-xs text-gray-500 mt-1">Biomass already promised or earmarked.</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  External Availability
+                </label>
+                <select
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                  value={externalAvailability}
+                  onChange={(e) => setExternalAvailability(e.target.value as any)}
+                >
+                  <option value="AVAILABLE_TO_OTHERS">Available to Others / Market</option>
+                  <option value="NOT_AVAILABLE">Not Available to Others (Internal Only)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Governs whether remaining volume can be linked to buyers.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Availability Start Date *</label>
+                <input
+                  type="date"
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  value={availabilityPeriodStart}
+                  onChange={(e) => setAvailabilityPeriodStart(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Availability End Date *</label>
+                <input
+                  type="date"
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  value={availabilityPeriodEnd}
+                  onChange={(e) => setAvailabilityPeriodEnd(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Live Calculation Display */}
+            <div className="p-4 bg-agri-green-50/70 border border-agri-green-200 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-agri-green-800">
+                  Calculated Remaining Available Supply
+                </p>
+                <p className="text-xs text-agri-earth-600 mt-0.5">
+                  Formula: Total ({numQuantity}) − Current Use ({numCurrentUse}) − Reserved ({numReserved})
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="text-2xl font-bold text-agri-green-700">
+                  {calculatedRemaining.toLocaleString()}
+                </span>
+                <span className="text-sm font-medium text-agri-green-900 ml-1.5">
+                  {referenceData.find((r) => r.id === originalUnit)?.label || 'Units'}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-lg flex items-start gap-2 text-xs text-amber-800">
+              <Info size={16} className="shrink-0 mt-0.5 text-amber-700" />
+              <span>
+                <strong>Listing Eligibility Notice:</strong> A record will only be discoverable by buyers in the Biomass Listings once it achieves <strong>VALIDATED</strong> review status from the LGU and is marked <strong>Available to Others</strong>.
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
             Cancel
           </Button>
-          <Button type="submit" icon={<Save size={18} />} isLoading={isSubmitting}>
-            Submit Biomass Record
+          <Button type="submit" isLoading={isSubmitting} icon={<Save size={16} />}>
+            {isEditing ? 'Save Changes' : 'Submit Biomass Record'}
           </Button>
         </div>
       </form>

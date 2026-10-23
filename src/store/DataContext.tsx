@@ -15,6 +15,8 @@ import {
   Inquiry,
   InquiryStatus,
   User,
+  Role,
+  SystemNotification,
 } from '../types';
 import { db } from './mockDb';
 import { useAuth } from './AuthContext';
@@ -43,10 +45,16 @@ interface DataContextType {
   aggregationMembers: AggregationMember[];
   inquiries: Inquiry[];
   profiles: User[];
+  notifications: SystemNotification[];
   isLoading: boolean;
   error: string | null;
   isUsingSupabase: boolean;
   refreshData: () => Promise<void>;
+
+  // Notification actions
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: () => void;
+  addNotification: (notification: Omit<SystemNotification, 'id' | 'createdAt' | 'isRead'>) => void;
 
   // Helpers
   getBiomassTypes: () => ReferenceData[];
@@ -84,10 +92,98 @@ interface DataContextType {
     requestedUnit: string;
     intendedUse?: string;
     preferredAvailabilityPeriod?: string;
+    preferredCollectionDate?: string;
+    preferredPickupTime?: string;
     additionalRequirements?: string;
   }) => Promise<Inquiry>;
   updateInquiryStatus: (inquiryId: string, newStatus: InquiryStatus, notes?: string) => Promise<void>;
 }
+
+const DEFAULT_PROFILES: User[] = [
+  {
+    id: 'user-admin',
+    name: 'Juan Dela Cruz',
+    email: 'admin@agricycle.ph',
+    role: Role.ADMINISTRATOR,
+  },
+  {
+    id: 'user-coord',
+    name: 'Nitronford Beatingo',
+    email: 'nitronford.beatingo@g.msuiit.edu.ph',
+    role: Role.COORDINATOR,
+    organizationId: 'org-2',
+  },
+  {
+    id: 'user-lgu',
+    name: 'Engr. Arvin Jimenez',
+    email: 'arvin.jimenez@g.msuiit.edu.ph',
+    role: Role.LGU,
+    organizationId: 'org-1',
+  },
+  {
+    id: 'user-buyer',
+    name: 'Carlos Santos',
+    email: 'buyer@biopower.ph',
+    role: Role.BUYER,
+    organizationId: 'org-1',
+  },
+  {
+    id: 'user-coord-2',
+    name: 'Maria Clara',
+    email: 'maria.clara@agusanfarmers.org',
+    role: Role.COORDINATOR,
+    organizationId: 'org-2',
+  },
+  {
+    id: 'user-buyer-2',
+    name: 'Roberto Tan',
+    email: 'roberto@greenfuel.ph',
+    role: Role.BUYER,
+  },
+];
+
+const INITIAL_NOTIFICATIONS: SystemNotification[] = [
+  {
+    id: 'notif-1',
+    recipientRole: Role.LGU,
+    title: 'New Biomass Record Awaiting Review',
+    message: 'REC-1002 from Libertad Rice Farmers Coop submitted for LGU validation.',
+    link: '/biomass-records',
+    isRead: false,
+    createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+    type: 'RECORD_SUBMITTED',
+  },
+  {
+    id: 'notif-2',
+    recipientRole: Role.COORDINATOR,
+    title: 'Inquiry Received from BioPower Mindanao',
+    message: 'New inquiry for 50 Metric Tons of Rice Husk in Butuan City.',
+    link: '/inquiries',
+    isRead: false,
+    createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
+    type: 'INQUIRY_SUBMITTED',
+  },
+  {
+    id: 'notif-3',
+    recipientRole: Role.COORDINATOR,
+    title: 'Biomass Record Returned for Correction',
+    message: 'REC-1003 requires updated moisture content details before approval.',
+    link: '/biomass-records',
+    isRead: false,
+    createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
+    type: 'RECORD_RETURNED',
+  },
+  {
+    id: 'notif-4',
+    recipientRole: Role.ADMINISTRATOR,
+    title: 'System Audit Check Completed',
+    message: 'Automated integrity validation passed across 86 Butuan City barangay zones.',
+    link: '/audit-logs',
+    isRead: true,
+    createdAt: new Date(Date.now() - 3600000 * 48).toISOString(),
+    type: 'SYSTEM',
+  },
+];
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
@@ -103,9 +199,45 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [aggregationGroups, setAggregationGroups] = useState<AggregationGroup[]>(db.aggregationGroups);
   const [aggregationMembers, setAggregationMembers] = useState<AggregationMember[]>(db.aggregationMembers);
   const [inquiries, setInquiries] = useState<Inquiry[]>(db.inquiries);
-  const [profiles, setProfiles] = useState<User[]>([]);
+  const [profiles, setProfiles] = useState<User[]>(DEFAULT_PROFILES);
+  const [notifications, setNotifications] = useState<SystemNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem('agricycle_notifications');
+      return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
+    } catch {
+      return INITIAL_NOTIFICATIONS;
+    }
+  });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('agricycle_notifications', JSON.stringify(notifications));
+    } catch (e) {
+      console.error('Failed to save notifications to localStorage', e);
+    }
+  }, [notifications]);
+
+  const addNotification = useCallback((notif: Omit<SystemNotification, 'id' | 'createdAt' | 'isRead'>) => {
+    const newNotif: SystemNotification = {
+      ...notif,
+      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      createdAt: new Date().toISOString(),
+      isRead: false,
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+  }, []);
+
+  const markNotificationRead = useCallback((id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+    );
+  }, []);
+
+  const markAllNotificationsRead = useCallback(() => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+  }, []);
 
   const syncLocalStateFromMock = useCallback(() => {
     setRecords([...db.records]);
@@ -118,7 +250,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAggregationGroups([...db.aggregationGroups]);
     setAggregationMembers([...db.aggregationMembers]);
     setInquiries([...db.inquiries]);
-  }, []);
+    if (profiles.length === 0) {
+      setProfiles(DEFAULT_PROFILES);
+    }
+  }, [profiles.length]);
 
   const refreshData = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -143,7 +278,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAggregationGroups(dataset.aggregationGroups);
       setAggregationMembers(dataset.aggregationMembers);
       setInquiries(dataset.inquiries);
-      setProfiles(dataset.profiles);
+      setProfiles(dataset.profiles.length > 0 ? dataset.profiles : DEFAULT_PROFILES);
     } catch (err: any) {
       console.error('Supabase data fetch error:', err);
       setError(err?.message || 'Failed to load data from Supabase.');
@@ -220,21 +355,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): Promise<BiomassRecord> => {
     if (!user) throw new Error('You must be signed in to create a biomass record.');
 
+    let createdRecord: BiomassRecord;
     if (isSupabaseConfigured) {
-      const created = await createBiomassRecordInSupabase(recordInput, user);
+      createdRecord = await createBiomassRecordInSupabase(recordInput, user);
       await refreshData();
-      return created;
+    } else {
+      const newRecord: BiomassRecord = {
+        ...recordInput,
+        id: recordInput.id || `REC-${Math.floor(1000 + Math.random() * 9000)}`,
+        createdAt: new Date().toISOString(),
+        lastUpdatedDate: new Date().toISOString(),
+      };
+      db.addRecord(newRecord, user.id);
+      syncLocalStateFromMock();
+      createdRecord = newRecord;
     }
 
-    const newRecord: BiomassRecord = {
-      ...recordInput,
-      id: recordInput.id || `REC-${Math.floor(1000 + Math.random() * 9000)}`,
-      createdAt: new Date().toISOString(),
-      lastUpdatedDate: new Date().toISOString(),
-    };
-    db.addRecord(newRecord, user.id);
-    syncLocalStateFromMock();
-    return newRecord;
+    // Dispatch notification to LGU officers for review
+    addNotification({
+      recipientRole: Role.LGU,
+      title: 'New Biomass Record Awaiting Validation',
+      message: `Record ${createdRecord.id} was submitted by ${user.name} and requires validation.`,
+      link: '/biomass-records',
+      type: 'RECORD_SUBMITTED',
+    });
+
+    return createdRecord;
   };
 
   const updateRecord = async (
@@ -247,11 +393,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSupabaseConfigured) {
       await updateBiomassRecordInSupabase(id, updates, user, action);
       await refreshData();
-      return;
+    } else {
+      db.updateRecord(id, updates, user.id, action);
+      syncLocalStateFromMock();
     }
 
-    db.updateRecord(id, updates, user.id, action);
-    syncLocalStateFromMock();
+    if (updates.status === RecordStatus.SUBMITTED) {
+      addNotification({
+        recipientRole: Role.LGU,
+        title: 'Biomass Record Re-submitted',
+        message: `Record ${id} was corrected and resubmitted for review.`,
+        link: '/biomass-records',
+        type: 'RECORD_SUBMITTED',
+      });
+    }
   };
 
   const addValidation = async (
@@ -262,24 +417,53 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): Promise<ValidationRecord> => {
     if (!user) throw new Error('You must be signed in to validate a record.');
 
+    let createdVal: ValidationRecord;
     if (isSupabaseConfigured) {
-      const created = await submitValidationInSupabase(recordId, decision, validationBasis, validationNotes, user);
+      createdVal = await submitValidationInSupabase(recordId, decision, validationBasis, validationNotes, user);
       await refreshData();
-      return created;
+    } else {
+      const validation: ValidationRecord = {
+        id: `VAL-${Date.now()}`,
+        biomassRecordId: recordId,
+        validatorId: user.id,
+        decision,
+        validationBasis: validationBasis || 'Not provided',
+        validationNotes: validationNotes || 'None',
+        validationDate: new Date().toISOString(),
+      };
+      db.addValidation(validation, user.id);
+      syncLocalStateFromMock();
+      createdVal = validation;
     }
 
-    const validation: ValidationRecord = {
-      id: `VAL-${Date.now()}`,
-      biomassRecordId: recordId,
-      validatorId: user.id,
-      decision,
-      validationBasis: validationBasis || 'Not provided',
-      validationNotes: validationNotes || 'None',
-      validationDate: new Date().toISOString(),
-    };
-    db.addValidation(validation, user.id);
-    syncLocalStateFromMock();
-    return validation;
+    // Auto-dispatch notification based on decision
+    if (decision === RecordStatus.VALIDATED) {
+      addNotification({
+        recipientRole: Role.COORDINATOR,
+        title: `Record ${recordId} Approved & Validated`,
+        message: `LGU Officer ${user.name} validated record ${recordId}. It is now eligible for aggregation and buyer listing.`,
+        link: '/biomass-records',
+        type: 'RECORD_VALIDATED',
+      });
+    } else if (decision === RecordStatus.RETURNED) {
+      addNotification({
+        recipientRole: Role.COORDINATOR,
+        title: `Record ${recordId} Returned for Correction`,
+        message: `Correction requested: "${validationNotes}". Please edit and resubmit.`,
+        link: '/biomass-records',
+        type: 'RECORD_RETURNED',
+      });
+    } else if (decision === RecordStatus.REJECTED) {
+      addNotification({
+        recipientRole: Role.COORDINATOR,
+        title: `Record ${recordId} Rejected`,
+        message: `LGU rejection reason: "${validationNotes}".`,
+        link: '/biomass-records',
+        type: 'RECORD_REJECTED',
+      });
+    }
+
+    return createdVal;
   };
 
   const addAggregationGroup = async (
@@ -321,44 +505,59 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     requestedUnit: string;
     intendedUse?: string;
     preferredAvailabilityPeriod?: string;
+    preferredCollectionDate?: string;
+    preferredPickupTime?: string;
     additionalRequirements?: string;
   }): Promise<Inquiry> => {
     if (!user) throw new Error('You must be signed in to submit an inquiry.');
 
+    let createdInq: Inquiry;
     if (isSupabaseConfigured) {
-      const created = await submitInquiryInSupabase(input, user);
+      createdInq = await submitInquiryInSupabase(input, user);
       await refreshData();
-      return created;
+    } else {
+      const inqId = `INQ-${Math.floor(1000 + Math.random() * 9000)}`;
+      const newInquiry: Inquiry = {
+        id: inqId,
+        buyerUserId: user.id,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        biomassTypeId: input.biomassTypeId,
+        requestedQuantity: input.requestedQuantity,
+        requestedUnit: input.requestedUnit,
+        intendedUse: input.intendedUse,
+        preferredAvailabilityPeriod: input.preferredAvailabilityPeriod,
+        preferredCollectionDate: input.preferredCollectionDate,
+        preferredPickupTime: input.preferredPickupTime,
+        additionalRequirements: input.additionalRequirements,
+        status: InquiryStatus.SUBMITTED,
+        submittedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        history: [
+          {
+            id: `inqh-${Date.now()}`,
+            inquiryId: inqId,
+            newStatus: InquiryStatus.SUBMITTED,
+            changedBy: user.id,
+            changedAt: new Date().toISOString(),
+          },
+        ],
+      };
+      db.addInquiry(newInquiry, user.id);
+      syncLocalStateFromMock();
+      createdInq = newInquiry;
     }
 
-    const inqId = `INQ-${Math.floor(1000 + Math.random() * 9000)}`;
-    const newInquiry: Inquiry = {
-      id: inqId,
-      buyerUserId: user.id,
-      targetType: input.targetType,
-      targetId: input.targetId,
-      biomassTypeId: input.biomassTypeId,
-      requestedQuantity: input.requestedQuantity,
-      requestedUnit: input.requestedUnit,
-      intendedUse: input.intendedUse,
-      preferredAvailabilityPeriod: input.preferredAvailabilityPeriod,
-      additionalRequirements: input.additionalRequirements,
-      status: InquiryStatus.SUBMITTED,
-      submittedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      history: [
-        {
-          id: `inqh-${Date.now()}`,
-          inquiryId: inqId,
-          newStatus: InquiryStatus.SUBMITTED,
-          changedBy: user.id,
-          changedAt: new Date().toISOString(),
-        },
-      ],
-    };
-    db.addInquiry(newInquiry, user.id);
-    syncLocalStateFromMock();
-    return newInquiry;
+    // Auto-dispatch notification to Coordinators & Admin
+    addNotification({
+      recipientRole: Role.COORDINATOR,
+      title: 'New Biomass Buyer Inquiry Received',
+      message: `${user.name} submitted an inquiry for ${input.requestedQuantity} ${input.requestedUnit} (${input.targetType} ${input.targetId}).`,
+      link: '/inquiries',
+      type: 'INQUIRY_SUBMITTED',
+    });
+
+    return createdInq;
   };
 
   const updateInquiryStatus = async (
@@ -371,11 +570,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isSupabaseConfigured) {
       await updateInquiryStatusInSupabase(inquiryId, newStatus, user, notes);
       await refreshData();
-      return;
+    } else {
+      db.updateInquiryStatus(inquiryId, newStatus, user.id, notes);
+      syncLocalStateFromMock();
     }
 
-    db.updateInquiryStatus(inquiryId, newStatus, user.id, notes);
-    syncLocalStateFromMock();
+    addNotification({
+      recipientRole: Role.BUYER,
+      title: `Inquiry ${inquiryId} Status: ${newStatus.replace(/_/g, ' ')}`,
+      message: `Your inquiry has been updated to ${newStatus.replace(/_/g, ' ')}.${notes ? ` Note: "${notes}"` : ''}`,
+      link: '/inquiries',
+      type: 'INQUIRY_STATUS_CHANGED',
+    });
   };
 
   return (
@@ -392,10 +598,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         aggregationMembers,
         inquiries,
         profiles,
+        notifications,
         isLoading,
         error,
         isUsingSupabase: isSupabaseConfigured,
         refreshData,
+        markNotificationRead,
+        markAllNotificationsRead,
+        addNotification,
         getBiomassTypes,
         getUnits,
         getRecord,

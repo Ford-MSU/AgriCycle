@@ -136,12 +136,19 @@ export const Login: React.FC = () => {
         navigate('/');
       }
     } catch (err: any) {
-      setError(
-        err?.message ||
-          (isSupabaseAuth
-            ? 'Authentication failed. Please check your email and password.'
-            : 'Invalid credentials. (Hint: use password "password")')
-      );
+      const rawMsg = err?.message || '';
+      if (rawMsg.toLowerCase().includes('error sending confirmation email')) {
+        setError(
+          'Email delivery failed: Supabase could not dispatch the confirmation email. Please check your Custom SMTP settings (Host, Port, or App Password) in the Supabase Dashboard, or disable "Confirm email" under Auth > Providers > Email for testing.'
+        );
+      } else {
+        setError(
+          rawMsg ||
+            (isSupabaseAuth
+              ? 'Authentication failed. Please check your email and password.'
+              : 'Invalid credentials. (Hint: use password "password")')
+        );
+      }
     }
   };
 

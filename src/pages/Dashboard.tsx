@@ -8,6 +8,8 @@ import { useData } from '../store/DataContext';
 import { hasPermission, Permission } from '../utils/rbac';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
+import { calculateCoreMetrics } from '../utils/analytics';
+import { Scale } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -58,7 +60,12 @@ export const Dashboard: React.FC = () => {
     return inquiries;
   }, [user, inquiries, accessibleRecords, getRecord, getAggregationGroup]);
 
-  // Derived metrics from persisted dataset
+  // Derived metrics from persisted dataset using shared analytics
+  const coreMetrics = useMemo(
+    () => calculateCoreMetrics(accessibleRecords, referenceData),
+    [accessibleRecords, referenceData]
+  );
+
   const totalUsers = profiles.length > 0 ? profiles.length : 4;
   const totalSources = new Set(accessibleRecords.map((r) => r.sourceId)).size;
   const mySubmissions = records.filter((r) => r.submitterId === user.id || r.submitterId === user.name).length;
@@ -87,42 +94,48 @@ export const Dashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS) && (
-          <>
-            <Card>
-              <CardContent className="p-5 flex items-center">
-                <div className="w-12 h-12 rounded-lg bg-agri-green-100 flex items-center justify-center text-agri-green-600 mr-4">
-                  <Users size={24} />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-agri-earth-500">Registered Profiles</p>
-                  <p className="text-2xl font-bold text-gray-900">{totalUsers}</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-5 flex items-center">
-                <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 mr-4">
-                  <Tractor size={24} />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-agri-earth-500">Recorded Sources</p>
-                  <p className="text-2xl font-bold text-gray-900">{totalSources}</p>
-                </div>
-              </CardContent>
-            </Card>
-          </>
-        )}
+        <Card className="border-agri-green-200 bg-gradient-to-br from-white to-agri-green-50/20">
+          <CardContent className="p-5 flex items-center">
+            <div className="w-12 h-12 rounded-lg bg-agri-green-100 flex items-center justify-center text-agri-green-700 mr-4 shrink-0 shadow-sm">
+              <Scale size={24} />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-agri-earth-600 uppercase tracking-wider">Available Biomass Volume</p>
+              <p className="text-2xl font-extrabold text-agri-green-800 mt-0.5">
+                {coreMetrics.availableVolumeTonnes.toLocaleString()} <span className="text-sm font-semibold text-agri-green-600">MT</span>
+              </p>
+              <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                {coreMetrics.validatedCount} validated records
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
-        {hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS) && (
+        {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS) ? (
+          <Card>
+            <CardContent className="p-5 flex items-center">
+              <div className="w-12 h-12 rounded-lg bg-agri-green-100 flex items-center justify-center text-agri-green-600 mr-4">
+                <Users size={24} />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-agri-earth-500">Registered Profiles</p>
+                <p className="text-2xl font-bold text-gray-900">{totalUsers}</p>
+                <p className="text-[11px] text-agri-earth-500 mt-0.5">Active directory</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
           <Card>
             <CardContent className="p-5 flex items-center">
               <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 mr-4">
                 <FileText size={24} />
               </div>
               <div>
-                <p className="text-sm font-medium text-agri-earth-500">My Submissions</p>
-                <p className="text-2xl font-bold text-gray-900">{mySubmissions}</p>
+                <p className="text-sm font-medium text-agri-earth-500">Total Recorded Volume</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {coreMetrics.totalVolumeTonnes.toLocaleString()} <span className="text-sm font-normal text-gray-500">MT</span>
+                </p>
+                <p className="text-[11px] text-agri-earth-500 mt-0.5">{coreMetrics.totalRecordsCount} records</p>
               </div>
             </CardContent>
           </Card>
@@ -137,6 +150,7 @@ export const Dashboard: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-agri-earth-500">Pending Validation</p>
                 <p className="text-2xl font-bold text-gray-900">{pendingValidation}</p>
+                <p className="text-[11px] text-agri-earth-500 mt-0.5">Awaiting LGU evaluation</p>
               </div>
             </CardContent>
           </Card>
@@ -149,22 +163,24 @@ export const Dashboard: React.FC = () => {
                 <MessageSquare size={24} />
               </div>
               <div>
-                <p className="text-sm font-medium text-agri-earth-500">Inquiries</p>
+                <p className="text-sm font-medium text-agri-earth-500">Buyer Inquiries</p>
                 <p className="text-2xl font-bold text-gray-900">{accessibleInquiries.length}</p>
+                <p className="text-[11px] text-agri-earth-500 mt-0.5">Active commercial requests</p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {user.role !== Role.BUYER && (
+        {user.role === Role.ADMINISTRATOR && (
           <Card>
             <CardContent className="p-5 flex items-center">
-              <div className="w-12 h-12 rounded-lg bg-agri-green-50 flex items-center justify-center text-agri-green-600 mr-4">
-                <CheckCircle size={24} />
+              <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 mr-4">
+                <Tractor size={24} />
               </div>
               <div>
-                <p className="text-sm font-medium text-agri-earth-500">Validated Available</p>
-                <p className="text-2xl font-bold text-gray-900">{validatedRecords}</p>
+                <p className="text-sm font-medium text-agri-earth-500">Recorded Sources</p>
+                <p className="text-2xl font-bold text-gray-900">{totalSources}</p>
+                <p className="text-[11px] text-agri-earth-500 mt-0.5">Farms & Agro-industrial</p>
               </div>
             </CardContent>
           </Card>

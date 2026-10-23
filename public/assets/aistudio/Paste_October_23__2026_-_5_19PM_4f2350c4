@@ -1,0 +1,954 @@
+# AGriCycle Website Enhancement and Functional Improvement Prompt for Google AI Studio
+
+## 1. Project Overview
+
+You are working on **AgriCycle**, a community-based e-commerce and information management system for agricultural biomass waste in the circular economy.
+
+The application is designed to connect agricultural biomass sources, such as farms, rice mills, and other agricultural sources, with relevant stakeholders, including:
+
+- System Administrators
+- Local Government Unit (LGU) users
+- Cooperative and Aggregation Hub users
+- Buyers
+
+The system supports biomass record management, availability monitoring, data validation, dashboards, geographic visualization, buyer inquiries, and coordination among stakeholders.
+
+The existing application uses a React/TypeScript frontend and Supabase for backend services and data management. The existing source code, database schema, authentication system, role-based permissions, and migrations must be treated as the starting point.
+
+Your task is to **analyze, improve, and implement the requested changes in the existing AgriCycle application**.
+
+Do not build a completely new application. Do not replace the existing system with a simplified demonstration. Modify the current implementation while preserving its established architecture, working features, and data.
+
+## 2. Primary Objectives
+
+Implement the following improvements:
+
+1. Improve biomass record creation, editing, and availability classification.
+2. Improve LGU validation and review workflows.
+3. Improve LGU and Cooperative/Hub dashboards and analytics.
+4. Improve buyer inquiries and collection scheduling preferences.
+5. Implement or improve system notifications.
+6. Improve the management of aggregation hubs and cooperative associations.
+7. Add automatic sign-out after inactivity.
+8. Improve the Admin Portal's System Audit Trail, Users tab, navigation, and Analytics page.
+9. Ensure database operations, authentication, authorization, and calculations remain consistent across all user roles.
+10. Test the implementation and resolve errors or regressions introduced by the changes.
+
+All changes must be functional, connected to the existing data sources, and consistent with the purpose of AgriCycle.
+
+---
+
+## 3. Mandatory Instructions Before Making Changes
+
+### 3.1 Analyze the existing codebase first
+
+Before editing files, inspect the available source code and identify the existing implementation of:
+
+- Authentication and user sessions
+- Role-based access control (RBAC)
+- Application routing and navigation
+- Biomass record creation and editing
+- Biomass validation
+- LGU dashboard
+- Cooperative/Hub dashboard
+- Admin dashboard and Analytics page
+- Users management
+- System Audit Trail
+- Buyer listings and listing details
+- Buyer inquiries
+- Notifications
+- Aggregation Hubs
+- Maps and geographic data
+- Supabase services and queries
+- Database tables, relationships, migrations, and Row Level Security (RLS) policies
+
+Pay particular attention to the existing components and services, including files or their equivalents such as:
+
+- `src/store/AuthContext.tsx`
+- `src/utils/rbac.ts`
+- `src/App.tsx`
+- `src/components/CreateRecordForm.tsx`
+- `src/pages/BiomassRecords.tsx`
+- `src/components/ValidationForm.tsx`
+- `src/services/agriCycleService.ts`
+- `src/pages/Dashboard.tsx`
+- `src/pages/AggregationHubs.tsx`
+- `src/pages/Inquiries.tsx`
+- `src/pages/BiomassListings.tsx`
+- `src/pages/ListingDetail.tsx`
+- `src/pages/MapView.tsx`
+- `src/layouts/MainLayout.tsx`
+- Existing Supabase migrations and related database policies
+
+These are suggested inspection targets. Verify the actual project structure before making changes.
+
+### 3.2 Preserve the current implementation
+
+- Reuse existing components, hooks, services, interfaces, and database tables whenever appropriate.
+- Avoid creating duplicate implementations of features that already exist.
+- Do not unnecessarily rename database tables, columns, routes, or established types.
+- Do not remove existing functionality unless explicitly requested.
+- Do not delete database tables, migrations, RLS policies, or backend logic merely because a frontend tab is being removed.
+- Do not replace real Supabase queries with mock data or hardcoded values.
+- Do not change authentication providers or introduce a new backend without a compelling technical requirement.
+- Keep the current visual identity and general design language of AgriCycle.
+
+If the existing implementation differs from the requested behavior, make the smallest safe change that achieves the required result.
+
+### 3.3 Verify before assuming
+
+Inspect the actual schema and code before deciding how fields should behave.
+
+If a requirement cannot be implemented safely because a critical detail is missing, preserve existing data and permissions, implement only the behavior supported by the current system, and clearly report the unresolved decision.
+
+Do not invent database fields, existing users, barangays, statistics, business rules, or permissions.
+
+---
+
+## 4. Biomass Records and Availability Management
+
+### 4.1 Improve the biomass record form
+
+Review and improve the existing Create Biomass Record form and its editing functionality.
+
+The form should have a clear, logical layout that makes it easy for users to understand and enter agricultural biomass information.
+
+Where supported by the existing database and system requirements, organize the form into the following sections:
+
+**A. Source Information**
+- Source type
+- Farm name, rice mill name, or other source name
+- Barangay
+- Location or address, if applicable
+
+**B. Biomass Information**
+- Biomass category or type
+- Quantity
+- Unit of measurement
+- Existing description, condition, or remarks fields, where supported
+
+**C. Utilization and Availability**
+- Total recorded quantity, if that is what the existing quantity field represents
+- Quantity currently used or otherwise unavailable, if tracked
+- Quantity reserved or committed, if tracked
+- Availability to other users or buyers
+- Availability start and end dates, if applicable
+
+Do not introduce all these fields as new database columns automatically. First determine which fields already exist and which are genuinely required.
+
+### 4.2 Improve source type and naming
+
+Where applicable, support source categories such as:
+
+- Farm
+- Rice Mill
+- Agricultural Processor
+- Other agricultural biomass source
+
+Make the source-name label understandable for the selected source type. For example, a rice mill record should not be forced to use a label that only makes sense for a farm.
+
+If dynamic labels would complicate the existing implementation unnecessarily, use a neutral label such as **Farm / Mill / Source Name**.
+
+Ensure the selected source type is stored correctly and is consistent throughout record creation, editing, listings, and dashboards.
+
+### 4.3 Improve barangay selection
+
+Improve the barangay input so users can search for and select the appropriate barangay rather than relying on unrestricted text entry.
+
+Use the existing reference data or established location data. If the application is configured for Butuan City, use the appropriate existing Butuan City barangay dataset.
+
+Do not invent barangay names or create duplicate reference records.
+
+If searchable dropdown functionality is already available in the project, reuse it.
+
+### 4.4 Standardize quantity units
+
+Review how quantity and measurement units are currently stored and displayed.
+
+Where applicable, support standardized units such as kilograms (kg) and metric tonnes (t).
+
+Requirements:
+
+- Store and display quantities consistently.
+- Validate that quantities are numeric and nonnegative.
+- Prevent invalid unit conversions.
+- Convert values when comparing or aggregating quantities expressed in different units.
+- Never add quantities expressed in incompatible units without conversion.
+- Preserve the meaning of existing stored quantities.
+
+Use a consistent base unit for calculations if appropriate, while preserving the original unit for display when necessary.
+
+### 4.5 Separate review status, external availability, and listing eligibility
+
+These are three distinct concepts and must not be treated as interchangeable.
+
+**Review status** describes the state of the validation process.
+
+Examples:
+- Submitted
+- Under Review
+- Validated
+- Returned for Correction
+- Rejected
+
+Use the existing status vocabulary where possible and map the requested behavior to the current schema.
+
+**External availability** describes whether biomass is available for use by other stakeholders or potential buyers.
+
+Examples:
+- Available to Others
+- Not Available to Others
+
+Adapt these labels to the current data model if necessary.
+
+**Listing eligibility** determines whether the biomass record can appear as an eligible buyer-facing listing.
+
+A record must not become eligible for buyer-facing discovery merely because an availability field is marked as available. Apply the existing validation and authorization rules.
+
+For example, a record can be under review and marked as potentially available, but it must not be represented as validated or confirmed supply.
+
+### 4.6 Quantity calculations
+
+If the existing data model supports total quantity, current utilization, and reserved quantity, establish one consistent calculation rule.
+
+For example:
+
+Remaining quantity = Total quantity − Current use − Reserved quantity
+
+Use this formula only if the existing fields represent compatible quantities and the components do not overlap.
+
+Additional rules:
+
+- Do not subtract the same quantity twice.
+- Do not treat missing values as zero unless the data model explicitly defines that behavior.
+- Prevent negative remaining quantities unless the existing system has a documented reason to support them.
+- Do not automatically reserve or deduct quantities merely because a buyer submits an inquiry.
+- Make it clear whether a displayed quantity represents total production or the remaining quantity available to others.
+
+If the current schema uses a different quantity definition, preserve that definition and update the calculations consistently.
+
+---
+
+## 5. LGU Validation and Review Workflow
+
+Improve the existing validation workflow so authorized LGU users can review biomass records and perform the actions supported by their permissions.
+
+### 5.1 Validation actions
+
+Where authorized, the reviewer should be able to:
+
+- Open a record and inspect its details.
+- Mark a record as Under Review.
+- Validate an eligible record.
+- Return a record for correction.
+- Reject a record when justified.
+
+These actions must update the actual backend data and the interface immediately after a successful response.
+
+Do not display a successful validation message if the database update fails.
+
+### 5.2 Validation requirements
+
+Before validation, check the fields required by the existing business rules, including applicable source details, location, biomass category, quantity, unit, and availability information.
+
+The reviewer should be able to inspect the information needed to determine whether a record is complete and suitable for the system's intended use.
+
+Do not imply that LGU validation constitutes laboratory testing, scientific certification, or a guarantee of supply unless the system explicitly supports those functions.
+
+### 5.3 Return and rejection reasons
+
+When a record is returned or rejected, require an explanatory reason.
+
+The reason should:
+
+- Be saved to the backend.
+- Be associated with the relevant record and review action.
+- Be visible to the appropriate submitting user.
+- Explain what needs correction or why the record was rejected.
+
+Where the existing schema supports validation history, retain previous review actions rather than overwriting the entire history.
+
+### 5.4 Status transitions
+
+Implement a consistent workflow based on the existing system.
+
+A typical workflow is:
+
+Submitted → Under Review → Validated
+
+Alternative outcomes:
+
+- Under Review → Returned for Correction
+- Under Review → Rejected
+- Returned for Correction → Resubmitted → Under Review
+
+Adapt this flow to the actual status model instead of introducing incompatible values.
+
+Ensure unauthorized users cannot validate, reject, or change review statuses by bypassing the frontend.
+
+### 5.5 Validation permissions
+
+Preserve the current role-based permissions.
+
+Inspect the existing authorization rules to determine which roles can validate records. Do not automatically grant validation privileges to the System Administrator simply because an Admin Portal exists.
+
+Enforce the same rules in the backend or database policies, not just by hiding buttons.
+
+---
+
+## 6. LGU and Cooperative/Hub Dashboards
+
+Improve the dashboards so that the displayed information is accurate, useful, and consistent.
+
+### 6.1 Dashboard metrics
+
+Where the necessary data exists, provide clearly labeled metrics such as:
+
+- Total recorded biomass production or quantity
+- Biomass available to other stakeholders
+- Biomass currently used or unavailable
+- Biomass awaiting validation
+- Number of biomass records
+- Breakdown by biomass category
+- Breakdown by barangay
+- Other relevant metrics already supported by the system
+
+Do not confuse the number of records with the total quantity of biomass.
+
+For example, 20 records do not mean 20 tonnes of biomass.
+
+### 6.2 Geographic visualization
+
+Improve the existing map or geographic dashboard to distinguish, where supported:
+
+- Recorded biomass production or sources
+- Biomass available to others
+- Biomass unavailable or already used
+
+Make the legend clear and consistent with the actual data being displayed.
+
+Use existing geographic data rather than invented coordinates.
+
+If the existing database cannot distinguish these quantities reliably, indicate that limitation instead of presenting misleading map values.
+
+### 6.3 Rankings and breakdowns
+
+Where the data supports them, provide:
+
+- Barangays with the highest recorded biomass quantities
+- Barangays with the highest quantities available to others
+- Biomass category breakdowns
+- Source-type breakdowns
+- Relevant filters for date, barangay, category, availability, and review status
+
+Use the same calculation definitions across all dashboards.
+
+### 6.4 Role-specific data scope
+
+LGU and Cooperative/Hub users may have different access scopes.
+
+- LGU users should see information permitted by their assigned geographic or administrative scope.
+- Cooperative/Hub users should see information permitted by their cooperative, hub, or associated records.
+- The System Administrator should see system-wide analytics only where authorized.
+
+Do not expose another organization's restricted data simply to make the dashboards visually identical.
+
+### 6.5 Avoid double-counting
+
+Review how aggregation records, collection schedules, hubs, and biomass records relate to one another.
+
+Avoid counting the same biomass quantity multiple times when displaying totals.
+
+If a dashboard combines records from multiple tables, establish the correct relationships and aggregation logic before calculating totals.
+
+---
+
+## 7. Buyer Listings and Inquiry Workflow
+
+Improve the existing buyer-facing listing and inquiry experience without turning inquiries into confirmed transactions.
+
+### 7.1 Buyer listings
+
+Ensure the buyer-facing listing interface displays only records eligible under the current business and validation rules.
+
+Display relevant information, where available:
+
+- Source name
+- Source location or barangay
+- Biomass type
+- Available quantity and unit
+- Relevant description or condition
+- Availability period
+- Appropriate listing status
+
+Do not expose internal-only information, private contact details, or records that are not eligible for buyer-facing discovery.
+
+### 7.2 Inquiry form
+
+Improve the existing inquiry form so buyers can express their interest clearly.
+
+Where supported by the current data model, include:
+
+- Selected biomass listing
+- Requested quantity
+- Unit of measurement
+- Intended use or purpose, if supported
+- Preferred collection date
+- Preferred pickup time
+- Additional message or remarks
+
+The collection date should use a date picker, and the preferred pickup time should use an appropriate time input or selector.
+
+Make all required fields clear and validate them before submission.
+
+### 7.3 Submission action
+
+Use the clear button label:
+
+**Submit Inquiry**
+
+On submission:
+
+1. Validate the form.
+2. Confirm that the selected listing remains eligible for inquiry.
+3. Save the inquiry through the existing backend service.
+4. Associate it with the correct buyer and listing.
+5. Notify the appropriate coordinator or authorized recipient.
+6. Display a success message only after the backend confirms the operation.
+7. Prevent accidental duplicate submissions where appropriate.
+
+### 7.4 Inquiry status and collection preferences
+
+Where supported by the existing workflow, allow buyers to view their submitted inquiries and the current inquiry status.
+
+The coordinator should be able to review the request and respond through the existing inquiry workflow.
+
+The preferred collection date and pickup time are **preferences, not confirmed appointments**.
+
+Submitting an inquiry must not automatically:
+
+- Confirm a collection schedule.
+- Create a sale.
+- Reserve the requested quantity.
+- Deduct quantity from available stock.
+- Guarantee that the biomass is still available.
+
+Any reservation or confirmed collection must follow a separate, explicitly implemented workflow if the existing system supports it.
+
+---
+
+## 8. System Notifications
+
+Implement or improve the notification system so that relevant users receive notifications for important actions.
+
+### 8.1 Notification events
+
+Where supported by the existing workflows, implement these notification rules:
+
+| Event | Intended recipient |
+|---|---|
+| Biomass record submitted | Authorized reviewer |
+| Record validated | Submitting user or responsible coordinator |
+| Record returned for correction | Submitting user |
+| Record rejected | Submitting user |
+| Buyer inquiry submitted | Responsible listing coordinator |
+| Coordinator responds to an inquiry | Relevant buyer |
+| Inquiry status changes | Relevant buyer and/or coordinator |
+
+Use the actual relationships and permission rules to determine the correct recipient.
+
+Do not send notifications to every user indiscriminately.
+
+### 8.2 Notification interface
+
+Provide a functional notification bell in the appropriate application layout.
+
+Where supported, the notification interface should include:
+
+- Unread notification count
+- Notification title and message
+- Date and time
+- Read/unread state
+- Link to the relevant record, inquiry, or page
+- Ability to mark a notification as read
+
+Ensure notifications link to the correct resource and that the recipient has permission to access it.
+
+### 8.3 Backend persistence
+
+Use the existing notification table or service if available.
+
+If the feature is incomplete, determine the smallest necessary database change before introducing new structures.
+
+Notification creation and status updates must be persisted to the backend, not maintained only in local component state.
+
+Handle loading, empty, error, and successful states appropriately.
+
+---
+
+## 9. Aggregation Hubs and Cooperative Management
+
+Review the existing Aggregation Hubs functionality and improve it so authorized users can select, associate, or manage additional cooperatives and hubs where the existing business rules allow.
+
+Requirements:
+
+- Use actual cooperative and hub records.
+- Support selecting an existing hub or cooperative where appropriate.
+- Prevent invalid or duplicate associations.
+- Preserve existing record relationships.
+- Enforce role-based permissions.
+- Reflect changes in the appropriate dashboards and related records.
+- Handle loading, validation, success, and error states.
+
+Do not create duplicate hub records merely to allow users to select an existing hub.
+
+If creating a new hub and associating an existing hub are different operations, keep them separate and follow the current database relationships.
+
+---
+
+## 10. Admin Portal Improvements
+
+Implement all four Admin Portal requirements below.
+
+### 10.1 System Audit Trail: Display the user's name and role
+
+Update the Admin Portal's System Audit Trail so each audit entry clearly displays the **name and role of the user who performed the action**.
+
+Where available, show:
+
+- User's full name
+- User's role
+- Action performed
+- Affected module or record
+- Date and time
+- Existing audit details, such as the action result or relevant metadata
+
+The user's name and role must identify the actor responsible for the logged action.
+
+Do not confuse the actor with the subject of the action. For example, if an LGU user updates a biomass record submitted by a cooperative, the audit trail should identify the LGU user as the actor.
+
+Use the existing audit log relationships and user profile data wherever possible.
+
+If the audit log stores only a user ID, determine whether that ID can be safely joined to the appropriate user profile.
+
+If historical entries lack a reliable actor name or role, display a clear fallback such as "Unknown User" or "Role Unavailable". Do not fabricate historical information.
+
+New audit entries should capture the actor's authenticated identity and the appropriate role when the action is performed, where the current audit architecture supports it.
+
+Maintain the integrity of the audit trail. Do not allow ordinary users to edit or delete audit entries.
+
+### 10.2 Users tab: Display all users, organized by category
+
+Update the Admin Portal's Users tab so authorized administrators can see all registered users in the system, organized into meaningful categories.
+
+Use role-based categories consistent with the actual roles in the database, including where applicable:
+
+- Buyers
+- LGU Users
+- Cooperative/Hub Users
+- System Administrators
+- Other existing user categories
+
+The interface may use tabs, grouped lists, category filters, or a combination of these approaches. Choose the structure that best fits the current application design.
+
+The objective is to make it easy to locate and review users without placing every user in one unorganized list.
+
+Where the existing schema supports them, display relevant details such as:
+
+- Full name
+- Email address
+- Role
+- Account status
+- Associated cooperative or hub
+- Relevant registration or creation date
+
+Add search and filtering by appropriate fields, such as name, email, role, and account status.
+
+If useful, provide sorting and pagination for larger user lists.
+
+Functional requirements:
+
+1. Retrieve actual registered users from the existing data source.
+2. Include all relevant user categories in the system.
+3. Do not rely on hardcoded example users.
+4. Handle missing profiles or incomplete user records gracefully.
+5. Avoid displaying the same user multiple times because of joins or relationships.
+6. Do not expose passwords, authentication tokens, private credentials, or unnecessary sensitive data.
+7. Preserve the existing account-management permissions and authentication architecture.
+
+Inspect how Supabase Auth users and application profile records are related before changing the query. If the current system stores role and profile details in separate tables, combine them appropriately without weakening RLS or exposing privileged authentication data.
+
+Do not make all authentication-provider records publicly accessible merely to populate the Users tab.
+
+### 10.3 Remove the Roles and Permission and Reference Data tabs
+
+Remove these two tabs from the Admin Portal's navigation:
+
+- Roles and Permission
+- Reference Data
+
+Requirements:
+
+- Remove their visible navigation entries.
+- Remove associated tab selectors or links from the Admin interface.
+- Update active navigation states and layout behavior as needed.
+- Ensure there are no broken links, blank tabs, or references to removed navigation entries.
+- Preserve the rest of the Admin Portal navigation and functionality.
+
+**Important:** This request concerns removing the two tabs from the user interface. It does not automatically authorize deleting the underlying database tables, permissions, reference data, validation rules, RLS policies, or backend services.
+
+These resources may still be needed by the application's other features.
+
+Keep role-based authorization working even though the Roles and Permission tab is no longer visible.
+
+Keep reference data available to forms, dropdowns, maps, and other parts of the application that depend on it.
+
+Do not remove a shared component or service merely because one Admin page no longer uses it.
+
+### 10.4 Admin Analytics: Match the LGU and Cooperative/Hub dashboards
+
+Update the Admin Portal's Analytics page so it displays the **same core dashboard metrics, charts, category breakdowns, and geographic summaries available on the LGU and Cooperative/Hub dashboards**.
+
+First inspect the actual dashboards and identify the common metrics and visualizations.
+
+Where they exist, the Admin Analytics page should use the same definitions and presentation for:
+
+- Total recorded biomass quantity or production
+- Biomass available to others
+- Biomass currently used or unavailable
+- Records awaiting validation
+- Biomass category breakdowns
+- Barangay-level summaries
+- Source-type breakdowns
+- Geographic maps and availability visualization
+- Relevant dashboard filters
+- Other existing shared analytics
+
+Do not invent additional metrics simply to fill the page.
+
+#### Shared implementation
+
+Reuse existing dashboard components, hooks, services, and calculation functions wherever practical.
+
+If the LGU and Cooperative/Hub dashboards currently use inconsistent formulas for the same metric, identify the inconsistency and establish a shared calculation only after verifying the intended data definition.
+
+Avoid copying the same calculation into three separate implementations when a shared service or reusable component would be more reliable.
+
+#### Role-specific data scope
+
+Matching dashboards means consistent metrics and presentation, not unrestricted data access.
+
+- The Admin should see system-wide information within the Admin's authorized scope.
+- LGU users should continue to see data permitted by their assigned scope.
+- Cooperative/Hub users should continue to see data permitted by their associations and permissions.
+
+Do not remove RLS policies or bypass access restrictions to make the pages appear identical.
+
+#### Expected outcome
+
+The Admin Analytics page should feel like the same dashboard experience used by LGU and Cooperative/Hub users, while presenting the data appropriate to the Admin's authorized scope.
+
+---
+
+## 11. Automatic Sign-Out After Inactivity
+
+Implement or improve automatic sign-out after a configurable period of user inactivity.
+
+First inspect the existing authentication provider and session-management implementation.
+
+Requirements:
+
+1. Track meaningful user activity using an appropriate mechanism.
+2. Reset the inactivity period when the user interacts with the application.
+3. Sign the user out after the configured inactivity period.
+4. Display a warning before automatic sign-out, where practical.
+5. Provide a clear way for the user to continue their session if it is still valid.
+6. Clear protected client-side state after sign-out.
+7. Redirect the user to the appropriate login page.
+8. Ensure protected pages cannot be accessed after the session has expired or become invalid.
+9. Avoid unnecessary timers or duplicate event listeners.
+10. Clean up timers and event listeners when they are no longer needed.
+
+Use a reasonable default of **30 minutes of inactivity**, unless the existing system has an established timeout policy that must be preserved.
+
+Make the timeout configurable where appropriate.
+
+Do not confuse inactivity sign-out with the backend authentication token's expiration. Respect the authentication provider's actual session state and token validity.
+
+Do not claim that the server session has been invalidated unless the appropriate sign-out operation actually performs that action.
+
+---
+
+## 12. Security, Data Integrity, and Error Handling
+
+Security must be preserved throughout every modification.
+
+### 12.1 Authentication and authorization
+
+- Preserve the existing authentication system.
+- Preserve role-based routing and permissions.
+- Enforce authorization on backend operations, not only in the UI.
+- Do not grant additional privileges to make a feature easier to implement.
+- Ensure protected routes remain protected.
+- Prevent unauthorized users from modifying records, validations, inquiries, audit logs, or account details.
+
+### 12.2 Supabase and database integrity
+
+- Inspect existing tables, relationships, constraints, and RLS policies.
+- Reuse existing tables and queries wherever possible.
+- Create migrations only when genuinely necessary.
+- Make migrations safe and compatible with existing data.
+- Do not delete or overwrite production data.
+- Do not expose service-role keys or other secrets in frontend code.
+- Use the established Supabase client and service patterns.
+- Ensure mutations handle errors and confirm success before updating the UI.
+
+If database changes are required, provide the migration code and explain how it should be applied. Do not assume a migration has been executed against the live database merely because a migration file was created.
+
+### 12.3 Loading, empty, and error states
+
+Every affected feature should handle:
+
+- Loading
+- Successful data retrieval
+- Empty results
+- Validation errors
+- Unauthorized access
+- Backend or network errors
+- Failed mutations
+
+Use clear, understandable messages. Do not silently fail or display success when an operation did not complete.
+
+---
+
+## 13. UI and UX Requirements
+
+Preserve AgriCycle's existing visual identity.
+
+Improve clarity and consistency without redesigning unrelated pages.
+
+Requirements:
+
+- Use consistent headings, spacing, forms, buttons, tables, and status indicators.
+- Make the navigation intuitive for each role.
+- Keep dashboard cards and charts easy to read.
+- Clearly distinguish review statuses from availability statuses.
+- Use appropriate loading indicators and confirmation messages.
+- Make forms usable on common desktop and mobile screen sizes.
+- Ensure tables, filters, dropdowns, dialogs, and buttons are functional.
+- Provide accessible labels and clear validation feedback.
+- Avoid duplicate controls, unnecessary decoration, and overcrowded dashboards.
+
+Use the project's existing UI libraries and component patterns rather than introducing unnecessary dependencies.
+
+Do not add decorative buttons or interface elements that do not perform a real action.
+
+---
+
+## 14. Testing and Verification
+
+After implementing the changes, inspect the modified code and run the available checks.
+
+### 14.1 Build and code checks
+
+Where supported by the project, run:
+
+- TypeScript type checking
+- Production build
+- Linting
+- Relevant automated tests
+
+Resolve errors introduced by the changes.
+
+Do not claim the application builds successfully unless the build was actually executed and completed successfully.
+
+### 14.2 Biomass record tests
+
+Verify that:
+
+- Authorized users can create and edit records.
+- Required fields are validated.
+- Source type and source name behave consistently.
+- Barangay selection uses the appropriate existing data.
+- Quantity and unit validation works.
+- Review status, external availability, and listing eligibility remain separate.
+- Quantity calculations do not double-count used or reserved biomass.
+- Unauthorized users cannot perform restricted actions.
+
+### 14.3 Validation tests
+
+Verify that:
+
+- Authorized reviewers can open and review records.
+- Validation actions update the backend.
+- Return and rejection actions require a reason.
+- Appropriate users can see the result and feedback.
+- Invalid status transitions are rejected.
+- Buyer-facing eligibility follows the existing business rules.
+
+### 14.4 Dashboard tests
+
+Verify that:
+
+- Metrics come from real data.
+- Quantity calculations use consistent definitions.
+- Records and quantities are not confused.
+- Geographic summaries use valid location data.
+- Filters update the displayed results.
+- Aggregation does not double-count biomass.
+- LGU, Cooperative/Hub, and Admin data scopes remain appropriate.
+
+### 14.5 Inquiry and notification tests
+
+Verify that:
+
+- Buyers can submit valid inquiries.
+- Inquiries are stored against the correct buyer and listing.
+- Collection preferences are saved correctly.
+- Inquiries do not automatically reserve stock or confirm collection.
+- Relevant coordinators receive the appropriate notifications.
+- Inquiry responses and status changes notify the correct recipients.
+- Read/unread states persist where supported.
+
+### 14.6 Admin Portal tests
+
+Verify that:
+
+- System Audit Trail displays the actor's name and role.
+- Historical entries with missing information display a suitable fallback.
+- The Users tab displays actual users grouped by their roles.
+- Search and filters work.
+- Users are not duplicated in the list.
+- No sensitive authentication data is exposed.
+- The Roles and Permission tab is no longer visible.
+- The Reference Data tab is no longer visible.
+- Removing those tabs has not broken permissions or reference-data-dependent features.
+- Admin Analytics matches the core LGU and Cooperative/Hub dashboard metrics and visualizations.
+- Role-specific data restrictions remain enforced.
+
+### 14.7 Session tests
+
+Verify that:
+
+- User activity resets the inactivity timeout.
+- The warning appears before sign-out, where implemented.
+- Inactivity triggers the correct sign-out flow.
+- Protected pages remain inaccessible after sign-out.
+- Event listeners and timers are cleaned up correctly.
+
+If live Supabase access, credentials, or test accounts are unavailable, perform the checks that are possible locally and clearly state which integration tests still require a configured environment.
+
+---
+
+## 15. Implementation Strategy
+
+Implement the work in a controlled order to minimize regressions.
+
+**Phase 1 — Codebase assessment**
+- Map existing features, services, tables, and permissions.
+- Identify incomplete or inconsistent implementations.
+- Establish the existing meaning of biomass quantity and availability.
+
+**Phase 2 — Biomass records and validation**
+- Improve the form and field behavior.
+- Standardize availability and quantity calculations.
+- Improve the review workflow and authorization.
+
+**Phase 3 — Dashboards and analytics**
+- Establish shared metric definitions.
+- Improve LGU and Cooperative/Hub dashboards.
+- Align Admin Analytics with the shared dashboard structure.
+- Improve geographic and category breakdowns.
+
+**Phase 4 — Buyer inquiries and notifications**
+- Improve inquiry details and collection preferences.
+- Connect submission and responses to the backend.
+- Implement the appropriate notification events.
+
+**Phase 5 — Admin Portal**
+- Add actor name and role to the System Audit Trail.
+- Organize the Users tab by role/category.
+- Remove the two requested navigation tabs.
+- Verify Admin Analytics consistency.
+
+**Phase 6 — Aggregation hubs and session security**
+- Improve cooperative/hub selection and associations.
+- Implement the inactivity sign-out flow.
+
+**Phase 7 — Verification**
+- Run available checks.
+- Test role-specific behavior.
+- Review errors, data consistency, and regressions.
+- Document any remaining blockers.
+
+Adjust the order when dependencies in the existing implementation require it, but do not skip the verification phase.
+
+---
+
+## 16. Final Deliverables
+
+After completing the changes, provide the following:
+
+### A. Implementation summary
+
+Explain what was changed, organized by feature or module.
+
+### B. Modified files
+
+List the important files that were modified and briefly explain the purpose of each change.
+
+### C. Database changes
+
+Identify any new or modified migrations, tables, columns, constraints, or RLS policies.
+
+Clearly distinguish between migration files that were created and database changes that were actually applied.
+
+### D. Feature verification
+
+Provide a checklist of the requested features and their status:
+
+- Implemented and verified
+- Implemented but not fully verified
+- Partially implemented
+- Blocked by missing configuration or information
+- Not implemented, with explanation
+
+Do not mark a feature as verified merely because its UI exists.
+
+### E. Testing results
+
+Report the actual outcomes of build checks, type checks, linting, and tests that were run.
+
+Include any remaining failures or limitations.
+
+### F. Remaining issues
+
+Explain any unresolved decisions, missing data, external configuration requirements, or live Supabase integration steps that require further attention.
+
+### G. Usage instructions
+
+Explain any necessary steps to apply database migrations, configure settings, or test the updated features.
+
+---
+
+## 17. Final Instructions
+
+Work directly with the existing AgriCycle codebase.
+
+**Prioritize functional correctness, data consistency, security, and maintainability over superficial visual changes.**
+
+Do not merely describe the changes or provide a proposed design. Implement the requested improvements in the existing project wherever the available tools and environment permit.
+
+Do not rewrite the entire application unless the current architecture demonstrably prevents a safe implementation.
+
+Do not fabricate data, successful test results, completed integrations, or database operations.
+
+Preserve existing user data, established relationships, role-based access controls, and unrelated working functionality.
+
+If a requirement is already implemented correctly, retain it and verify it rather than duplicating it.
+
+If a requirement is only partially implemented, improve the existing implementation.
+
+If a requirement depends on a missing schema field, external service, or unavailable configuration, identify the dependency and make the safest compatible change possible.
+
+**The final result must be a cohesive, functional AgriCycle application—not just a redesigned interface—with the requested improvements integrated into the existing system.**

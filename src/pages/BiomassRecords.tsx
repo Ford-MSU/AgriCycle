@@ -29,6 +29,7 @@ export const BiomassRecords: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [isCreating, setIsCreating] = useState(false);
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -53,6 +54,20 @@ export const BiomassRecords: React.FC = () => {
         onSuccess={(newId) => {
           setIsCreating(false);
           setSelectedRecordId(newId);
+        }}
+      />
+    );
+  }
+
+  if (editingRecordId) {
+    const recordToEdit = getRecord(editingRecordId);
+    return (
+      <CreateRecordForm
+        initialRecord={recordToEdit}
+        onCancel={() => setEditingRecordId(null)}
+        onSuccess={(id) => {
+          setEditingRecordId(null);
+          setSelectedRecordId(id);
         }}
       />
     );
@@ -115,23 +130,37 @@ export const BiomassRecords: React.FC = () => {
 
     return (
       <div className="space-y-6 max-w-4xl mx-auto pb-10">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setSelectedRecordId(null);
-              setActionError('');
-            }}
-            className="p-2"
-          >
-            <ArrowLeft size={20} />
-          </Button>
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Record Details</h2>
-            <p className="text-sm text-agri-earth-500 mt-1">
-              Detailed view and traceability of the biomass record.
-            </p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setSelectedRecordId(null);
+                setActionError('');
+              }}
+              className="p-2"
+            >
+              <ArrowLeft size={20} />
+            </Button>
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Record Details</h2>
+              <p className="text-sm text-agri-earth-500 mt-1">
+                Detailed view, validation audit trail, and availability classification.
+              </p>
+            </div>
           </div>
+
+          {/* Edit record button for authorized coordinator/submitter */}
+          {(isSubmitter || user.role === Role.ADMINISTRATOR || hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS)) &&
+            record.status !== RecordStatus.ARCHIVED && (
+              <Button
+                variant="outline"
+                onClick={() => setEditingRecordId(record.id)}
+                className="border-agri-green-600 text-agri-green-700 hover:bg-agri-green-50"
+              >
+                Edit Record
+              </Button>
+            )}
         </div>
 
         {actionError && (
@@ -141,36 +170,84 @@ export const BiomassRecords: React.FC = () => {
           </div>
         )}
 
+        {/* Prominent Return Feedback Banner */}
+        {record.status === RecordStatus.RETURNED && (
+          <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-amber-900 shadow-sm">
+            <div className="flex items-center gap-2 font-semibold text-amber-800 mb-1">
+              <span className="text-lg">⚠️</span> Returned for Correction by LGU Reviewer
+            </div>
+            <p className="text-sm text-amber-800">
+              <strong>Reviewer Reason / Instructions:</strong>{' '}
+              {recordValidations[0]?.validationNotes || record.returnReason || 'Please review and correct source and quantity information before resubmitting.'}
+            </p>
+            <div className="mt-3">
+              <Button
+                size="sm"
+                onClick={() => setEditingRecordId(record.id)}
+                className="bg-amber-600 hover:bg-amber-700 text-white text-xs"
+              >
+                Edit and Fix Record
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Prominent Rejection Banner */}
+        {record.status === RecordStatus.REJECTED && (
+          <div className="bg-red-50 border border-red-300 rounded-xl p-4 text-red-900 shadow-sm">
+            <div className="flex items-center gap-2 font-semibold text-red-800 mb-1">
+              <span className="text-lg">❌</span> Record Rejected by LGU Reviewer
+            </div>
+            <p className="text-sm text-red-800">
+              <strong>Official Rejection Basis:</strong>{' '}
+              {recordValidations[0]?.validationNotes || record.rejectionReason || 'Record did not satisfy regional biomass reporting standards.'}
+            </p>
+          </div>
+        )}
+
         <Card>
           <CardHeader className="flex flex-row justify-between items-start border-b border-gray-100 pb-4">
             <div>
               <CardTitle className="text-xl">{type}</CardTitle>
               <CardDescription className="mt-1">ID: {record.id}</CardDescription>
             </div>
-            <StatusBadge status={record.status} />
+            <div className="flex flex-col items-end gap-1.5">
+              <StatusBadge status={record.status} />
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${
+                record.externalAvailability === 'NOT_AVAILABLE'
+                  ? 'bg-gray-100 text-gray-700'
+                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              }`}>
+                {record.externalAvailability === 'NOT_AVAILABLE' ? 'Internal Only' : 'Available to Others'}
+              </span>
+            </div>
           </CardHeader>
           <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-10 text-sm">
             <div>
-              <p className="text-gray-500 font-medium mb-1">Reported Quantity</p>
+              <p className="text-gray-500 font-medium mb-1">Reported Total Quantity</p>
               <p className="font-semibold text-gray-900 text-lg">
                 {record.quantity.toLocaleString()} {unit}
               </p>
-              {record.reservedQuantity !== undefined && record.remainingQuantity !== undefined && (
-                <div className="mt-2 text-xs text-gray-600 bg-gray-50 p-2 rounded border border-gray-100">
-                  <div className="flex justify-between mb-1">
-                    <span>Reserved:</span>
-                    <span className="font-medium">
-                      {record.reservedQuantity.toLocaleString()} {unit}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Remaining Available:</span>
-                    <span className="font-bold text-agri-green-700">
-                      {record.remainingQuantity.toLocaleString()} {unit}
-                    </span>
-                  </div>
+              <div className="mt-2 text-xs text-gray-600 bg-gray-50 p-2.5 rounded-lg border border-gray-100 space-y-1">
+                <div className="flex justify-between">
+                  <span>Current Internal Use:</span>
+                  <span className="font-medium">
+                    {(record.currentUseQuantity || 0).toLocaleString()} {unit}
+                  </span>
                 </div>
-              )}
+                <div className="flex justify-between">
+                  <span>Reserved / Committed:</span>
+                  <span className="font-medium">
+                    {(record.reservedQuantity || 0).toLocaleString()} {unit}
+                  </span>
+                </div>
+                <div className="flex justify-between pt-1 border-t border-gray-200">
+                  <span className="font-semibold text-agri-green-900">Remaining Available:</span>
+                  <span className="font-bold text-agri-green-700">
+                    {(record.remainingQuantity !== undefined ? record.remainingQuantity : record.quantity).toLocaleString()} {unit}
+                  </span>
+                </div>
+              </div>
               {record.isTheoreticalEstimate && (
                 <span className="inline-block bg-yellow-100 text-yellow-800 text-xs px-2 py-0.5 rounded mt-2">
                   Theoretical Estimate — Not Current Supply
@@ -179,16 +256,28 @@ export const BiomassRecords: React.FC = () => {
             </div>
             <div>
               <p className="text-gray-500 font-medium mb-1">Availability Window</p>
-              <p className="text-gray-900">
+              <p className="text-gray-900 font-medium">
                 {format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} to{' '}
                 {format(new Date(record.availabilityPeriodEnd), 'MMM d, yyyy')}
               </p>
-              <p className="text-gray-500 font-medium mb-1 mt-3">Present Use</p>
-              <p className="text-gray-900">{record.currentUse}</p>
+              <p className="text-gray-500 font-medium mb-1 mt-3">Present Internal Use</p>
+              <p className="text-gray-900">{record.currentUse || 'None specified'}</p>
+              <p className="text-gray-500 font-medium mb-1 mt-3">Market Listing Eligibility</p>
+              <p className="text-xs font-medium">
+                {record.status === RecordStatus.VALIDATED && record.externalAvailability !== 'NOT_AVAILABLE' ? (
+                  <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    ✓ Eligible for Buyer Discovery
+                  </span>
+                ) : (
+                  <span className="text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                    Not Publicly Listed ({record.status !== RecordStatus.VALIDATED ? 'Awaiting Validation' : 'Marked Internal Only'})
+                  </span>
+                )}
+              </p>
             </div>
             <div>
               <p className="text-gray-500 font-medium mb-1">Source Information</p>
-              <p className="text-gray-900">{source?.name}</p>
+              <p className="text-gray-900 font-semibold">{source?.name}</p>
               <p className="text-gray-600 text-xs">
                 {source?.type} • {location?.barangay}, {location?.city}
               </p>
@@ -236,7 +325,7 @@ export const BiomassRecords: React.FC = () => {
                     </span>
                   </div>
                   <p className="text-xs text-gray-600">Validator: {val.validatorId}</p>
-                  {val.validationNotes && <p className="text-gray-700 mt-1">{val.validationNotes}</p>}
+                  {val.validationNotes && <p className="text-gray-700 mt-1 font-medium">{val.validationNotes}</p>}
                 </div>
               ))}
             </CardContent>
@@ -271,7 +360,7 @@ export const BiomassRecords: React.FC = () => {
                     submitted.
                   </div>
                 ) : (
-                  <ValidationForm recordId={record.id} onComplete={() => {}} />
+                  <ValidationForm recordId={record.id} currentStatus={record.status} onComplete={() => {}} />
                 )}
               </CardContent>
             </Card>

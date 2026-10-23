@@ -5,14 +5,21 @@ import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { Role, RecordStatus } from '../types';
 import { Button } from '../components/ui/Button';
-import { AlertTriangle, CheckCircle, Activity, Layers, Download } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Activity, Layers, Download, Scale, MapPin } from 'lucide-react';
+import {
+  calculateCoreMetrics,
+  calculateCategoryBreakdown,
+  calculateBarangayRankings,
+} from '../utils/analytics';
 
-const COLORS = ['#22c55e', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#64748b'];
+const COLORS = ['#22c55e', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#64748b', '#06b6d4'];
 
 export const Reports: React.FC = () => {
   const { user } = useAuth();
   const {
     records,
+    locations,
+    sources,
     inquiries,
     referenceData,
     getRecord,
@@ -53,29 +60,23 @@ export const Reports: React.FC = () => {
     return inquiries;
   }, [user, inquiries, accessibleRecords, getRecord, getAggregationGroup]);
 
+  // Use standardized analytics calculations ensuring strict distinction between record count & biomass volume
+  const coreMetrics = useMemo(
+    () => calculateCoreMetrics(accessibleRecords, referenceData),
+    [accessibleRecords, referenceData]
+  );
+
+  const categoryBreakdown = useMemo(
+    () => calculateCategoryBreakdown(accessibleRecords, referenceData),
+    [accessibleRecords, referenceData]
+  );
+
+  const barangayRankings = useMemo(
+    () => calculateBarangayRankings(accessibleRecords, locations, sources, referenceData),
+    [accessibleRecords, locations, sources, referenceData]
+  );
+
   const staleRecords = accessibleRecords.filter((r) => r.status === RecordStatus.STALE);
-  const validatedRecords = accessibleRecords.filter((r) => r.status === RecordStatus.VALIDATED);
-
-  // Group by biomass type AND unit to prevent mixed units
-  const biomassQuantities = useMemo(() => {
-    const map = new Map<string, { typeName: string; unitName: string; quantity: number; count: number }>();
-
-    validatedRecords.forEach((r) => {
-      const typeLabel = referenceData.find((ref) => ref.id === r.biomassTypeId)?.label || 'Unknown';
-      const unitLabel = referenceData.find((ref) => ref.id === r.originalUnit)?.label || 'Unknown';
-
-      const key = `${typeLabel}_${unitLabel}`;
-      if (!map.has(key)) {
-        map.set(key, { typeName: typeLabel, unitName: unitLabel, quantity: 0, count: 0 });
-      }
-
-      const current = map.get(key)!;
-      current.quantity += r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity;
-      current.count += 1;
-    });
-
-    return Array.from(map.values());
-  }, [validatedRecords, referenceData]);
 
   // Status Distribution for Pie Chart
   const statusDistribution = useMemo(() => {
@@ -152,52 +153,72 @@ export const Reports: React.FC = () => {
         </div>
       </div>
 
-      {/* High-Level Monitoring */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
+      {/* High-Level Monitoring & Core Metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="border-agri-green-200 bg-gradient-to-br from-white to-agri-green-50/30">
           <CardContent className="p-5 flex items-center">
-            <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center text-green-600 mr-4">
-              <CheckCircle size={20} />
+            <div className="w-12 h-12 rounded-xl bg-agri-green-100 flex items-center justify-center text-agri-green-700 mr-4 shrink-0 shadow-sm">
+              <Scale size={24} />
             </div>
             <div>
-              <p className="text-xs font-medium text-agri-earth-500">Validated Records</p>
-              <p className="text-xl font-bold text-gray-900">{validatedRecords.length}</p>
+              <p className="text-xs font-semibold text-agri-earth-600 uppercase tracking-wider">Validated Available Volume</p>
+              <p className="text-2xl font-extrabold text-agri-green-800 mt-0.5">
+                {coreMetrics.availableVolumeTonnes.toLocaleString()} <span className="text-sm font-semibold text-agri-green-600">MT</span>
+              </p>
+              <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                {coreMetrics.validatedCount} validated records
+              </p>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-blue-100 bg-gradient-to-br from-white to-blue-50/20">
           <CardContent className="p-5 flex items-center">
-            <div className="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center text-yellow-600 mr-4">
-              <AlertTriangle size={20} />
+            <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-700 mr-4 shrink-0 shadow-sm">
+              <Layers size={24} />
             </div>
             <div>
-              <p className="text-xs font-medium text-agri-earth-500">Stale Records</p>
-              <p className="text-xl font-bold text-gray-900">{staleRecords.length}</p>
+              <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider">Total Recorded Volume</p>
+              <p className="text-2xl font-extrabold text-gray-900 mt-0.5">
+                {coreMetrics.totalVolumeTonnes.toLocaleString()} <span className="text-sm font-semibold text-gray-500">MT</span>
+              </p>
+              <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                Across {coreMetrics.totalRecordsCount} total records
+              </p>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-amber-100 bg-gradient-to-br from-white to-amber-50/20">
           <CardContent className="p-5 flex items-center">
-            <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 mr-4">
-              <Layers size={20} />
+            <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700 mr-4 shrink-0 shadow-sm">
+              <Activity size={24} />
             </div>
             <div>
-              <p className="text-xs font-medium text-agri-earth-500">Recorded Sources</p>
-              <p className="text-xl font-bold text-gray-900">{new Set(accessibleRecords.map((r) => r.sourceId)).size}</p>
+              <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">Committed / On-Farm Use</p>
+              <p className="text-2xl font-extrabold text-gray-900 mt-0.5">
+                {coreMetrics.usedOrCommittedVolumeTonnes.toLocaleString()} <span className="text-sm font-semibold text-gray-500">MT</span>
+              </p>
+              <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                Internal utilization & reserved
+              </p>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-purple-100 bg-gradient-to-br from-white to-purple-50/20">
           <CardContent className="p-5 flex items-center">
-            <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600 mr-4">
-              <Activity size={20} />
+            <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center text-purple-700 mr-4 shrink-0 shadow-sm">
+              <AlertTriangle size={24} />
             </div>
             <div>
-              <p className="text-xs font-medium text-agri-earth-500">Inquiries Handled</p>
-              <p className="text-xl font-bold text-gray-900">{accessibleInquiries.length}</p>
+              <p className="text-xs font-semibold text-purple-800 uppercase tracking-wider">Pending Review & Stale</p>
+              <p className="text-2xl font-extrabold text-gray-900 mt-0.5">
+                {coreMetrics.pendingValidationCount} <span className="text-xs font-medium text-gray-500">pending</span>
+              </p>
+              <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                {coreMetrics.staleCount} records need revalidation
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -206,28 +227,55 @@ export const Reports: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="flex flex-col">
           <CardHeader>
-            <CardTitle>Reported Biomass Quantities</CardTitle>
+            <CardTitle>Biomass Volume by Category (Metric Tonnes)</CardTitle>
             <CardDescription>
-              Sum of validated records, separated by strict unit of measurement.
+              Total registered volume vs. validated available volume for commercial distribution.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex-1 min-h-[300px]">
-            {biomassQuantities.length === 0 ? (
+            {categoryBreakdown.length === 0 ? (
               <div className="h-full flex items-center justify-center text-gray-500 text-sm">
-                No validated biomass records available yet.
+                No biomass records available yet.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={biomassQuantities} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <BarChart data={categoryBreakdown} margin={{ top: 20, right: 30, left: 10, bottom: 25 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="typeName" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="quantity" fill="#16a34a" radius={[4, 4, 0, 0]} maxBarSize={50}>
-                    {biomassQuantities.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Bar>
+                  <XAxis
+                    dataKey="categoryName"
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={0}
+                    angle={-20}
+                    textAnchor="end"
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    axisLine={false}
+                    tickLine={false}
+                    unit=" t"
+                  />
+                  <Tooltip
+                    formatter={(value: any, name: any) => [
+                      `${Number(value).toLocaleString()} MT`,
+                      name === 'totalQuantityTonnes' ? 'Total Volume' : 'Available Volume',
+                    ]}
+                  />
+                  <Bar
+                    dataKey="totalQuantityTonnes"
+                    name="totalQuantityTonnes"
+                    fill="#94a3b8"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={32}
+                  />
+                  <Bar
+                    dataKey="availableQuantityTonnes"
+                    name="availableQuantityTonnes"
+                    fill="#16a34a"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={32}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -318,6 +366,53 @@ export const Reports: React.FC = () => {
                   />
                 </PieChart>
               </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Butuan City Barangay Concentration */}
+        <Card className="flex flex-col">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MapPin size={18} className="text-agri-green-600" />
+              Butuan City Barangay Concentration
+            </CardTitle>
+            <CardDescription>
+              Geographic rankings by recorded biomass tonnage and verified availability.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex-1">
+            {barangayRankings.length === 0 ? (
+              <div className="py-8 text-center text-sm text-gray-500">
+                No location data recorded yet.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {barangayRankings.slice(0, 5).map((b, idx) => (
+                  <div
+                    key={b.barangay}
+                    className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 hover:bg-agri-green-50/40 transition-colors border border-gray-100"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-6 h-6 rounded-full bg-agri-green-100 text-agri-green-800 text-xs font-bold flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <div>
+                        <div className="font-semibold text-gray-900 text-sm">{b.barangay}</div>
+                        <div className="text-xs text-agri-earth-500">{b.recordCount} records</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-gray-900 text-sm">
+                        {b.totalVolumeTonnes.toLocaleString()} MT
+                      </div>
+                      <div className="text-[11px] text-agri-green-700 font-medium">
+                        {b.availableVolumeTonnes.toLocaleString()} MT avail.
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>
