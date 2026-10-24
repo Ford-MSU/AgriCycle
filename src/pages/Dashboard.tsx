@@ -17,6 +17,11 @@ import {
   Layers,
   ArrowRight,
   ExternalLink,
+  Send,
+  PlusCircle,
+  Ban,
+  Clock,
+  CheckCircle2,
 } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
@@ -132,13 +137,15 @@ export const Dashboard: React.FC = () => {
       }
     });
 
-    const grandTotal = availableTonnes + internalTonnes + reservedTonnes;
+    const totalRecordedTonnes = Math.round((availableTonnes + internalTonnes + reservedTonnes) * 10) / 10;
     return {
       availableTonnes: Math.round(availableTonnes * 10) / 10,
       internalTonnes: Math.round(internalTonnes * 10) / 10,
       reservedTonnes: Math.round(reservedTonnes * 10) / 10,
-      availablePercent: grandTotal > 0 ? Math.round((availableTonnes / grandTotal) * 100) : 0,
-      internalPercent: grandTotal > 0 ? Math.round((internalTonnes / grandTotal) * 100) : 0,
+      totalRecordedTonnes,
+      availablePercent: totalRecordedTonnes > 0 ? Math.round((availableTonnes / totalRecordedTonnes) * 100) : 0,
+      internalPercent: totalRecordedTonnes > 0 ? Math.round((internalTonnes / totalRecordedTonnes) * 100) : 0,
+      reservedPercent: totalRecordedTonnes > 0 ? Math.round((reservedTonnes / totalRecordedTonnes) * 100) : 0,
     };
   }, [accessibleRecords, referenceData]);
 
@@ -238,6 +245,103 @@ export const Dashboard: React.FC = () => {
   const recentLogs = [...auditLogs]
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 5);
+
+  const myRecentActions = useMemo(() => {
+    const userMatches = (logUserId?: string) => {
+      if (!logUserId) return false;
+      const lowerLog = logUserId.toLowerCase();
+      const lowerUid = (user.id || '').toLowerCase();
+      const lowerName = (user.name || '').toLowerCase();
+      const lowerEmail = (user.email || '').toLowerCase();
+
+      if (lowerLog === lowerUid || lowerLog === lowerName || lowerLog === lowerEmail) return true;
+      if (lowerLog.includes(lowerUid) || (lowerUid && lowerUid.includes(lowerLog))) return true;
+
+      if (user.role === Role.COORDINATOR && (lowerLog.includes('coord') || lowerLog.includes('nitronford') || lowerLog.includes('clara'))) return true;
+      if (user.role === Role.LGU && (lowerLog.includes('lgu') || lowerLog.includes('arvin'))) return true;
+      if (user.role === Role.BUYER && (lowerLog.includes('buyer') || lowerLog.includes('carlos') || lowerLog.includes('roberto'))) return true;
+      if (user.role === Role.ADMINISTRATOR && (lowerLog.includes('admin') || lowerLog.includes('juan'))) return true;
+
+      return false;
+    };
+
+    const userLogs = auditLogs.filter((log) => userMatches(log.userId));
+    return [...userLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 7);
+  }, [auditLogs, user]);
+
+  const getActionMeta = (log: typeof auditLogs[0]) => {
+    let title = 'System Activity';
+    let icon = <Activity size={15} className="text-gray-600" />;
+    let badgeColor = 'bg-gray-100 text-gray-700 border-gray-200';
+    let targetLink = '/dashboard';
+
+    if (log.entityType === 'Inquiry') {
+      targetLink = '/inquiries';
+      if (log.details?.toLowerCase().includes('accepted')) {
+        title = 'Accepted Inquiry';
+        icon = <CheckCircle2 size={15} className="text-emerald-600" />;
+        badgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+      } else if (log.details?.toLowerCase().includes('declined')) {
+        title = 'Declined Inquiry';
+        icon = <Ban size={15} className="text-rose-600" />;
+        badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
+      } else if (log.details?.toLowerCase().includes('withdrew') || log.details?.toLowerCase().includes('withdrawn')) {
+        title = 'Withdrew Inquiry';
+        icon = <AlertTriangle size={15} className="text-gray-600" />;
+        badgeColor = 'bg-gray-100 text-gray-700 border-gray-200';
+      } else if (log.details?.toLowerCase().includes('message')) {
+        title = 'Sent Message';
+        icon = <Send size={15} className="text-indigo-600" />;
+        badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      } else {
+        title = 'Submitted Inquiry';
+        icon = <MessageSquare size={15} className="text-blue-600" />;
+        badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
+      }
+    } else if (log.entityType === 'BiomassRecord') {
+      targetLink = '/biomass-records';
+      if (log.details?.toLowerCase().includes('created') || log.action === 'CREATE') {
+        title = 'Created Record';
+        icon = <PlusCircle size={15} className="text-emerald-600" />;
+        badgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+      } else if (log.details?.toLowerCase().includes('submitted') || log.action === 'SUBMIT') {
+        title = 'Submitted Record';
+        icon = <Send size={15} className="text-blue-600" />;
+        badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
+      } else {
+        title = 'Updated Record';
+        icon = <FileText size={15} className="text-slate-600" />;
+        badgeColor = 'bg-slate-50 text-slate-700 border-slate-200';
+      }
+    } else if (log.entityType === 'ValidationRecord') {
+      targetLink = '/biomass-records';
+      if (log.details?.toLowerCase().includes('validated') || log.action === 'VALIDATE') {
+        title = 'Validated Record';
+        icon = <CheckCircle2 size={15} className="text-emerald-600" />;
+        badgeColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+      } else if (log.details?.toLowerCase().includes('returned') || log.action === 'RETURN') {
+        title = 'Returned for Correction';
+        icon = <AlertTriangle size={15} className="text-amber-600" />;
+        badgeColor = 'bg-amber-50 text-amber-800 border-amber-200';
+      } else {
+        title = 'Rejected Record';
+        icon = <Ban size={15} className="text-rose-600" />;
+        badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
+      }
+    } else if (log.entityType === 'AggregationGroup') {
+      targetLink = '/aggregation';
+      title = 'Aggregation Group';
+      icon = <Layers size={15} className="text-purple-600" />;
+      badgeColor = 'bg-purple-50 text-purple-700 border-purple-200';
+    } else if (log.entityType === 'User') {
+      targetLink = '/admin';
+      title = 'User Administration';
+      icon = <Users size={15} className="text-blue-600" />;
+      badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
+    }
+
+    return { title, icon, badgeColor, targetLink };
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
@@ -359,12 +463,15 @@ export const Dashboard: React.FC = () => {
                 Live comparison of biomass available for external buyer inquiries versus internal farm/mill consumption.
               </CardDescription>
             </div>
-            <div className="flex items-center gap-3 text-xs">
+            <div className="flex items-center gap-3 text-xs flex-wrap">
               <span className="flex items-center gap-1.5 font-medium text-emerald-800">
-                <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" /> Available to Others ({utilizationStats.availablePercent}%)
+                <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block shrink-0" /> Available to Others ({utilizationStats.availablePercent}%)
               </span>
               <span className="flex items-center gap-1.5 font-medium text-amber-800">
-                <span className="w-3 h-3 rounded-full bg-amber-500 inline-block" /> Internal Farm Use ({utilizationStats.internalPercent}%)
+                <span className="w-3 h-3 rounded-full bg-amber-500 inline-block shrink-0" /> Internal Farm Use ({utilizationStats.internalPercent}%)
+              </span>
+              <span className="flex items-center gap-1.5 font-medium text-blue-800">
+                <span className="w-3 h-3 rounded-full bg-blue-600 inline-block shrink-0" /> Reserved / Committed ({utilizationStats.reservedPercent}%)
               </span>
             </div>
           </CardHeader>
@@ -374,18 +481,26 @@ export const Dashboard: React.FC = () => {
               <div
                 style={{ width: `${utilizationStats.availablePercent}%` }}
                 className="bg-emerald-500 transition-all duration-500 hover:opacity-90"
-                title={`Available to Others: ${utilizationStats.availableTonnes} MT`}
+                title={`Available to Others: ${utilizationStats.availableTonnes} MT (${utilizationStats.availablePercent}%)`}
               />
               <div
                 style={{ width: `${utilizationStats.internalPercent}%` }}
                 className="bg-amber-500 transition-all duration-500 hover:opacity-90"
-                title={`Internal Farm/Mill Use: ${utilizationStats.internalTonnes} MT`}
+                title={`Internal Farm/Mill Use: ${utilizationStats.internalTonnes} MT (${utilizationStats.internalPercent}%)`}
+              />
+              <div
+                style={{ width: `${utilizationStats.reservedPercent}%` }}
+                className="bg-blue-600 transition-all duration-500 hover:opacity-90"
+                title={`Reserved / Committed: ${utilizationStats.reservedTonnes} MT (${utilizationStats.reservedPercent}%)`}
               />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">Available for Inquiries</p>
+                <div className="flex justify-between items-center">
+                  <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">Available for Inquiries</p>
+                  <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">{utilizationStats.availablePercent}%</span>
+                </div>
                 <p className="text-xl font-bold text-emerald-900 mt-1">
                   {utilizationStats.availableTonnes.toLocaleString()} <span className="text-xs text-emerald-700">MT</span>
                 </p>
@@ -393,7 +508,10 @@ export const Dashboard: React.FC = () => {
               </div>
 
               <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
-                <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">Internal Producer Use</p>
+                <div className="flex justify-between items-center">
+                  <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">Internal Producer Use</p>
+                  <span className="text-xs font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded">{utilizationStats.internalPercent}%</span>
+                </div>
                 <p className="text-xl font-bold text-amber-900 mt-1">
                   {utilizationStats.internalTonnes.toLocaleString()} <span className="text-xs text-amber-700">MT</span>
                 </p>
@@ -401,7 +519,10 @@ export const Dashboard: React.FC = () => {
               </div>
 
               <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider">Reserved / Committed</p>
+                <div className="flex justify-between items-center">
+                  <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider">Reserved / Committed</p>
+                  <span className="text-xs font-bold text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded">{utilizationStats.reservedPercent}%</span>
+                </div>
                 <p className="text-xl font-bold text-blue-900 mt-1">
                   {utilizationStats.reservedTonnes.toLocaleString()} <span className="text-xs text-blue-700">MT</span>
                 </p>
@@ -610,57 +731,81 @@ export const Dashboard: React.FC = () => {
           </Card>
         )}
 
-        {hasPermission(user.role, Permission.VIEW_AUDIT_LOGS) ? (
-          <Card className={user.role === Role.BUYER ? 'lg:col-span-3' : ''}>
-            <CardHeader>
-              <CardTitle>System Activity</CardTitle>
-              <CardDescription>Audit log traceability overview.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {recentLogs.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-4">No audit logs available.</p>
-                ) : (
-                  recentLogs.map((log) => (
-                    <div key={log.id} className="flex gap-3">
-                      <div className="mt-0.5 w-2 h-2 rounded-full bg-agri-green-400 shrink-0"></div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{log.action}</p>
-                        <p className="text-xs text-agri-earth-500 mt-0.5">
-                          By User: {log.userId} &bull; Entity: {log.entityId}
-                        </p>
-                        <p className="text-xs text-agri-earth-400 mt-1">
-                          {format(new Date(log.timestamp), 'MMM d, HH:mm')}
-                        </p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-              <div className="mt-4 text-center border-t border-gray-100 pt-3">
-                <Link to="/audit-logs" className="text-sm font-medium text-agri-green-600 hover:text-agri-green-700">
-                  View Full Audit Trail &rarr;
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className={user.role === Role.BUYER ? 'lg:col-span-3' : ''}>
-            <CardHeader>
-              <CardTitle>My Recent Actions</CardTitle>
-              <CardDescription>Your interactions with the system.</CardDescription>
-            </CardHeader>
-            <CardContent>
+        <Card className={user.role === Role.BUYER ? 'lg:col-span-3' : ''}>
+          <CardHeader className="pb-3 border-b border-gray-100 flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Activity size={18} className="text-agri-green-600" />
+                My Recent Actions
+              </CardTitle>
+              <CardDescription>Your logged interactions with the system.</CardDescription>
+            </div>
+            {hasPermission(user.role, Permission.VIEW_AUDIT_LOGS) && (
+              <Link
+                to="/audit-logs"
+                className="text-xs font-semibold text-agri-green-600 hover:text-agri-green-700 flex items-center gap-1"
+              >
+                System Audit Trail <ExternalLink size={12} />
+              </Link>
+            )}
+          </CardHeader>
+          <CardContent className="pt-4">
+            {myRecentActions.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <Activity size={32} className="text-agri-green-200 mb-3" />
-                <p className="text-sm font-medium text-gray-900">Information Up To Date</p>
-                <p className="text-xs text-agri-earth-500 mt-1 max-w-[200px]">
-                  Track your records and inquiries using the navigation menu.
+                <p className="text-sm font-medium text-gray-900">No Actions Recorded Yet</p>
+                <p className="text-xs text-agri-earth-500 mt-1 max-w-[220px]">
+                  Your submissions, validations, accepted inquiries, and messages will appear here.
                 </p>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            ) : (
+              <div className="space-y-3">
+                {myRecentActions.map((log) => {
+                  const meta = getActionMeta(log);
+                  return (
+                    <div
+                      key={log.id}
+                      className="p-2.5 rounded-lg border border-gray-100 hover:bg-agri-green-50/40 transition-colors flex items-start justify-between gap-3"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="p-1.5 rounded-md bg-white border border-gray-100 shadow-2xs mt-0.5 shrink-0">
+                          {meta.icon}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-gray-900">{meta.title}</span>
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${meta.badgeColor}`}>
+                              {log.entityId}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">
+                            {log.details || `${log.action} on ${log.entityType}`}
+                          </p>
+                          <p className="text-[11px] text-gray-400 mt-1">
+                            {format(new Date(log.timestamp), 'MMM d, yyyy • h:mm a')}
+                          </p>
+                        </div>
+                      </div>
+                      <Link
+                        to={meta.targetLink}
+                        className="shrink-0 text-[11px] font-semibold text-agri-green-600 hover:text-agri-green-800 flex items-center gap-0.5 mt-1"
+                      >
+                        View <ArrowRight size={11} />
+                      </Link>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {hasPermission(user.role, Permission.VIEW_AUDIT_LOGS) && (
+              <div className="mt-4 text-center border-t border-gray-100 pt-3">
+                <Link to="/audit-logs" className="text-xs font-semibold text-agri-green-600 hover:text-agri-green-700">
+                  View Full System Audit Trail &rarr;
+                </Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

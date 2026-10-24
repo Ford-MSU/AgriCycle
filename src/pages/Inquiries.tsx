@@ -99,6 +99,7 @@ export const Inquiries: React.FC = () => {
   const [declineReason, setDeclineReason] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
 
   if (!user) return null;
 
@@ -189,6 +190,12 @@ export const Inquiries: React.FC = () => {
         InquiryStatus.ACCEPTED,
         `Inquiry accepted by ${user.name} (${user.role}). Direct conversation is now open.`
       );
+      // Directly navigate to chat and focus input
+      setActiveTab('CHAT');
+      setTimeout(() => {
+        chatInputRef.current?.focus();
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     } catch (err: any) {
       setActionError(err?.message || 'Failed to accept inquiry.');
     } finally {
@@ -565,6 +572,7 @@ export const Inquiries: React.FC = () => {
                       className="p-3 border-t border-gray-200 bg-white flex items-center gap-2"
                     >
                       <input
+                        ref={chatInputRef}
                         type="text"
                         className="flex-1 px-3.5 py-2.5 text-sm border border-gray-200 rounded-lg focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
                         placeholder="Type a message to coordinate availability, pickup, or terms..."

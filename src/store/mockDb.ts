@@ -185,30 +185,130 @@ export const MOCK_VALIDATION_RECORDS: ValidationRecord[] = [
 ];
 
 export const MOCK_AUDIT_LOGS: AuditLog[] = [
+  // Coordinator Actions (Nitronford Beatingo)
   {
-    id: 'log-1',
+    id: 'log-coord-1',
     userId: 'user-coord',
-    action: SystemAction.CREATE,
-    entityType: 'BiomassRecord',
-    entityId: 'REC-1001',
-    timestamp: daysAgo(10)
+    action: SystemAction.UPDATE_STATUS,
+    entityType: 'Inquiry',
+    entityId: 'INQ-1001',
+    details: 'Accepted inquiry INQ-1001 for Rice Husk discussion',
+    timestamp: daysAgo(1),
   },
   {
-    id: 'log-2',
+    id: 'log-coord-2',
+    userId: 'user-coord',
+    action: SystemAction.CREATE_GROUP,
+    entityType: 'AggregationGroup',
+    entityId: 'AG-001',
+    details: 'Created aggregation group "Rice Husk - Batch 1 (Libertad)"',
+    timestamp: daysAgo(3),
+  },
+  {
+    id: 'log-coord-3',
     userId: 'user-coord',
     action: SystemAction.SUBMIT,
     entityType: 'BiomassRecord',
     entityId: 'REC-1001',
-    timestamp: daysAgo(10)
+    details: 'Submitted biomass record REC-1001 (Rice Husk, 20 MT) for validation',
+    timestamp: daysAgo(5),
   },
   {
-    id: 'log-3',
+    id: 'log-coord-4',
+    userId: 'user-coord',
+    action: SystemAction.CREATE,
+    entityType: 'BiomassRecord',
+    entityId: 'REC-1002',
+    details: 'Created biomass record REC-1002 (Coconut Shell, 15 MT)',
+    timestamp: daysAgo(7),
+  },
+
+  // LGU Actions (Engr. Arvin Jimenez)
+  {
+    id: 'log-lgu-1',
     userId: 'user-lgu',
     action: SystemAction.VALIDATE,
     entityType: 'ValidationRecord',
-    entityId: 'val-1',
-    timestamp: daysAgo(8)
-  }
+    entityId: 'REC-1001',
+    details: 'Validated biomass record REC-1001 via on-site field inspection',
+    timestamp: daysAgo(2),
+  },
+  {
+    id: 'log-lgu-2',
+    userId: 'user-lgu',
+    action: SystemAction.VALIDATE,
+    entityType: 'ValidationRecord',
+    entityId: 'REC-1002',
+    details: 'Validated biomass record REC-1002 via phone verification with producer',
+    timestamp: daysAgo(4),
+  },
+  {
+    id: 'log-lgu-3',
+    userId: 'user-lgu',
+    action: SystemAction.RETURN,
+    entityType: 'ValidationRecord',
+    entityId: 'REC-1003',
+    details: 'Returned record REC-1003 requesting updated moisture content specifications',
+    timestamp: daysAgo(6),
+  },
+
+  // Buyer Actions (Carlos Santos)
+  {
+    id: 'log-buyer-1',
+    userId: 'user-buyer',
+    action: SystemAction.INQUIRE,
+    entityType: 'Inquiry',
+    entityId: 'INQ-1001',
+    details: 'Submitted commercial inquiry INQ-1001 for 100 Bags Rice Husk',
+    timestamp: daysAgo(2),
+  },
+  {
+    id: 'log-buyer-2',
+    userId: 'user-buyer',
+    action: SystemAction.UPDATE,
+    entityType: 'Inquiry',
+    entityId: 'INQ-1001',
+    details: 'Sent message inquiring about weighbridge ticket and pickup schedule',
+    timestamp: daysAgo(1),
+  },
+  {
+    id: 'log-buyer-3',
+    userId: 'user-buyer',
+    action: SystemAction.UPDATE_STATUS,
+    entityType: 'Inquiry',
+    entityId: 'INQ-1005',
+    details: 'Withdrew inquiry INQ-1005 for Sugarcane Bagasse',
+    timestamp: daysAgo(8),
+  },
+
+  // Administrator Actions (Juan Dela Cruz)
+  {
+    id: 'log-admin-1',
+    userId: 'user-admin',
+    action: SystemAction.UPDATE,
+    entityType: 'User',
+    entityId: 'user-lgu',
+    details: 'Assigned LGU Reviewer credentials to Engr. Arvin Jimenez',
+    timestamp: daysAgo(1),
+  },
+  {
+    id: 'log-admin-2',
+    userId: 'user-admin',
+    action: SystemAction.CREATE,
+    entityType: 'BiomassRecord',
+    entityId: 'REC-1008',
+    details: 'Registered institutional biomass batch in Butuan City Agro-Hub',
+    timestamp: daysAgo(3),
+  },
+  {
+    id: 'log-admin-3',
+    userId: 'user-admin',
+    action: SystemAction.UPDATE,
+    entityType: 'BiomassRecord',
+    entityId: 'REC-1001',
+    details: 'Verified database integrity across 86 Butuan City barangay zones',
+    timestamp: daysAgo(5),
+  },
 ];
 
 export const MOCK_AGGREGATION_GROUPS: AggregationGroup[] = [

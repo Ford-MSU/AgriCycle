@@ -102,6 +102,13 @@ interface DataContextType {
   }) => Promise<Inquiry>;
   updateInquiryStatus: (inquiryId: string, newStatus: InquiryStatus, notes?: string) => Promise<void>;
   addInquiryMessage: (inquiryId: string, message: string) => Promise<InquiryMessage>;
+  recordUserAction: (entry: {
+    userId?: string;
+    action: SystemAction;
+    entityType: 'BiomassRecord' | 'User' | 'Inquiry' | 'Listing' | 'AggregationGroup' | 'ValidationRecord';
+    entityId: string;
+    details: string;
+  }) => void;
 }
 
 const DEFAULT_PROFILES: User[] = [
@@ -199,7 +206,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [sources, setSources] = useState<BiomassSource[]>(db.sources);
   const [referenceData, setReferenceData] = useState<ReferenceData[]>(db.referenceData);
   const [validationRecords, setValidationRecords] = useState<ValidationRecord[]>(db.validationRecords);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(db.auditLogs);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => {
+    try {
+      const saved = localStorage.getItem('agricycle_audit_logs');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const savedIds = new Set(parsed.map((l: AuditLog) => l.id));
+          return [...parsed, ...db.auditLogs.filter((l) => !savedIds.has(l.id))];
+        }
+      }
+      return db.auditLogs;
+    } catch {
+      return db.auditLogs;
+    }
+  });
   const [organizations, setOrganizations] = useState<Organization[]>(db.organizations);
   const [aggregationGroups, setAggregationGroups] = useState<AggregationGroup[]>(db.aggregationGroups);
   const [aggregationMembers, setAggregationMembers] = useState<AggregationMember[]>(db.aggregationMembers);
@@ -226,6 +247,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     try {
+      localStorage.setItem('agricycle_audit_logs', JSON.stringify(auditLogs));
+    } catch (e) {
+      console.error('Failed to save audit logs to localStorage', e);
+    }
+  }, [auditLogs]);
+
+  useEffect(() => {
+    try {
       localStorage.setItem('agricycle_inquiry_messages', JSON.stringify(inquiryMessages));
     } catch (e) {
       console.error('Failed to save inquiry messages to localStorage', e);
@@ -239,6 +268,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Failed to save notifications to localStorage', e);
     }
   }, [notifications]);
+
+  const recordUserAction = useCallback((entry: {
+    userId?: string;
+    action: SystemAction;
+    entityType: 'BiomassRecord' | 'User' | 'Inquiry' | 'Listing' | 'AggregationGroup' | 'ValidationRecord';
+    entityId: string;
+    details: string;
+  }) => {
+    const actorId = entry.userId || user?.id || 'System';
+    const newLog: AuditLog = {
+      id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      userId: actorId,
+      action: entry.action,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      details: entry.details,
+      timestamp: new Date().toISOString(),
+    };
+    db.auditLogs.unshift(newLog);
+    setAuditLogs((prev) => [newLog, ...prev.filter((l) => l.id !== newLog.id)]);
+  }, [user]);
 
   const addNotification = useCallback((notif: Omit<SystemNotification, 'id' | 'createdAt' | 'isRead'>) => {
     const newNotif: SystemNotification = {
@@ -415,6 +465,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       type: 'RECORD_SUBMITTED',
     });
 
+    recordUserAction({
+      userId: user.id,
+      action: SystemAction.CREATE,
+      entityType: 'BiomassRecord',
+      entityId: createdRecord.id,
+      details: `Created biomass record ${createdRecord.id}`,
+    });
+    recordUserAction({
+      userId: user.id,
+      action: SystemAction.SUBMIT,
+      entityType: 'BiomassRecord',
+      entityId: createdRecord.id,
+      details: `Submitted record ${createdRecord.id} for validation`,
+    });
+
     return createdRecord;
   };
 
@@ -432,6 +497,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       db.updateRecord(id, updates, user.id, action);
       syncLocalStateFromMock();
     }
+
+    recordUserAction({
+      userId: user.id,
+      action,
+      entityType: 'BiomassRecord',
+      entityId: id,
+      details: updates.status === RecordStatus.SUBMITTED
+        ? `Resubmitted record ${id} for review`
+        : `Updated biomass record ${id}`,
+    });
 
     if (updates.status === RecordStatus.SUBMITTED) {
       addNotification({
@@ -470,6 +545,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       syncLocalStateFromMock();
       createdVal = validation;
     }
+
+    recordUserAction({
+      userId: user.id,
+      action: decision === RecordStatus.VALIDATED
+        ? SystemAction.VALIDATE
+        : decision === RecordStatus.RETURNED
+        ? SystemAction.RETURN
+        : SystemAction.REJECT,
+      entityType: 'ValidationRecord',
+      entityId: recordId,
+      details: `${decision === RecordStatus.VALIDATED ? 'Validated' : decision === RecordStatus.RETURNED ? 'Returned' : 'Rejected'} record ${recordId}: ${validationBasis}`,
+    });
 
     // Auto-dispatch notification based on decision
     if (decision === RecordStatus.VALIDATED) {
@@ -510,26 +597,36 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): Promise<AggregationGroup> => {
     if (!user) throw new Error('You must be signed in to create an aggregation group.');
 
+    let createdGroup: AggregationGroup;
     if (isSupabaseConfigured) {
-      const created = await createAggregationGroupInSupabase(name, biomassTypeId, hubId || '', memberRecordIds, user, notes);
+      createdGroup = await createAggregationGroupInSupabase(name, biomassTypeId, hubId || '', memberRecordIds, user, notes);
       await refreshData();
-      return created;
+    } else {
+      const newGroup: AggregationGroup = {
+        id: `AG-${Math.floor(100 + Math.random() * 900)}`,
+        name,
+        biomassTypeId,
+        hubId: hubId || undefined,
+        status: AggregationStatus.ACTIVE,
+        notes,
+        createdBy: user.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      db.addAggregationGroup(newGroup, memberRecordIds, user.id);
+      syncLocalStateFromMock();
+      createdGroup = newGroup;
     }
 
-    const newGroup: AggregationGroup = {
-      id: `AG-${Math.floor(100 + Math.random() * 900)}`,
-      name,
-      biomassTypeId,
-      hubId: hubId || undefined,
-      status: AggregationStatus.ACTIVE,
-      notes,
-      createdBy: user.id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    db.addAggregationGroup(newGroup, memberRecordIds, user.id);
-    syncLocalStateFromMock();
-    return newGroup;
+    recordUserAction({
+      userId: user.id,
+      action: SystemAction.CREATE_GROUP,
+      entityType: 'AggregationGroup',
+      entityId: createdGroup.id,
+      details: `Created aggregation group "${name}"`,
+    });
+
+    return createdGroup;
   };
 
   const getInquiryMessages = useCallback((inquiryId: string) => {
@@ -549,6 +646,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     db.addInquiryMessage(newMsg);
     setInquiryMessages((prev) => [...prev, newMsg]);
+
+    recordUserAction({
+      userId: user.id,
+      action: SystemAction.UPDATE,
+      entityType: 'Inquiry',
+      entityId: inquiryId,
+      details: `Sent message in inquiry ${inquiryId} conversation`,
+    });
 
     // Automatically transition SUBMITTED or ACKNOWLEDGED to IN_DISCUSSION if active discussion begins
     const inq = inquiries.find((i) => i.id === inquiryId);
@@ -610,6 +715,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createdInq = newInquiry;
     }
 
+    recordUserAction({
+      userId: user.id,
+      action: SystemAction.INQUIRE,
+      entityType: 'Inquiry',
+      entityId: createdInq.id,
+      details: `Submitted inquiry ${createdInq.id} for ${input.requestedQuantity} ${input.requestedUnit}`,
+    });
+
     // Auto-dispatch notification to Coordinators & Admin
     addNotification({
       recipientRole: Role.COORDINATOR,
@@ -636,6 +749,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       db.updateInquiryStatus(inquiryId, newStatus, user.id, notes);
       syncLocalStateFromMock();
     }
+
+    const actionText =
+      newStatus === InquiryStatus.ACCEPTED
+        ? `Accepted inquiry ${inquiryId} for direct discussion`
+        : newStatus === InquiryStatus.DECLINED
+        ? `Declined inquiry ${inquiryId}`
+        : newStatus === InquiryStatus.WITHDRAWN
+        ? `Withdrew inquiry ${inquiryId}`
+        : `Updated status of inquiry ${inquiryId} to ${newStatus}`;
+
+    recordUserAction({
+      userId: user.id,
+      action: SystemAction.UPDATE_STATUS,
+      entityType: 'Inquiry',
+      entityId: inquiryId,
+      details: actionText,
+    });
 
     addNotification({
       recipientRole: Role.BUYER,
@@ -688,6 +818,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addAggregationGroup,
         addInquiry,
         updateInquiryStatus,
+        recordUserAction,
       }}
     >
       {children}

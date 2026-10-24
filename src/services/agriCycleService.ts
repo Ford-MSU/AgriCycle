@@ -589,32 +589,59 @@ export async function updateInquiryStatusInSupabase(
 ): Promise<void> {
   const client = getSupabaseClient();
 
+  // Primary attempt: direct transition to requested status
   const { error } = await client.rpc('update_inquiry_status_tx', {
     p_inquiry_id: inquiryId,
     p_new_status: newStatus,
     p_notes: notes || null,
   });
 
-  if (error) {
-    // If remote database enum does not yet contain custom enum value, fallback to compatible standard enum
-    let fallbackStatus: string | null = null;
-    if (newStatus === InquiryStatus.ACCEPTED || (newStatus as any) === 'ACCEPTED' || newStatus === InquiryStatus.IN_DISCUSSION || newStatus === InquiryStatus.ACKNOWLEDGED) {
-      fallbackStatus = 'RESPONDED';
-    } else if (newStatus === InquiryStatus.DECLINED || (newStatus as any) === 'DECLINED') {
-      fallbackStatus = 'CLOSED';
-    }
+  if (!error) return;
 
-    if (fallbackStatus) {
-      const { error: retryError } = await client.rpc('update_inquiry_status_tx', {
+  console.warn('Direct update_inquiry_status_tx failed, attempting compatible fallback:', error.message);
+
+  // Fallback 1: For ACCEPTED/IN_DISCUSSION on legacy remote schemas where SUBMITTED must transition via UNDER_REVIEW
+  if (
+    newStatus === InquiryStatus.ACCEPTED ||
+    (newStatus as any) === 'ACCEPTED' ||
+    newStatus === InquiryStatus.IN_DISCUSSION ||
+    newStatus === InquiryStatus.ACKNOWLEDGED
+  ) {
+    // Step 1: Hop through UNDER_REVIEW (permitted from SUBMITTED on all schemas)
+    const { error: hop1Error } = await client.rpc('update_inquiry_status_tx', {
+      p_inquiry_id: inquiryId,
+      p_new_status: 'UNDER_REVIEW',
+      p_notes: 'Under review prior to direct discussion',
+    });
+
+    if (!hop1Error) {
+      // Step 2: Attempt ACCEPTED from UNDER_REVIEW
+      const { error: hop2Error } = await client.rpc('update_inquiry_status_tx', {
         p_inquiry_id: inquiryId,
-        p_new_status: fallbackStatus,
-        p_notes: notes ? `${notes} (Marked: ${newStatus})` : `Status marked as ${newStatus}`,
+        p_new_status: 'ACCEPTED',
+        p_notes: notes || 'Inquiry accepted by coordinator',
       });
-      if (!retryError) return;
-    }
+      if (!hop2Error) return;
 
-    throw new Error(error.message || 'Failed to update inquiry status.');
+      // Step 3: If ACCEPTED enum value is absent on remote Postgres, use standard RESPONDED
+      const { error: hop3Error } = await client.rpc('update_inquiry_status_tx', {
+        p_inquiry_id: inquiryId,
+        p_new_status: 'RESPONDED',
+        p_notes: notes ? `${notes} (Marked: ACCEPTED)` : 'Inquiry marked as ACCEPTED',
+      });
+      if (!hop3Error) return;
+    }
+  } else if (newStatus === InquiryStatus.DECLINED || (newStatus as any) === 'DECLINED') {
+    // Fallback for DECLINED on legacy schemas: close inquiry with reason
+    const { error: declineError } = await client.rpc('update_inquiry_status_tx', {
+      p_inquiry_id: inquiryId,
+      p_new_status: 'CLOSED',
+      p_notes: notes ? `${notes} (Declined by coordinator)` : 'Inquiry declined by coordinator',
+    });
+    if (!declineError) return;
   }
+
+  throw new Error(error.message || 'Failed to update inquiry status.');
 }
 
 export async function updateUserRoleInSupabase(

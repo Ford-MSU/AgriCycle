@@ -1,0 +1,1023 @@
+# AGRICYCLE — FOURTH FEEDBACK: INQUIRY ACCEPTANCE, DASHBOARD VISUALIZATION, AND RECENT ACTIONS
+
+## 1. ROLE AND OBJECTIVE
+
+Act as a senior full-stack developer, database engineer, debugging specialist, and UI/UX engineer.
+
+Your task is to investigate, fix, implement, and validate the three issues identified in the fourth AgriCycle feedback document.
+
+The affected features are:
+
+1. Buyer Inquiry acceptance in the Cooperative/Hub Coordinator interface.
+2. The Reserve/Committed visualization in the Biomass Availability vs. Internal Utilization dashboard chart.
+3. The My Recent Actions feature, which must work for all supported user roles.
+
+**Modify the existing AgriCycle application. Do not rebuild it from scratch.**
+
+Use the supplied source code, existing database schema, current application architecture, and previous AgriCycle requirements as the foundation.
+
+These changes are additive to the previously requested improvements. Preserve the earlier requirements for biomass quantity calculations, conditional availability dates, traceability, role-based dashboards, inquiry messaging, inquiry withdrawal, notifications, administration, and database security.
+
+Do not remove or break existing functionality while fixing these issues.
+
+---
+
+# 2. MANDATORY FIRST STEP: INSPECT AND DIAGNOSE THE CURRENT IMPLEMENTATION
+
+Before changing code, inspect the actual implementation of the affected features.
+
+Examine:
+
+- The Manage Inquiries page.
+- The Buyer Inquiries & Communication components.
+- The Accept Inquiry button and its event handler.
+- The inquiry status definitions and permitted status transitions.
+- The backend or database functions that process inquiry acceptance.
+- The inquiry database table and its constraints.
+- Existing inquiry statuses and historical records.
+- The current chat or messaging components.
+- The Biomass Availability vs. Internal Utilization chart.
+- The source of the chart's data.
+- Quantity aggregation and percentage calculation functions.
+- Chart color definitions and rendering configuration.
+- The My Recent Actions component.
+- Existing activity or audit-log tables, services, and functions.
+- Authentication and role-based access control.
+- Existing database policies and row-level security.
+- Loading, error, empty, and success states.
+
+Use the actual project code and schema as the source of truth.
+
+Do not assume that a status, field, table, function, or route exists without checking.
+
+### Investigation requirements
+
+For each issue:
+
+1. Identify the component and relevant code path.
+2. Determine the actual root cause.
+3. Explain why the existing behavior fails.
+4. Identify all dependent components and database operations.
+5. Implement a targeted fix.
+6. Verify that the fix works with the existing architecture.
+7. Check for regressions in related workflows.
+
+Do not merely suppress error messages or change the interface to make a broken operation appear successful.
+
+If the issue involves multiple layers, fix all affected layers.
+
+After the initial inspection, proceed with implementation instead of stopping after presenting a plan.
+
+---
+
+# 3. ISSUE ONE: FIX THE ACCEPT INQUIRY STATUS TRANSITION
+
+## 3.1. Reported problem
+
+In the Cooperative/Hub Coordinator interface, the reviewer opens:
+
+**Manage Inquiries → Buyer Inquiries & Communication**
+
+When the coordinator clicks **Accept Inquiry**, the operation fails.
+
+The application displays an error similar to:
+
+`Invalid Status Transition`
+
+The error states that the application cannot transition an inquiry from:
+
+`Submitted` → `Accepted`
+
+This prevents the coordinator from accepting inquiries and beginning communication with buyers.
+
+## 3.2. Investigate the actual root cause
+
+Inspect the entire acceptance workflow.
+
+Determine why the transition is rejected.
+
+Possible investigation areas include:
+
+- The frontend sends an incorrect status value.
+- The frontend and backend use different status names.
+- The transition-validation function does not permit the intended transition.
+- The database uses an enum or constraint that does not include the expected value.
+- The application uses a different internal status representation.
+- The backend expects an intermediate status.
+- The inquiry is in an unexpected state.
+- The coordinator lacks the required authorization.
+- The acceptance operation updates multiple fields inconsistently.
+- The status transition and messaging activation are handled by incompatible functions.
+- An existing migration or status mapping is incomplete.
+
+These are possible causes to investigate, not assumptions about the confirmed cause.
+
+Trace the operation from the Accept Inquiry button through the service or API layer to the database and back to the interface.
+
+Identify the actual failure before implementing the fix.
+
+## 3.3. Correct the inquiry status transition
+
+Make sure an authorized Cooperative/Hub Coordinator can accept an eligible inquiry that is currently in the submitted or equivalent initial state.
+
+### Required behavior
+
+1. The coordinator opens an eligible inquiry.
+2. The application displays the Accept Inquiry action when the coordinator is authorized to accept that inquiry.
+3. The coordinator clicks Accept Inquiry.
+4. The application validates the current inquiry state.
+5. The acceptance operation executes successfully.
+6. The accepted state is persisted in the database.
+7. The application confirms the successful acceptance.
+8. The coordinator is taken directly to the associated inquiry chat.
+
+The acceptance operation must not fail because the frontend and backend disagree about status values.
+
+### Status compatibility requirements
+
+Inspect the application's actual status model before changing it.
+
+The previous AgriCycle requirements referenced statuses such as:
+
+- `SUBMITTED`
+- `UNDER_REVIEW`
+- `RESPONDED`
+- `FOLLOW_UP`
+- `CLOSED`
+- `ARCHIVED`
+
+The current implementation may also use other values, including `ACCEPTED`, `DECLINED`, or equivalent states.
+
+Do not assume all these values exist in the database.
+
+Do not blindly replace the existing status model with a new enum.
+
+Instead:
+
+- Identify the authoritative internal status representation.
+- Ensure the intended acceptance transition is permitted.
+- Keep frontend labels and backend status values consistent.
+- Preserve existing inquiry records.
+- Maintain compatibility with historical statuses.
+- Add or modify database values only when necessary.
+- Use safe migrations if the database schema requires changes.
+- Ensure all status changes pass through a consistent transition-validation mechanism.
+
+If the existing system requires an intermediate status, determine whether that is an intentional business rule or the cause of the failure. Implement the appropriate workflow without bypassing necessary validation.
+
+Do not permit arbitrary status transitions just to eliminate the error.
+
+## 3.4. Validate authorization and inquiry state
+
+The acceptance action must be available only to an authorized coordinator for the relevant inquiry.
+
+Before accepting, verify:
+
+- The user is authenticated.
+- The user has the appropriate coordinator role.
+- The user is authorized to manage the inquiry.
+- The inquiry exists.
+- The inquiry is in an eligible state.
+- The inquiry has not already been withdrawn, declined, or otherwise closed in a way that prevents acceptance.
+
+If the inquiry has already been accepted, handle repeated requests safely without creating inconsistent state.
+
+Prevent simultaneous requests from causing duplicate or conflicting acceptance operations.
+
+Enforce these rules in the backend or database layer as appropriate. Do not rely only on whether the button is visible in the interface.
+
+## 3.5. Persist the acceptance result
+
+After successful acceptance:
+
+- Save the accepted state.
+- Preserve the buyer and biomass record associations.
+- Preserve the original inquiry details.
+- Record the acceptance timestamp if the existing schema supports it or a safe schema extension is justified.
+- Record the responsible coordinator using the existing traceability mechanism where appropriate.
+- Trigger relevant notifications through the existing notification infrastructure, where supported.
+- Ensure the inquiry remains accepted after refreshing or reopening the application.
+
+If an acceptance operation fails, display a useful error message and do not falsely report success.
+
+Do not delete or recreate the inquiry to work around the transition error.
+
+---
+
+# 4. OPEN THE INQUIRY CHAT DIRECTLY AFTER ACCEPTANCE
+
+## 4.1. Required behavior
+
+The reviewer specifically wants the coordinator to be taken directly to the chat after clicking Accept Inquiry.
+
+Implement the following flow:
+
+1. The coordinator opens an eligible inquiry.
+2. The coordinator clicks Accept Inquiry.
+3. The application processes the acceptance successfully.
+4. The accepted state is saved.
+5. The application opens the chat associated with that specific inquiry.
+6. The coordinator can begin communicating with the corresponding buyer.
+
+Do not leave the coordinator on an unchanged inquiry page after acceptance.
+
+Do not require the coordinator to manually search for the inquiry again before accessing the chat.
+
+## 4.2. Use the existing chat implementation
+
+Inspect the current inquiry communication components and routing.
+
+If an inquiry-specific chat already exists, reuse it.
+
+Do not create a duplicate messaging system unless the current architecture genuinely lacks the required functionality.
+
+The chat must be associated with the correct inquiry identifier.
+
+Ensure that opening the chat does not accidentally open a different buyer's conversation or an unrelated inquiry.
+
+If the existing application uses an overlay or modal for messaging, open that interface. If it uses a dedicated page, navigate to the appropriate route.
+
+Follow the existing navigation and interface conventions.
+
+## 4.3. Verify acceptance before opening chat
+
+The chat must open only after the acceptance operation succeeds.
+
+Do not navigate to an active chat optimistically before the backend confirms acceptance.
+
+If acceptance fails:
+
+- Keep the inquiry in its actual current state.
+- Display an informative error.
+- Do not activate the chat.
+- Do not show a success message.
+
+If acceptance succeeds but the chat fails to load:
+
+- Preserve the accepted inquiry state.
+- Explain that acceptance succeeded but the chat could not be opened.
+- Provide a way to retry opening the chat.
+- Do not submit the acceptance operation repeatedly in a way that creates duplicate side effects.
+
+## 4.4. Preserve messaging permissions
+
+Direct navigation to chat must not bypass existing inquiry messaging restrictions.
+
+The existing AgriCycle messaging rules still apply:
+
+- Chat is unavailable before an inquiry is accepted.
+- Only authorized participants can access the conversation.
+- The buyer associated with the inquiry can access their own conversation.
+- The authorized coordinator can access the inquiry they are permitted to manage.
+- Other buyers and unrelated coordinators cannot access the conversation.
+- Declined or withdrawn inquiries must follow the established messaging restrictions.
+- Existing messages and conversation history must be preserved.
+
+Enforce authorization in the backend or database, not merely by hiding chat controls.
+
+## 4.5. Acceptance is not a confirmed transaction
+
+Accepting an inquiry permits discussion between the parties.
+
+It must not automatically:
+
+- Confirm a sale.
+- Confirm payment.
+- Guarantee supply.
+- Confirm collection.
+- Reserve biomass.
+- Deduct stock.
+- Create a completed transaction.
+
+Any actual reservation or quantity commitment must follow the application's explicitly supported and authorized process.
+
+---
+
+# 5. ISSUE TWO: FIX THE RESERVE/COMMITTED DASHBOARD VISUALIZATION
+
+## 5.1. Reported problem
+
+The dashboard chart is titled:
+
+**Biomass Availability vs. Internal Utilization**
+
+The Reserve/Committed section currently appears as a gray bar without the expected color and percentage.
+
+The reviewer expects the Reserve/Committed category to display its appropriate color and a correctly calculated percentage relative to Total Recorded Volume.
+
+Preserve the existing chart and correct the underlying problem.
+
+Do not remove the visualization or replace it with a hardcoded illustration.
+
+## 5.2. Inspect the existing chart implementation
+
+Investigate:
+
+- The chart component and charting library.
+- The chart's series or dataset configuration.
+- The Reserve/Committed data field.
+- The total recorded volume calculation.
+- The percentage calculation.
+- The chart color mapping.
+- The legend configuration.
+- Tooltip formatting.
+- Conditional rendering.
+- Null or undefined values.
+- Zero-value handling.
+- Unit conversion.
+- Filters applied to the chart's data.
+- Whether the chart uses current database values or stale cached data.
+
+Determine why the Reserve/Committed section renders gray and why its percentage is not visible.
+
+Do not simply assign a new color without checking whether the series itself is missing, incorrectly mapped, or receiving invalid data.
+
+## 5.3. Make the Reserve/Committed color visible
+
+Configure the Reserve/Committed category to use a visible, consistent color that fits the existing chart design.
+
+Requirements:
+
+- The Reserve/Committed segment or bar must not appear as an unexplained gray placeholder when valid data exists.
+- The category's color must remain consistent across the chart, legend, and tooltip where applicable.
+- The color should remain distinguishable from Available for Inquiries and Internal Producer Use.
+- The color should remain visible when the quantity is zero or when other categories change.
+- Preserve the chart's existing visual style.
+- Avoid introducing unnecessary colors or redesigning the entire dashboard.
+
+If the chart library uses a dataset-level color, configure it at the correct level. If it uses per-segment colors, ensure the Reserve/Committed category receives the correct mapping.
+
+Do not assume the chart library's API. Inspect the actual implementation.
+
+## 5.4. Correct the percentage calculation
+
+The percentage must accurately represent the Reserve/Committed quantity relative to Total Recorded Volume.
+
+Use the following calculation when supported by the existing data model:
+
+**Reserve/Committed Percentage = (Reserved/Committed Quantity ÷ Total Recorded Volume) × 100**
+
+Example:
+
+- Total Recorded Volume: 1,000 kg
+- Reserved/Committed Quantity: 200 kg
+- Expected Reserve/Committed Percentage: 20%
+
+Another example:
+
+- Total Recorded Volume: 2 metric tonnes
+- Reserved/Committed Quantity: 500 kg
+- Convert 2 metric tonnes to 2,000 kg.
+- Expected Reserve/Committed Percentage: 25%.
+
+The implementation must use consistent units before calculating percentages.
+
+### Denominator requirements
+
+Use Total Recorded Volume as the denominator when the chart's existing metric and data model confirm that this is the intended basis.
+
+Inspect whether the chart's categories are mutually exclusive or whether any category overlaps with another.
+
+Do not force the percentages to add up to 100% if the categories are intentionally overlapping.
+
+If the categories are intended to partition the total, ensure that their underlying calculations follow that definition and do not double-count quantities.
+
+If the current chart's design or data model contradicts the requested denominator, identify the inconsistency and resolve it using the intended business meaning. Document any necessary clarification rather than silently producing a misleading chart.
+
+## 5.5. Handle edge cases correctly
+
+The chart must handle the following cases:
+
+### Zero total recorded volume
+
+If Total Recorded Volume is zero:
+
+- Do not divide by zero.
+- Do not display `NaN`, `Infinity`, or invalid percentages.
+- Display a suitable zero state or unavailable percentage.
+- Preserve the chart's layout.
+
+### No reserved/committed quantity
+
+If Reserved/Committed Quantity is zero:
+
+- Display a valid 0% value where appropriate.
+- Do not show a gray placeholder as if the data were missing.
+- Keep the category and legend consistent with the chart's design.
+
+### Missing data
+
+If a required quantity is missing or invalid:
+
+- Do not silently interpret invalid data as a meaningful quantity.
+- Apply the existing data-validation and fallback rules.
+- Display an appropriate loading, unavailable, or error state when necessary.
+
+### Rounding
+
+- Use a consistent decimal or integer percentage format.
+- Avoid misleading rounding.
+- Do not display more decimal places than necessary for the interface.
+
+## 5.6. Keep chart data consistent with AgriCycle quantity rules
+
+The chart must agree with the existing Record Details and dashboard calculations.
+
+AgriCycle's quantity model distinguishes between:
+
+- Total Quantity.
+- Current Internal Use Quantity.
+- Reserved/Committed Quantity.
+- Remaining Quantity.
+- Available for Inquiries.
+
+Where applicable, the existing remaining-quantity rule is:
+
+**Remaining Quantity = Total Quantity − Current Internal Use Quantity − Reserved/Committed Quantity**
+
+Do not accidentally subtract Reserved/Committed twice.
+
+Do not count the same quantity in mutually exclusive categories more than once.
+
+Inspect the existing chart's meaning before deciding how each series should be aggregated.
+
+Reuse an authoritative calculation function or data service if one exists. If the current implementation has inconsistent calculations, consolidate them appropriately rather than introducing another conflicting formula.
+
+Ensure that quantity conversions between kilograms and metric tonnes are correct.
+
+## 5.7. Ensure dashboard updates are reflected correctly
+
+After relevant biomass quantities change:
+
+- The Reserve/Committed quantity should update.
+- Its percentage should be recalculated.
+- The visible chart color should remain correct.
+- Related metrics should remain consistent.
+- The chart should refresh using the existing application's supported data-refresh approach.
+
+If the application supports real-time subscriptions, use them where appropriate. Otherwise, ensure the chart reliably refreshes after successful changes.
+
+Do not require a full-page reload if the current architecture can update the chart reliably without one.
+
+Preserve the earlier requirement that Internal Producer Use must also update consistently.
+
+---
+
+# 6. ISSUE THREE: MAKE MY RECENT ACTIONS FUNCTIONAL FOR ALL ROLES
+
+## 6.1. Reported problem
+
+The dashboard's **My Recent Actions** feature is not functional.
+
+The reviewer requests that it work for all supported accounts and roles.
+
+This feature should provide a reliable view of recent activity instead of remaining empty, static, or disconnected from actual user actions.
+
+## 6.2. Investigate the existing implementation
+
+Inspect the current My Recent Actions component and determine why it does not work.
+
+Investigate:
+
+- Whether the component is connected to a real data source.
+- Whether an activity or audit-log table already exists.
+- Whether actions are recorded correctly.
+- Whether the component queries the wrong field or table.
+- Whether the query uses the wrong authenticated user identifier.
+- Whether role-based filtering excludes valid activity.
+- Whether database policies prevent authorized reads.
+- Whether the component fails to refresh.
+- Whether errors are swallowed or not displayed.
+- Whether the component expects a different activity schema.
+- Whether the application records actions but does not display them.
+
+These are possible investigation areas, not assumptions about the cause.
+
+If the activity feed already has a backend or database implementation, fix and reuse it.
+
+Do not create a duplicate activity system simply because the existing component is broken.
+
+## 6.3. Define the intended behavior
+
+Make My Recent Actions functional for every supported role in the existing application, including the roles actually present in the current system, such as:
+
+- System Administrator.
+- LGU users or reviewers.
+- Cooperative/Hub Coordinators.
+- Buyers, if supported by the current account and dashboard model.
+
+Do not assume that every example role has a separate dashboard. Follow the application's actual role definitions and navigation.
+
+### For ordinary users
+
+Display relevant recent actions performed by the currently authenticated user.
+
+Examples, where the application records them, may include:
+
+- Creating or updating a biomass record.
+- Submitting a biomass record for review.
+- Correcting and resubmitting a returned record.
+- Reviewing a biomass record.
+- Accepting or declining a buyer inquiry.
+- Sending an inquiry message.
+- Withdrawing an inquiry.
+- Performing other supported actions that are relevant to the user's role.
+
+Only display action types that actually exist in the application or are implemented as part of this task.
+
+Do not fabricate events to make the list appear populated.
+
+### For administrators
+
+Display the administrator's own recent actions in My Recent Actions.
+
+If the application also has a separate authorized audit-log view, preserve that view for broader administrative activity.
+
+Do not silently change My Recent Actions into an unrestricted global activity feed.
+
+If the existing design explicitly intends a different scope for administrators, preserve that intended behavior while ensuring the label and displayed information remain accurate.
+
+## 6.4. Use actual recorded activity
+
+Connect the feature to the existing activity or audit-log mechanism.
+
+If a suitable data source already exists, reuse it.
+
+If the application currently records no usable activity, implement the smallest appropriate extension to the existing data model and architecture.
+
+Where relevant and supported, activity records should contain:
+
+- A unique activity identifier.
+- The authenticated actor's identifier.
+- The actor's human-readable name or a reliable relationship to the user's profile.
+- The actor's role, where available.
+- An action type.
+- A concise action description.
+- The affected record or entity identifier, where relevant.
+- The event timestamp.
+- Other existing metadata required by the application.
+
+Use the actual schema and naming conventions of the project.
+
+Do not create duplicate records when the same action is already logged elsewhere.
+
+Do not invent historical actions or pretend that newly implemented logging can reconstruct actions that were never recorded.
+
+## 6.5. Record actions at the appropriate point
+
+Review the existing action-handling code.
+
+Ensure important actions are recorded when they successfully complete.
+
+Examples may include:
+
+- A biomass record being created or updated.
+- A biomass record being submitted.
+- A reviewer returning a record for correction.
+- A reviewer completing an authorized decision.
+- A coordinator accepting or declining an inquiry.
+- A buyer withdrawing an inquiry.
+- A message being successfully sent.
+
+Implement only the event types appropriate to the existing system and current requirements.
+
+### Important logging rules
+
+- Record a successful action only after the underlying operation succeeds.
+- Do not log a successful database update when the update actually failed.
+- Do not record the same event twice because multiple components handle it.
+- Use the authenticated user as the trusted actor identity.
+- Do not trust arbitrary actor IDs submitted by the client.
+- Preserve the existing audit-trail mechanism.
+- Avoid recording passwords, tokens, secrets, or unnecessary sensitive data.
+- Ensure logging failures are handled consistently with the application's reliability requirements.
+
+Where audit logging is security-critical, implement it through the trusted backend or database mechanism appropriate to the current architecture.
+
+## 6.6. Make the feature role-aware without leaking data
+
+The requirement that My Recent Actions work for all roles does not mean that every user should see every other user's activity.
+
+Enforce the following principles:
+
+- Users should see their own relevant activity.
+- The current user's identity must come from the authenticated session.
+- Ordinary users must not be able to change a query parameter or actor ID to retrieve another user's private activity.
+- Administrators may access broader activity only through explicitly authorized administrative functionality.
+- LGU users and reviewers must remain within their authorized scope.
+- Cooperative/Hub Coordinators must not gain access to unrelated organizations' private activity.
+- Buyers must not gain access to other buyers' private activity.
+- Sensitive audit metadata must not be exposed unnecessarily.
+
+Enforce the appropriate permissions in the backend and database.
+
+Do not rely only on filtering the list in the frontend.
+
+## 6.7. Improve the activity-feed interface
+
+Keep the existing My Recent Actions design where practical.
+
+Ensure the component can:
+
+- Display recent actions in a clear, chronological order.
+- Show the action description and timestamp.
+- Display the affected record or inquiry when appropriate.
+- Open the relevant record when the user is authorized and a valid destination exists.
+- Handle long action descriptions without breaking the layout.
+- Handle loading states.
+- Handle query errors.
+- Display a useful empty state when no actions have been recorded.
+- Refresh after relevant successful actions.
+- Work within each supported role's dashboard.
+- Remain usable on the screen sizes supported by the application.
+
+Use a sensible limit or pagination strategy if necessary to prevent excessive data retrieval.
+
+Do not display fabricated actions, placeholder timestamps, or hardcoded user names.
+
+## 6.8. Verify the feature across all supported roles
+
+Test the feature using representative accounts from each role that exists in the application.
+
+For each role:
+
+1. Sign in as that role.
+2. Open the relevant dashboard.
+3. Verify that My Recent Actions loads.
+4. Perform a supported action.
+5. Verify that the action appears after successful completion, subject to the application's refresh behavior.
+6. Refresh the page.
+7. Confirm that the activity remains available.
+8. Confirm that another ordinary user cannot retrieve the first user's private activity.
+9. Confirm that the correct name, description, and timestamp are displayed when the underlying data supports them.
+
+If a role does not currently have a dashboard, integrate the feature only where appropriate to the existing interface. Do not invent a new dashboard merely to satisfy a label.
+
+---
+
+# 7. PRESERVE EXISTING AGRICYCLE REQUIREMENTS
+
+These fixes must not undo earlier AgriCycle requirements.
+
+Preserve the existing working implementation of the following features and improve them only when required to resolve a verified issue.
+
+## Biomass availability and quantities
+
+- Availability dates are required when biomass is available for the market.
+- Availability dates are optional when biomass is not available for the market.
+- Remaining Quantity follows the application's authoritative quantity rules.
+- Current internal use and reserved/committed quantity must remain distinct.
+- Quantity units must remain consistent.
+- Historical quantity values must not be silently reinterpreted.
+- Buyer inquiries must not automatically reserve or deduct biomass.
+
+## Record details and traceability
+
+- Record Details should show the relevant quantity allocations.
+- Human-readable submitter and validator identities should be displayed where available.
+- Internal identifiers must remain available where required for data integrity.
+- The coordinator-facing correction workflow must remain functional.
+- LGU reviewers must retain their authorized review capabilities.
+
+## Inquiry workflow
+
+- Buyers must be able to submit eligible inquiries.
+- Coordinators must be able to accept or decline eligible inquiries.
+- Chat must remain inaccessible before acceptance.
+- Successful acceptance must open the corresponding chat directly.
+- Only authorized participants may access the conversation.
+- Buyers must be able to withdraw their own eligible inquiries using the established confirmation dialog.
+- Inquiry and message history must be preserved.
+- Declined and withdrawn inquiries must follow the established communication restrictions.
+
+## Dashboards and administration
+
+- Internal Producer Use must continue to update consistently.
+- Existing dashboard metrics must remain accurate.
+- Administrative user management and audit trails must remain functional.
+- The Roles and Permission and Reference Data tabs must remain absent from the visible Admin navigation if that earlier change has already been implemented.
+- Their underlying data and required security structures must remain intact.
+
+## Security and authentication
+
+- Preserve the current authentication architecture.
+- Preserve role-based permissions.
+- Preserve database security policies and RLS.
+- Maintain the configured inactivity sign-out behavior.
+- Do not expose privileged credentials.
+- Do not weaken backend authorization to make a feature work.
+
+---
+
+# 8. DATABASE AND IMPLEMENTATION SAFEGUARDS
+
+Before modifying the database:
+
+1. Inspect the actual schema.
+2. Determine whether the necessary fields and structures already exist.
+3. Reuse existing fields and relationships where appropriate.
+4. Check enum values, constraints, triggers, functions, and RLS policies.
+5. Identify dependencies in the current application.
+6. Prepare a safe migration only if required.
+7. Preserve historical records and foreign-key relationships.
+8. Update the frontend and backend consistently.
+9. Verify that existing data remains valid.
+
+### Specific safeguards
+
+**Inquiry acceptance:**
+- Do not delete and recreate inquiries.
+- Do not bypass status validation indiscriminately.
+- Do not introduce conflicting status values between the frontend and database.
+
+**Dashboard chart:**
+- Do not hardcode quantities or percentages.
+- Do not change historical biomass quantities to make the chart appear correct.
+- Do not count the same quantity twice.
+
+**My Recent Actions:**
+- Do not fabricate historical actions.
+- Do not duplicate existing audit events.
+- Do not expose other users' private activity.
+- Do not create a redundant audit table if a suitable one already exists.
+
+If the project uses Supabase, inspect the existing schema, policies, database functions, and authentication integration before implementing changes.
+
+Do not disable RLS or expose service-role credentials in frontend code.
+
+Do not execute destructive database migrations against production data without explicit authorization and a verified recovery plan.
+
+---
+
+# 9. REQUIRED TESTING
+
+Run the checks available in the current development environment.
+
+Do not report a test as passed unless it has actually been run.
+
+## Test Group A: Inquiry acceptance
+
+Verify the following scenarios.
+
+### A1. Successful acceptance
+
+- Sign in as an authorized Cooperative/Hub Coordinator.
+- Open an eligible inquiry in the Submitted state or its equivalent.
+- Click Accept Inquiry.
+- Verify that the operation succeeds without an Invalid Status Transition error.
+- Verify that the accepted state is persisted.
+- Verify that the correct inquiry chat opens automatically.
+- Verify that the buyer and coordinator can access the conversation.
+
+### A2. Unauthorized acceptance
+
+- Sign in as a user without permission to manage the inquiry.
+- Attempt to perform the acceptance operation through the available interface and, where practical, a direct backend request.
+- Verify that the operation is rejected.
+
+### A3. Repeated acceptance
+
+- Attempt to accept an already accepted inquiry.
+- Verify that the system does not create duplicate side effects or an inconsistent state.
+- Confirm that the interface handles the existing accepted state sensibly.
+
+### A4. Ineligible inquiry
+
+- Attempt to accept a declined, withdrawn, or otherwise ineligible inquiry.
+- Verify that the status-transition rules prevent an invalid operation.
+
+### A5. Acceptance persistence
+
+- Accept an inquiry.
+- Refresh the page or reopen the application.
+- Verify that the inquiry remains accepted.
+- Verify that the correct chat remains accessible to authorized participants.
+
+### A6. Acceptance failure
+
+- Simulate or otherwise verify an acceptance failure where practical.
+- Confirm that the application does not display a false success message or activate an unauthorized chat.
+- Confirm that the coordinator can recover appropriately.
+
+## Test Group B: Reserve/Committed chart
+
+Verify these sample calculations.
+
+| Total Recorded Volume | Reserved/Committed Quantity | Expected Percentage |
+|---:|---:|---:|
+| 1,000 kg | 200 kg | 20% |
+| 2,000 kg | 500 kg | 25% |
+| 1,000 kg | 0 kg | 0% |
+
+Also verify:
+
+- The chart displays the correct Reserve/Committed color.
+- The legend matches the chart.
+- The percentage is visible and correct.
+- Values use consistent units.
+- A zero total does not cause division-by-zero errors.
+- Missing data is handled safely.
+- Changing a quantity updates the chart correctly.
+- Existing Internal Producer Use and Available for Inquiries metrics remain correct.
+- The chart does not double-count quantities.
+- The chart remains consistent with Record Details.
+
+These sample values are test data for validation only. Do not insert them into production records.
+
+## Test Group C: My Recent Actions
+
+Test every supported role.
+
+For each role:
+
+- Open the relevant dashboard.
+- Confirm the feature loads.
+- Confirm the list is populated when actual recorded actions exist.
+- Confirm an empty state appears when no activity exists.
+- Perform a supported action.
+- Confirm the action appears after the operation succeeds.
+- Refresh the page.
+- Confirm that recorded actions persist.
+- Confirm that the list uses accurate timestamps and action descriptions.
+- Confirm that users cannot retrieve unauthorized private activity.
+- Confirm that administrators can access broader audit information only where permitted.
+
+## Test Group D: Regression and security
+
+Verify that:
+
+- Inquiry submission still works.
+- Inquiry decline still works.
+- Inquiry withdrawal still works.
+- Chat remains unavailable before acceptance.
+- Chat becomes available after acceptance.
+- Declined and withdrawn inquiries retain their history.
+- Biomass quantities remain correct.
+- Availability-date validation still works.
+- Dashboard metrics remain consistent.
+- Role-based dashboards remain restricted appropriately.
+- Database policies remain enabled.
+- Existing notifications and traceability remain functional.
+- The build and relevant automated tests succeed where available.
+
+---
+
+# 10. IMPLEMENTATION ORDER
+
+Use this sequence unless inspection reveals a necessary dependency.
+
+### Priority 1: Fix inquiry acceptance
+
+- Trace the status transition.
+- Identify the actual root cause.
+- Correct the transition rules and related backend/database logic.
+- Verify persistence and authorization.
+
+### Priority 2: Directly open the inquiry chat
+
+- Reuse the existing chat.
+- Navigate to the correct conversation only after successful acceptance.
+- Preserve messaging restrictions and participant authorization.
+
+### Priority 3: Correct the Reserve/Committed chart
+
+- Fix the data source or mapping.
+- Correct the percentage calculation.
+- Configure the visible color.
+- Validate zero, missing, and converted-unit values.
+- Ensure updates are reflected consistently.
+
+### Priority 4: Repair My Recent Actions
+
+- Identify the existing activity data source.
+- Correct queries, authorization, and rendering.
+- Record relevant successful actions where necessary.
+- Make the feature work across all supported roles.
+- Preserve privacy and existing audit functionality.
+
+### Priority 5: Regression testing
+
+- Run available code checks and tests.
+- Test each role.
+- Test the critical workflows.
+- Verify that previous AgriCycle requirements remain intact.
+
+---
+
+# 11. DEFINITION OF DONE
+
+Do not declare the task complete until the implementation has been checked against these criteria.
+
+### Inquiry acceptance
+
+- The root cause of Invalid Status Transition has been identified.
+- Authorized coordinators can accept eligible inquiries.
+- The acceptance status is saved correctly.
+- The correct chat opens automatically after successful acceptance.
+- Chat access remains restricted to authorized participants.
+- Invalid or unauthorized status transitions are rejected.
+- Existing inquiry records and history are preserved.
+
+### Reserve/Committed chart
+
+- The Reserve/Committed category displays its intended color.
+- The percentage is visible.
+- The percentage calculation uses the correct total-volume denominator.
+- Units are consistent.
+- Zero and missing values are handled safely.
+- The chart reflects actual data.
+- Related dashboard metrics remain accurate.
+
+### My Recent Actions
+
+- The feature works for all supported roles.
+- It uses actual recorded activity.
+- Relevant successful actions are recorded and displayed.
+- Activity persists across page refreshes.
+- The empty state works.
+- User identities and timestamps are displayed accurately where available.
+- Unauthorized activity is not exposed.
+- The feature does not create duplicate audit events.
+
+### Overall application
+
+- The existing architecture is preserved.
+- Previous AgriCycle requirements remain intact.
+- No unrelated features have been removed.
+- No historical data has been deleted or fabricated.
+- Security policies remain enabled.
+- Relevant build and test checks have been run.
+- Remaining limitations are documented honestly.
+
+---
+
+# 12. FINAL IMPLEMENTATION REPORT
+
+After completing the changes, provide a report with the following sections.
+
+## A. Root Causes Identified
+
+Explain the actual cause of each problem:
+
+1. Invalid Status Transition.
+2. Missing Reserve/Committed color and percentage.
+3. Nonfunctional My Recent Actions.
+
+Do not provide speculative causes as confirmed facts.
+
+## B. Changes Implemented
+
+List the actual fixes completed for each issue.
+
+## C. Files Modified
+
+List the actual files changed and briefly explain their purpose.
+
+## D. Database Changes
+
+Identify any actual schema migrations, status changes, database functions, triggers, or security policies modified.
+
+If no database changes were necessary, explicitly state that.
+
+## E. Permissions and Security
+
+Explain how inquiry acceptance, chat access, and recent activity are protected.
+
+## F. Testing Results
+
+Separate the results into:
+
+- Passed.
+- Failed.
+- Not run.
+- Not verified.
+
+Identify the specific checks that were performed.
+
+## G. Remaining Issues
+
+List anything that could not be completed or verified because of missing credentials, unavailable services, database access limitations, or unresolved requirements.
+
+## H. Manual Verification Steps
+
+Provide clear steps to test the fixes in the running application, especially:
+
+- Accepting an inquiry and automatically opening its chat.
+- Confirming that the Reserve/Committed color and percentage are correct.
+- Verifying My Recent Actions using accounts from each supported role.
+
+Do not claim that the application is fully working unless the relevant functionality has actually been verified.
+
+---
+
+# FINAL INSTRUCTION
+
+Inspect first, diagnose the actual causes, implement targeted fixes, and test the results.
+
+The goal is to make the existing AgriCycle application work correctly—not merely to make the errors disappear visually.
+
+**Prioritize a reliable inquiry acceptance workflow, accurate dashboard calculations and rendering, and a functional, secure My Recent Actions feature for every supported role.**
+
+Preserve the existing application architecture, data, business rules, authentication, role-based permissions, and previously requested AgriCycle improvements.
+
+Proceed with implementation after the initial inspection. Do not stop after providing a plan.
