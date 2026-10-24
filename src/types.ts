@@ -18,10 +18,13 @@ export enum AggregationStatus {
 
 export enum InquiryStatus {
   SUBMITTED = 'SUBMITTED',
+  ACKNOWLEDGED = 'ACKNOWLEDGED',
+  IN_DISCUSSION = 'IN_DISCUSSION',
+  CLOSED = 'CLOSED',
+  // Historical / extended statuses preserved for compatibility
   UNDER_REVIEW = 'UNDER_REVIEW',
   RESPONDED = 'RESPONDED',
   FOLLOW_UP = 'FOLLOW_UP',
-  CLOSED = 'CLOSED',
   WITHDRAWN = 'WITHDRAWN',
   NO_LONGER_AVAILABLE = 'NO_LONGER_AVAILABLE',
   EXPIRED = 'EXPIRED',
@@ -88,6 +91,9 @@ export interface Organization {
   name: string;
   type: 'COOPERATIVE' | 'HUB' | 'LGU' | 'BUYER' | 'ADMIN';
   locationId?: string;
+  officeAddress?: string; // Coordinator Office Location
+  contactPhone?: string;
+  contactEmail?: string;
 }
 
 export interface ReferenceData {
@@ -103,7 +109,7 @@ export interface AggregationGroup {
   id: string;
   name: string;
   biomassTypeId: string;
-  hubId: string;
+  hubId?: string; // Optional hub / cooperative
   status: AggregationStatus;
   notes?: string;
   createdBy: string;
@@ -128,6 +134,16 @@ export interface InquiryHistory {
   changedBy: string;
   changedAt: string;
   notes?: string;
+}
+
+export interface InquiryMessage {
+  id: string;
+  inquiryId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: Role;
+  message: string;
+  createdAt: string;
 }
 
 export interface Inquiry {
@@ -161,11 +177,11 @@ export interface BiomassRecord {
   // Status and tracing
   status: RecordStatus;
   externalAvailability?: 'AVAILABLE_TO_OTHERS' | 'NOT_AVAILABLE';
-  isTheoreticalEstimate: boolean; // MUST distinguish theoretical vs reported practical availability
+  isTheoreticalEstimate?: boolean; // Distinguish theoretical vs reported practical availability
   
   // Practical details
-  availabilityPeriodStart: string; // ISO date
-  availabilityPeriodEnd: string; // ISO date
+  availabilityPeriodStart?: string; // ISO date (optional)
+  availabilityPeriodEnd?: string; // ISO date (optional)
   currentUse: string;
   currentUseQuantity?: number;
   reservedQuantity?: number;

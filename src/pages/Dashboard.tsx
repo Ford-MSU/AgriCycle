@@ -1,20 +1,36 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { RecordStatus, Role } from '../types';
-import { Tractor, FileText, CheckCircle, AlertTriangle, Users, Activity, MessageSquare } from 'lucide-react';
+import {
+  Tractor,
+  FileText,
+  CheckCircle,
+  AlertTriangle,
+  Users,
+  Activity,
+  MessageSquare,
+  Scale,
+  MapPin,
+  Building,
+  Filter,
+  Layers,
+  ArrowRight,
+  ExternalLink,
+} from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { hasPermission, Permission } from '../utils/rbac';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
-import { calculateCoreMetrics } from '../utils/analytics';
-import { Scale } from 'lucide-react';
+import { calculateCoreMetrics, convertToMetricTonnes } from '../utils/analytics';
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const {
     records,
+    locations,
+    sources,
     inquiries,
     referenceData,
     auditLogs,
@@ -23,6 +39,8 @@ export const Dashboard: React.FC = () => {
     getSource,
     getAggregationGroup,
   } = useData();
+
+  const [selectedBiomassCategory, setSelectedBiomassCategory] = useState<string>('ALL');
 
   if (!user) return null;
 
@@ -65,6 +83,136 @@ export const Dashboard: React.FC = () => {
     () => calculateCoreMetrics(accessibleRecords, referenceData),
     [accessibleRecords, referenceData]
   );
+
+  // Category Slicer options
+  const biomassCategories = useMemo(
+    () => referenceData.filter((r) => r.category === 'BIOMASS_TYPE' && r.isActive),
+    [referenceData]
+  );
+
+  // Detailed breakdown: Available to Others vs Internal Farm/Mill Use
+  const utilizationStats = useMemo(() => {
+    let availableTonnes = 0;
+    let internalTonnes = 0;
+    let reservedTonnes = 0;
+
+    accessibleRecords.forEach((r) => {
+      const totalT = convertToMetricTonnes(r.quantity, r.originalUnit, referenceData);
+      const currentUseT = r.currentUseQuantity !== undefined
+        ? convertToMetricTonnes(r.currentUseQuantity, r.originalUnit, referenceData)
+        : 0;
+      const reservedT = r.reservedQuantity !== undefined
+        ? convertToMetricTonnes(r.reservedQuantity, r.originalUnit, referenceData)
+        : 0;
+
+      const remainingT = r.remainingQuantity !== undefined
+        ? convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData)
+        : Math.max(0, totalT - currentUseT - reservedT);
+
+      // If marked not available to others, the entire volume is considered internal
+      if (r.externalAvailability === 'NOT_AVAILABLE') {
+        internalTonnes += totalT;
+      } else {
+        internalTonnes += currentUseT;
+        reservedTonnes += reservedT;
+        if (r.status === RecordStatus.VALIDATED) {
+          availableTonnes += remainingT;
+        }
+      }
+    });
+
+    const grandTotal = availableTonnes + internalTonnes + reservedTonnes;
+    return {
+      availableTonnes: Math.round(availableTonnes * 10) / 10,
+      internalTonnes: Math.round(internalTonnes * 10) / 10,
+      reservedTonnes: Math.round(reservedTonnes * 10) / 10,
+      availablePercent: grandTotal > 0 ? Math.round((availableTonnes / grandTotal) * 100) : 0,
+      internalPercent: grandTotal > 0 ? Math.round((internalTonnes / grandTotal) * 100) : 0,
+    };
+  }, [accessibleRecords, referenceData]);
+
+  // Barangay Rankings filtered by category slicer
+  const filteredBarangayRankings = useMemo(() => {
+    const recordsToCount = selectedBiomassCategory === 'ALL'
+      ? accessibleRecords
+      : accessibleRecords.filter((r) => r.biomassTypeId === selectedBiomassCategory);
+
+    const map = new Map<string, { barangay: string; totalTonnes: number; availableTonnes: number; internalTonnes: number; count: number }>();
+
+    recordsToCount.forEach((r) => {
+      const src = sources.find((s) => s.id === r.sourceId);
+      const loc = locations.find((l) => l.id === (src?.locationId || r.locationId));
+      const barangay = loc?.barangay || 'Other / Regional';
+
+      const totalT = convertToMetricTonnes(r.quantity, r.originalUnit, referenceData);
+      const availT = r.remainingQuantity !== undefined
+        ? convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData)
+        : totalT;
+
+      if (!map.has(barangay)) {
+        map.set(barangay, {
+          barangay,
+          totalTonnes: 0,
+          availableTonnes: 0,
+          internalTonnes: 0,
+          count: 0,
+        });
+      }
+
+      const item = map.get(barangay)!;
+      item.count++;
+      item.totalTonnes += totalT;
+      if (r.status === RecordStatus.VALIDATED && r.externalAvailability !== 'NOT_AVAILABLE') {
+        item.availableTonnes += availT;
+      }
+      item.internalTonnes += Math.max(0, totalT - availT);
+    });
+
+    return Array.from(map.values())
+      .map((b) => ({
+        ...b,
+        totalTonnes: Math.round(b.totalTonnes * 10) / 10,
+        availableTonnes: Math.round(b.availableTonnes * 10) / 10,
+        internalTonnes: Math.round(b.internalTonnes * 10) / 10,
+      }))
+      .sort((a, b) => b.totalTonnes - a.totalTonnes);
+  }, [accessibleRecords, selectedBiomassCategory, locations, sources, referenceData]);
+
+  // Mills, Companies & Farming Groups list
+  const topMillsAndFarms = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; type: string; barangay: string; totalTonnes: number; recordCount: number }>();
+
+    accessibleRecords.forEach((r) => {
+      const src = sources.find((s) => s.id === r.sourceId);
+      const srcId = src?.id || r.sourceId;
+      const srcName = src?.name || 'Local Farm / Mill';
+      const srcType = src?.type || 'Agricultural';
+      const loc = locations.find((l) => l.id === (src?.locationId || r.locationId));
+      const barangay = loc?.barangay || 'Butuan City';
+
+      const totalT = convertToMetricTonnes(r.quantity, r.originalUnit, referenceData);
+
+      if (!map.has(srcId)) {
+        map.set(srcId, {
+          id: srcId,
+          name: srcName,
+          type: srcType,
+          barangay,
+          totalTonnes: 0,
+          recordCount: 0,
+        });
+      }
+
+      const entry = map.get(srcId)!;
+      entry.totalTonnes += totalT;
+      entry.recordCount++;
+    });
+
+    return Array.from(map.values())
+      .map((e) => ({ ...e, totalTonnes: Math.round(e.totalTonnes * 10) / 10 }))
+      .sort((a, b) => b.totalTonnes - a.totalTonnes)
+      .slice(0, 5);
+  }, [accessibleRecords, sources, locations, referenceData]);
 
   const totalUsers = profiles.length > 0 ? profiles.length : 4;
   const totalSources = new Set(accessibleRecords.map((r) => r.sourceId)).size;
@@ -186,6 +334,204 @@ export const Dashboard: React.FC = () => {
           </Card>
         )}
       </div>
+
+      {/* Biomass Utilization & Availability Classification Visual */}
+      {user.role !== Role.BUYER && (
+        <Card className="border-agri-green-200">
+          <CardHeader className="pb-3 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Layers className="text-agri-green-600" size={20} />
+                Biomass Availability vs. Internal Utilization
+              </CardTitle>
+              <CardDescription>
+                Live comparison of biomass available for external buyer inquiries versus internal farm/mill consumption.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="flex items-center gap-1.5 font-medium text-emerald-800">
+                <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" /> Available to Others ({utilizationStats.availablePercent}%)
+              </span>
+              <span className="flex items-center gap-1.5 font-medium text-amber-800">
+                <span className="w-3 h-3 rounded-full bg-amber-500 inline-block" /> Internal Farm Use ({utilizationStats.internalPercent}%)
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4 space-y-4">
+            {/* Visual ratio bar */}
+            <div className="w-full bg-gray-100 h-4 rounded-full overflow-hidden flex">
+              <div
+                style={{ width: `${utilizationStats.availablePercent}%` }}
+                className="bg-emerald-500 transition-all duration-500 hover:opacity-90"
+                title={`Available to Others: ${utilizationStats.availableTonnes} MT`}
+              />
+              <div
+                style={{ width: `${utilizationStats.internalPercent}%` }}
+                className="bg-amber-500 transition-all duration-500 hover:opacity-90"
+                title={`Internal Farm/Mill Use: ${utilizationStats.internalTonnes} MT`}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">Available for Inquiries</p>
+                <p className="text-xl font-bold text-emerald-900 mt-1">
+                  {utilizationStats.availableTonnes.toLocaleString()} <span className="text-xs text-emerald-700">MT</span>
+                </p>
+                <p className="text-[11px] text-emerald-700 mt-0.5">Validated & listed for potential buyers</p>
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">Internal Producer Use</p>
+                <p className="text-xl font-bold text-amber-900 mt-1">
+                  {utilizationStats.internalTonnes.toLocaleString()} <span className="text-xs text-amber-700">MT</span>
+                </p>
+                <p className="text-[11px] text-amber-700 mt-0.5">Retained for boiler combustion, mulch, bedding</p>
+              </div>
+
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider">Reserved / Committed</p>
+                <p className="text-xl font-bold text-blue-900 mt-1">
+                  {utilizationStats.reservedTonnes.toLocaleString()} <span className="text-xs text-blue-700">MT</span>
+                </p>
+                <p className="text-[11px] text-blue-700 mt-0.5">Earmarked under agreements</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Butuan City Geographic Distribution & Ranking with Category Slicer */}
+      {user.role !== Role.BUYER && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Barangay Ranking with Slicer */}
+          <Card className="flex flex-col">
+            <CardHeader className="pb-3 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <MapPin className="text-agri-green-600" size={18} />
+                  Butuan City Barangay Production Ranking
+                </CardTitle>
+                <CardDescription>
+                  Biomass tonnage produced and available per barangay.
+                </CardDescription>
+              </div>
+              {/* Category Slicer */}
+              <div className="flex items-center gap-1.5 bg-gray-50 p-1 rounded-lg border border-gray-200 text-xs">
+                <Filter size={13} className="text-gray-500 ml-1" />
+                <select
+                  value={selectedBiomassCategory}
+                  onChange={(e) => setSelectedBiomassCategory(e.target.value)}
+                  className="bg-transparent border-none text-xs font-medium text-gray-800 focus:outline-none cursor-pointer"
+                >
+                  <option value="ALL">All Biomass Categories</option>
+                  {biomassCategories.map((bc) => (
+                    <option key={bc.id} value={bc.id}>
+                      {bc.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4 flex-1">
+              {filteredBarangayRankings.length === 0 ? (
+                <div className="py-8 text-center text-sm text-gray-500">
+                  No records match the selected biomass category.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {filteredBarangayRankings.slice(0, 5).map((b, idx) => (
+                    <div
+                      key={b.barangay}
+                      className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 hover:bg-agri-green-50/40 transition-colors border border-gray-100"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-6 h-6 rounded-full bg-agri-green-100 text-agri-green-800 text-xs font-bold flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                        <div>
+                          <p className="font-semibold text-gray-900 text-sm">{b.barangay}</p>
+                          <p className="text-[11px] text-gray-500">
+                            {b.count} records &bull; {b.internalTonnes} MT internal use
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-gray-900 text-sm">
+                          {b.totalTonnes.toLocaleString()} MT
+                        </span>
+                        <span className="block text-[11px] text-emerald-700 font-semibold">
+                          {b.availableTonnes.toLocaleString()} MT available
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Top Producing Mills, Companies & Farms */}
+          <Card className="flex flex-col">
+            <CardHeader className="pb-3 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Building className="text-agri-green-600" size={18} />
+                  Top Producing Mills & Farming Groups
+                </CardTitle>
+                <CardDescription>
+                  Key agro-industrial suppliers and agricultural cooperatives in Butuan City.
+                </CardDescription>
+              </div>
+              <Link
+                to="/map"
+                className="text-xs font-semibold text-agri-green-600 hover:text-agri-green-700 flex items-center gap-1"
+              >
+                View Map <ExternalLink size={12} />
+              </Link>
+            </CardHeader>
+            <CardContent className="pt-4 flex-1">
+              {topMillsAndFarms.length === 0 ? (
+                <div className="py-8 text-center text-sm text-gray-500">
+                  No producers registered yet.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {topMillsAndFarms.map((m) => (
+                    <div
+                      key={m.id}
+                      className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 hover:bg-blue-50/40 transition-colors border border-gray-100"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                          <Tractor size={16} />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-900 text-sm">{m.name}</p>
+                          <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                            <span className="bg-gray-200 text-gray-800 px-1.5 py-0.5 rounded font-medium text-[10px]">
+                              {m.type}
+                            </span>
+                            <span>&bull; {m.barangay}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-gray-900 text-sm">
+                          {m.totalTonnes.toLocaleString()} MT
+                        </span>
+                        <span className="block text-[11px] text-gray-400">
+                          {m.recordCount} records
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {user.role !== Role.BUYER && (

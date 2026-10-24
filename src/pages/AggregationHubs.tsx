@@ -25,6 +25,7 @@ export const AggregationHubs: React.FC = () => {
     getOrganization,
     getAggregationMembers,
     addAggregationGroup,
+    addOrganization,
   } = useData();
 
   const [view, setView] = useState<'LIST' | 'CREATE' | 'DETAIL'>('LIST');
@@ -38,6 +39,22 @@ export const AggregationHubs: React.FC = () => {
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Add new Hub / Coop state
+  const [isAddHubOpen, setIsAddHubOpen] = useState(false);
+  const [newHubName, setNewHubName] = useState('');
+  const [newHubType, setNewHubType] = useState<'HUB' | 'COOPERATIVE'>('COOPERATIVE');
+
+  const handleAddNewHub = async () => {
+    if (!newHubName.trim()) return;
+    const created = await addOrganization({
+      name: newHubName.trim(),
+      type: newHubType,
+    });
+    setFormHub(created.id);
+    setNewHubName('');
+    setIsAddHubOpen(false);
+  };
 
   if (!user) return null;
 
@@ -89,8 +106,8 @@ export const AggregationHubs: React.FC = () => {
 
   const handleCreateSubmit = async () => {
     setFormError('');
-    if (!formBiomassType || !formHub || !formName.trim() || selectedMembers.length === 0) {
-      setFormError('Please complete all fields and select at least one eligible member.');
+    if (!formBiomassType || !formName.trim() || selectedMembers.length === 0) {
+      setFormError('Please complete Group Name, Biomass Type, and select at least one eligible member record.');
       return;
     }
 
@@ -115,7 +132,7 @@ export const AggregationHubs: React.FC = () => {
       await addAggregationGroup(
         formName.trim(),
         formBiomassType,
-        formHub,
+        formHub || undefined,
         selectedMembers,
         formNotes.trim() || undefined
       );
@@ -293,21 +310,91 @@ export const AggregationHubs: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Hub / Cooperative *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Hub / Cooperative <span className="text-xs text-gray-400 font-normal">(Optional)</span></label>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddHubOpen(!isAddHubOpen)}
+                    className="text-xs text-agri-green-600 hover:text-agri-green-700 font-semibold flex items-center gap-1"
+                  >
+                    <Plus size={13} /> Add New Hub / Coop
+                  </button>
+                </div>
                 <select
-                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
                   value={formHub}
                   onChange={(e) => setFormHub(e.target.value)}
                 >
-                  <option value="">Select Hub...</option>
+                  <option value="">Select Hub or Cooperative...</option>
                   {organizations
                     .filter((o) => o.type === 'HUB' || o.type === 'COOPERATIVE')
                     .map((org) => (
                       <option key={org.id} value={org.id}>
-                        {org.name}
+                        {org.name} ({org.type === 'COOPERATIVE' ? 'Cooperative' : 'Aggregation Hub'})
                       </option>
                     ))}
                 </select>
+
+                {isAddHubOpen && (
+                  <div className="mt-3 p-3.5 bg-agri-green-50/70 border border-agri-green-200 rounded-lg space-y-3 animate-in fade-in duration-150">
+                    <p className="text-xs font-bold text-agri-green-900 uppercase tracking-wide">
+                      Register New Hub or Cooperative
+                    </p>
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        placeholder="Organization Name (e.g. Caraga Agro-Biomass Cooperative)"
+                        value={newHubName}
+                        onChange={(e) => setNewHubName(e.target.value)}
+                        className="w-full p-2 border border-gray-200 rounded-lg text-xs bg-white focus:ring-agri-green-500 focus:border-agri-green-500"
+                      />
+                      <div className="flex items-center gap-4 text-xs text-gray-700">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="newHubType"
+                            checked={newHubType === 'COOPERATIVE'}
+                            onChange={() => setNewHubType('COOPERATIVE')}
+                            className="text-agri-green-600 focus:ring-agri-green-500"
+                          />
+                          Agricultural Cooperative
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="newHubType"
+                            checked={newHubType === 'HUB'}
+                            onChange={() => setNewHubType('HUB')}
+                            className="text-agri-green-600 focus:ring-agri-green-500"
+                          />
+                          Central Aggregation Hub
+                        </label>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setIsAddHubOpen(false);
+                          setNewHubName('');
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="primary"
+                        onClick={handleAddNewHub}
+                        disabled={!newHubName.trim()}
+                      >
+                        Save & Select
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -390,8 +477,11 @@ export const AggregationHubs: React.FC = () => {
                         </div>
                         <p className="text-xs text-gray-500 mt-1">
                           {location?.barangay} &bull; Avail:{' '}
-                          {format(new Date(record.availabilityPeriodStart), 'MMM d')} -{' '}
-                          {format(new Date(record.availabilityPeriodEnd), 'MMM d')}
+                          {record.availabilityPeriodStart && record.availabilityPeriodEnd
+                            ? `${format(new Date(record.availabilityPeriodStart), 'MMM d')} - ${format(new Date(record.availabilityPeriodEnd), 'MMM d')}`
+                            : record.availabilityPeriodStart
+                            ? `From ${format(new Date(record.availabilityPeriodStart), 'MMM d')}`
+                            : 'Flexible'}
                         </p>
                       </div>
                     </label>

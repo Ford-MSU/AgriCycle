@@ -160,14 +160,12 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
       return;
     }
 
-    if (!availabilityPeriodStart || !availabilityPeriodEnd) {
-      setError('Please specify both availability start and end dates.');
-      return;
-    }
-
-    if (new Date(availabilityPeriodEnd) < new Date(availabilityPeriodStart)) {
-      setError('Availability end date cannot be earlier than start date.');
-      return;
+    // Availability dates are completely optional. Validate only if both are provided
+    if (availabilityPeriodStart && availabilityPeriodEnd) {
+      if (new Date(availabilityPeriodEnd) < new Date(availabilityPeriodStart)) {
+        setError('Availability end date cannot be earlier than start date.');
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -216,6 +214,13 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
         }
       }
 
+      const finalStartDate = availabilityPeriodStart
+        ? new Date(availabilityPeriodStart).toISOString()
+        : undefined;
+      const finalEndDate = availabilityPeriodEnd
+        ? new Date(availabilityPeriodEnd).toISOString()
+        : undefined;
+
       if (isEditing && initialRecord) {
         await updateRecord(initialRecord.id, {
           biomassTypeId,
@@ -226,8 +231,8 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
           status: initialRecord.status === RecordStatus.RETURNED ? RecordStatus.SUBMITTED : initialRecord.status,
           externalAvailability,
           isTheoreticalEstimate,
-          availabilityPeriodStart: new Date(availabilityPeriodStart).toISOString(),
-          availabilityPeriodEnd: new Date(availabilityPeriodEnd).toISOString(),
+          availabilityPeriodStart: finalStartDate,
+          availabilityPeriodEnd: finalEndDate,
           currentUse: currentUseDescription.trim() || 'Not specified',
           currentUseQuantity: numCurrentUse,
           reservedQuantity: numReserved,
@@ -248,8 +253,8 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
           status: RecordStatus.SUBMITTED,
           externalAvailability,
           isTheoreticalEstimate,
-          availabilityPeriodStart: new Date(availabilityPeriodStart).toISOString(),
-          availabilityPeriodEnd: new Date(availabilityPeriodEnd).toISOString(),
+          availabilityPeriodStart: finalStartDate,
+          availabilityPeriodEnd: finalEndDate,
           currentUse: currentUseDescription.trim() || 'Not specified',
           currentUseQuantity: numCurrentUse,
           reservedQuantity: numReserved,
@@ -520,7 +525,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                   onChange={(e) => setOriginalUnit(e.target.value)}
                 >
                   {referenceData
-                    .filter((r) => r.category === 'UNIT')
+                    .filter((r) => r.category === 'UNIT' && (r.isActive || r.id === originalUnit))
                     .map((r) => (
                       <option key={r.id} value={r.id}>
                         {r.label}
@@ -571,20 +576,6 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                 onChange={(e) => setConditionNote(e.target.value)}
               />
             </div>
-
-            <div className="pt-2">
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
-                <input
-                  type="checkbox"
-                  checked={isTheoreticalEstimate}
-                  onChange={(e) => setIsTheoreticalEstimate(e.target.checked)}
-                  className="rounded text-agri-green-600 focus:ring-agri-green-500"
-                />
-                <span>
-                  Check if this is a <strong>Theoretical Estimate</strong> (e.g. crop-yield calculation rather than measured scale weight).
-                </span>
-              </label>
-            </div>
           </CardContent>
         </Card>
 
@@ -621,12 +612,12 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Current Internal Use Description
+                  Current Internal Use Description <span className="text-xs text-gray-400 font-normal">(Optional)</span>
                 </label>
                 <input
                   type="text"
                   className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  placeholder="e.g. Mulching, Boiler combustion, Cattle bedding"
+                  placeholder="e.g. Mulching, boiler combustion, cattle bedding, soil conditioning"
                   value={currentUseDescription}
                   onChange={(e) => setCurrentUseDescription(e.target.value)}
                 />
@@ -668,26 +659,31 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Availability Start Date *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Availability Start Date <span className="text-xs text-gray-400 font-normal">(Optional)</span>
+                </label>
                 <input
                   type="date"
                   className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                   value={availabilityPeriodStart}
                   onChange={(e) => setAvailabilityPeriodStart(e.target.value)}
-                  required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Availability End Date *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Availability End Date <span className="text-xs text-gray-400 font-normal">(Optional)</span>
+                </label>
                 <input
                   type="date"
                   className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                   value={availabilityPeriodEnd}
                   onChange={(e) => setAvailabilityPeriodEnd(e.target.value)}
-                  required
                 />
               </div>
             </div>
+            <p className="text-xs text-gray-500 italic">
+              * Note: Availability window dates are optional. If left blank, the biomass is considered immediately and flexibly available.
+            </p>
 
             {/* Live Calculation Display */}
             <div className="p-4 bg-agri-green-50/70 border border-agri-green-200 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">

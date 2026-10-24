@@ -1,9 +1,25 @@
-import { BiomassRecord, RecordStatus, BiomassSource, Location, ReferenceData, AuditLog, SystemAction, ValidationRecord, Organization, AggregationGroup, AggregationMember, AggregationStatus, Inquiry, InquiryStatus } from '../types';
+import { BiomassRecord, RecordStatus, BiomassSource, Location, ReferenceData, AuditLog, SystemAction, ValidationRecord, Organization, AggregationGroup, AggregationMember, AggregationStatus, Inquiry, InquiryStatus, InquiryMessage, Role } from '../types';
 
 // Mock Organizations
 export const MOCK_ORGANIZATIONS: Organization[] = [
-  { id: 'org-1', name: 'Butuan Central Hub', type: 'HUB', locationId: 'loc-1' },
-  { id: 'org-2', name: 'Agusan Farmers Cooperative', type: 'COOPERATIVE', locationId: 'loc-2' },
+  {
+    id: 'org-1',
+    name: 'Butuan Central Hub',
+    type: 'HUB',
+    locationId: 'loc-1',
+    officeAddress: 'J.C. Aquino Avenue, Brgy. Lapu-Lapu, Butuan City',
+    contactPhone: '+63 (085) 341-2890',
+    contactEmail: 'centralhub@agricycle.ph',
+  },
+  {
+    id: 'org-2',
+    name: 'Agusan Farmers Cooperative',
+    type: 'COOPERATIVE',
+    locationId: 'loc-2',
+    officeAddress: 'Coop Headquarters, Km. 3 Baan, Butuan City',
+    contactPhone: '+63 (085) 815-4421',
+    contactEmail: 'agusan.farmers@agricycle.ph',
+  },
 ];
 
 // Mock Locations
@@ -32,9 +48,9 @@ export const MOCK_REFERENCE_DATA: ReferenceData[] = [
   { id: 'ref-bio-7', category: 'BIOMASS_TYPE', code: 'WOOD_CHIPS', label: 'Wood Chips', isActive: true },
   
   { id: 'ref-unit-1', category: 'UNIT', code: 'KG', label: 'Kilograms (kg)', isActive: true },
-  { id: 'ref-unit-2', category: 'UNIT', code: 'MT', label: 'Metric Tons (MT)', isActive: true },
-  { id: 'ref-unit-3', category: 'UNIT', code: 'BAGS_50KG', label: 'Bags (50kg)', isActive: true },
-  { id: 'ref-unit-4', category: 'UNIT', code: 'TRUCKLOADS', label: 'Truckloads', isActive: true },
+  { id: 'ref-unit-2', category: 'UNIT', code: 'MT', label: 'Metric tonnes (t)', isActive: true },
+  { id: 'ref-unit-3', category: 'UNIT', code: 'BAGS_50KG', label: 'Bags (50kg) [Legacy]', isActive: false },
+  { id: 'ref-unit-4', category: 'UNIT', code: 'TRUCKLOADS', label: 'Truckloads [Legacy Transport]', isActive: false },
 ];
 
 // Generate dates safely
@@ -244,6 +260,27 @@ export const MOCK_INQUIRIES: Inquiry[] = [
   }
 ];
 
+export const MOCK_INQUIRY_MESSAGES: InquiryMessage[] = [
+  {
+    id: 'msg-1',
+    inquiryId: 'INQ-1001',
+    senderId: 'user-buyer',
+    senderName: 'BioEnergy Solutions (Buyer)',
+    senderRole: Role.BUYER,
+    message: 'Hello! We are looking to secure 100 bags (approx 5 MT) of rice husk for next week pickup. Is the covered warehouse accessible for a 6-wheeler truck?',
+    createdAt: daysAgo(2),
+  },
+  {
+    id: 'msg-2',
+    inquiryId: 'INQ-1001',
+    senderId: 'user-coord',
+    senderName: 'Maria Coordinator (Agusan Farmers Coop)',
+    senderRole: Role.COORDINATOR,
+    message: 'Hi! Yes, the warehouse in Libertad has direct concrete road access suitable for 6-wheeler and 10-wheeler trucks. Moisture level is under 12%.',
+    createdAt: daysAgo(1),
+  },
+];
+
 // Simple in-memory "database" singleton for the prototype
 class MockDatabase {
   records: BiomassRecord[] = [...MOCK_RECORDS];
@@ -256,6 +293,7 @@ class MockDatabase {
   aggregationGroups: AggregationGroup[] = [...MOCK_AGGREGATION_GROUPS];
   aggregationMembers: AggregationMember[] = [...MOCK_AGGREGATION_MEMBERS];
   inquiries: Inquiry[] = [...MOCK_INQUIRIES];
+  inquiryMessages: InquiryMessage[] = [...MOCK_INQUIRY_MESSAGES];
 
   syncFromDataset(dataset: {
     records: BiomassRecord[];
@@ -386,14 +424,38 @@ class MockDatabase {
     });
   }
 
+  getInquiryMessages(inquiryId: string): InquiryMessage[] {
+    return this.inquiryMessages.filter((m) => m.inquiryId === inquiryId);
+  }
+
+  addInquiryMessage(message: InquiryMessage) {
+    this.inquiryMessages.push(message);
+  }
+
   addLocation(location: Location) {
+    if (!location.coordinates) {
+      let hash = 0;
+      const bStr = location.barangay || 'Butuan';
+      for (let i = 0; i < bStr.length; i++) {
+        hash = (hash << 5) - hash + bStr.charCodeAt(i);
+        hash |= 0;
+      }
+      const latOffset = (((Math.abs(hash) % 80) - 40) * 0.0006);
+      const lngOffset = ((((Math.abs(hash) >> 2) % 80) - 40) * 0.0006);
+      location.coordinates = {
+        lat: Number((8.9475 + latOffset).toFixed(4)),
+        lng: Number((125.5406 + lngOffset).toFixed(4)),
+      };
+    }
     this.locations.push(location);
   }
 
   addSource(source: BiomassSource) {
     this.sources.push(source);
-    // Since we don't have SystemAction.CREATE_SOURCE, we just do a generic log or skip if it's fine
-    // Or we could add SystemAction.CREATE_SOURCE if types allow
+  }
+
+  addOrganization(org: Organization) {
+    this.organizations.push(org);
   }
 
   // Adding a new record

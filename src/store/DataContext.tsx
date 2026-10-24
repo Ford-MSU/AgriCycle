@@ -14,6 +14,7 @@ import {
   AggregationStatus,
   Inquiry,
   InquiryStatus,
+  InquiryMessage,
   User,
   Role,
   SystemNotification,
@@ -44,6 +45,7 @@ interface DataContextType {
   aggregationGroups: AggregationGroup[];
   aggregationMembers: AggregationMember[];
   inquiries: Inquiry[];
+  inquiryMessages: InquiryMessage[];
   profiles: User[];
   notifications: SystemNotification[];
   isLoading: boolean;
@@ -65,10 +67,12 @@ interface DataContextType {
   getOrganization: (id: string) => Organization | undefined;
   getAggregationGroup: (id: string) => AggregationGroup | undefined;
   getAggregationMembers: (groupId: string) => AggregationMember[];
+  getInquiryMessages: (inquiryId: string) => InquiryMessage[];
 
   // Async Mutations (PostgreSQL backed when Supabase is configured)
   addLocation: (location: Omit<Location, 'id'> & { id?: string }) => Promise<Location>;
   addSource: (source: Omit<BiomassSource, 'id'> & { id?: string }) => Promise<BiomassSource>;
+  addOrganization: (orgInput: { name: string; type: 'COOPERATIVE' | 'HUB' | 'LGU' | 'BUYER' | 'ADMIN'; locationId?: string }) => Promise<Organization>;
   addRecord: (record: Omit<BiomassRecord, 'id' | 'createdAt' | 'lastUpdatedDate'> & { id?: string }) => Promise<BiomassRecord>;
   updateRecord: (id: string, updates: Partial<BiomassRecord>, action?: SystemAction) => Promise<void>;
   addValidation: (
@@ -80,7 +84,7 @@ interface DataContextType {
   addAggregationGroup: (
     name: string,
     biomassTypeId: string,
-    hubId: string,
+    hubId: string | undefined,
     memberRecordIds: string[],
     notes?: string
   ) => Promise<AggregationGroup>;
@@ -97,6 +101,7 @@ interface DataContextType {
     additionalRequirements?: string;
   }) => Promise<Inquiry>;
   updateInquiryStatus: (inquiryId: string, newStatus: InquiryStatus, notes?: string) => Promise<void>;
+  addInquiryMessage: (inquiryId: string, message: string) => Promise<InquiryMessage>;
 }
 
 const DEFAULT_PROFILES: User[] = [
@@ -199,6 +204,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [aggregationGroups, setAggregationGroups] = useState<AggregationGroup[]>(db.aggregationGroups);
   const [aggregationMembers, setAggregationMembers] = useState<AggregationMember[]>(db.aggregationMembers);
   const [inquiries, setInquiries] = useState<Inquiry[]>(db.inquiries);
+  const [inquiryMessages, setInquiryMessages] = useState<InquiryMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem('agricycle_inquiry_messages');
+      return saved ? JSON.parse(saved) : db.inquiryMessages;
+    } catch {
+      return db.inquiryMessages;
+    }
+  });
   const [profiles, setProfiles] = useState<User[]>(DEFAULT_PROFILES);
   const [notifications, setNotifications] = useState<SystemNotification[]>(() => {
     try {
@@ -210,6 +223,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('agricycle_inquiry_messages', JSON.stringify(inquiryMessages));
+    } catch (e) {
+      console.error('Failed to save inquiry messages to localStorage', e);
+    }
+  }, [inquiryMessages]);
 
   useEffect(() => {
     try {
@@ -350,6 +371,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return newSource;
   };
 
+  const addOrganization = async (orgInput: {
+    name: string;
+    type: 'COOPERATIVE' | 'HUB' | 'LGU' | 'BUYER' | 'ADMIN';
+    locationId?: string;
+  }): Promise<Organization> => {
+    const newOrg: Organization = {
+      id: `org-${Date.now()}`,
+      ...orgInput,
+    };
+    db.addOrganization(newOrg);
+    setOrganizations((prev) => [...prev, newOrg]);
+    return newOrg;
+  };
+
   const addRecord = async (
     recordInput: Omit<BiomassRecord, 'id' | 'createdAt' | 'lastUpdatedDate'> & { id?: string }
   ): Promise<BiomassRecord> => {
@@ -469,14 +504,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const addAggregationGroup = async (
     name: string,
     biomassTypeId: string,
-    hubId: string,
-    memberRecordIds: string[],
+    hubId: string | undefined,
+    memberRecordIds: string[] = [],
     notes?: string
   ): Promise<AggregationGroup> => {
     if (!user) throw new Error('You must be signed in to create an aggregation group.');
 
     if (isSupabaseConfigured) {
-      const created = await createAggregationGroupInSupabase(name, biomassTypeId, hubId, memberRecordIds, user, notes);
+      const created = await createAggregationGroupInSupabase(name, biomassTypeId, hubId || '', memberRecordIds, user, notes);
       await refreshData();
       return created;
     }
@@ -485,7 +520,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id: `AG-${Math.floor(100 + Math.random() * 900)}`,
       name,
       biomassTypeId,
-      hubId,
+      hubId: hubId || undefined,
       status: AggregationStatus.ACTIVE,
       notes,
       createdBy: user.id,
@@ -495,6 +530,33 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     db.addAggregationGroup(newGroup, memberRecordIds, user.id);
     syncLocalStateFromMock();
     return newGroup;
+  };
+
+  const getInquiryMessages = useCallback((inquiryId: string) => {
+    return inquiryMessages.filter((m) => m.inquiryId === inquiryId);
+  }, [inquiryMessages]);
+
+  const addInquiryMessage = async (inquiryId: string, message: string): Promise<InquiryMessage> => {
+    if (!user) throw new Error('You must be signed in to send a message.');
+    const newMsg: InquiryMessage = {
+      id: `msg-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      inquiryId,
+      senderId: user.id,
+      senderName: user.name,
+      senderRole: user.role,
+      message: message.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    db.addInquiryMessage(newMsg);
+    setInquiryMessages((prev) => [...prev, newMsg]);
+
+    // Automatically transition SUBMITTED or ACKNOWLEDGED to IN_DISCUSSION if active discussion begins
+    const inq = inquiries.find((i) => i.id === inquiryId);
+    if (inq && (inq.status === InquiryStatus.SUBMITTED || inq.status === InquiryStatus.ACKNOWLEDGED)) {
+      await updateInquiryStatus(inquiryId, InquiryStatus.IN_DISCUSSION, `Discussion message from ${user.name}`);
+    }
+
+    return newMsg;
   };
 
   const addInquiry = async (input: {
@@ -597,6 +659,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         aggregationGroups,
         aggregationMembers,
         inquiries,
+        inquiryMessages,
         profiles,
         notifications,
         isLoading,
@@ -614,8 +677,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         getOrganization,
         getAggregationGroup,
         getAggregationMembers,
+        getInquiryMessages,
+        addInquiryMessage,
         addLocation,
         addSource,
+        addOrganization,
         addRecord,
         updateRecord,
         addValidation,

@@ -95,11 +95,28 @@ export const MapView: React.FC = () => {
     mapRecords = mapRecords.filter((r) => r.status === activeStatus);
   }
 
-  // Combine records with locations
+  // Combine records with locations (guarantee coordinates for Butuan locations)
   const mappedPoints = mapRecords
     .map((record) => {
       const source = getSource(record.sourceId);
-      const location = source ? getLocation(source.locationId) : getLocation(record.locationId);
+      let location = source ? getLocation(source.locationId) : getLocation(record.locationId);
+      if (location && !location.coordinates) {
+        let hash = 0;
+        const bStr = location.barangay || 'Butuan';
+        for (let i = 0; i < bStr.length; i++) {
+          hash = (hash << 5) - hash + bStr.charCodeAt(i);
+          hash |= 0;
+        }
+        const latOffset = (((Math.abs(hash) % 80) - 40) * 0.0006);
+        const lngOffset = ((((Math.abs(hash) >> 2) % 80) - 40) * 0.0006);
+        location = {
+          ...location,
+          coordinates: {
+            lat: Number((8.9475 + latOffset).toFixed(4)),
+            lng: Number((125.5406 + lngOffset).toFixed(4)),
+          },
+        };
+      }
       return { record, source, location };
     })
     .filter((item) => item.location?.coordinates);
@@ -210,6 +227,8 @@ export const MapView: React.FC = () => {
 
               const type = referenceData.find((r) => r.id === item.record.biomassTypeId)?.label;
               const unit = referenceData.find((r) => r.id === item.record.originalUnit)?.label;
+              const availQty = item.record.remainingQuantity !== undefined ? item.record.remainingQuantity : item.record.quantity;
+              const isAvailableToMarket = item.record.externalAvailability !== 'NOT_AVAILABLE';
 
               return (
                 <Marker
@@ -221,24 +240,35 @@ export const MapView: React.FC = () => {
                   }}
                 >
                   <Popup className="agricycle-popup">
-                    <div className="p-1">
-                      <div className="mb-2">
+                    <div className="p-1 min-w-[200px]">
+                      <div className="flex items-center justify-between gap-2 mb-2">
                         <StatusBadge status={item.record.status} />
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                          isAvailableToMarket
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {isAvailableToMarket ? 'Market Available' : 'Internal Only'}
+                        </span>
                       </div>
                       <h3 className="font-bold text-gray-900">{type}</h3>
-                      <p className="text-xs text-agri-earth-600 mb-2 border-b border-gray-100 pb-2">
+                      <p className="text-xs text-agri-earth-600 mb-2 border-b border-gray-100 pb-1.5">
                         {item.source?.name} &bull; {item.location.barangay}
                       </p>
 
-                      <div className="space-y-1 mb-3">
-                        <p className="text-sm">
-                          <span className="font-medium">Quantity:</span> {item.record.quantity.toLocaleString()} {unit}
+                      <div className="space-y-1 mb-3 text-xs">
+                        <p>
+                          <span className="font-semibold text-agri-green-800">Remaining Avail:</span>{' '}
+                          <span className="font-bold text-agri-green-700">{availQty.toLocaleString()}</span> {unit}
                         </p>
-                        <p className="text-xs">
-                          <span className="font-medium">Condition:</span> {item.record.condition}
+                        <p className="text-gray-500">
+                          <span>Total Recorded:</span> {item.record.quantity.toLocaleString()} {unit}
                         </p>
-                        <p className="text-xs text-gray-500">
-                          <span className="font-medium text-gray-700">Updated:</span>{' '}
+                        <p>
+                          <span className="font-medium text-gray-700">Condition:</span> {item.record.condition}
+                        </p>
+                        <p className="text-gray-500 text-[11px]">
+                          <span>Updated:</span>{' '}
                           {format(new Date(item.record.lastUpdatedDate), 'MMM d, yyyy')}
                         </p>
                       </div>

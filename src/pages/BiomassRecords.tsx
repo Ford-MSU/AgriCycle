@@ -18,10 +18,11 @@ export const BiomassRecords: React.FC = () => {
     records,
     referenceData,
     validationRecords,
+    profiles,
     isLoading,
-    getRecord,
     getSource,
     getLocation,
+    getRecord,
     updateRecord,
   } = useData();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -170,8 +171,8 @@ export const BiomassRecords: React.FC = () => {
           </div>
         )}
 
-        {/* Prominent Return Feedback Banner */}
-        {record.status === RecordStatus.RETURNED && (
+        {/* Prominent Return Feedback Banner for Coordinators and Submitters */}
+        {record.status === RecordStatus.RETURNED && (user.role === Role.COORDINATOR || isSubmitter || user.role === Role.ADMINISTRATOR) && (
           <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-amber-900 shadow-sm">
             <div className="flex items-center gap-2 font-semibold text-amber-800 mb-1">
               <span className="text-lg">⚠️</span> Returned for Correction by LGU Reviewer
@@ -189,6 +190,18 @@ export const BiomassRecords: React.FC = () => {
                 Edit and Fix Record
               </Button>
             </div>
+          </div>
+        )}
+
+        {/* Informational Notice for LGU Reviewers when record is returned to submitter */}
+        {record.status === RecordStatus.RETURNED && user.role === Role.LGU && !isSubmitter && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-blue-900 shadow-sm">
+            <div className="flex items-center gap-2 font-semibold text-blue-800 mb-1">
+              <span className="text-lg">ℹ️</span> Returned to Submitter for Corrections
+            </div>
+            <p className="text-sm text-blue-800">
+              This record was returned to the submitter with correction instructions: "{recordValidations[0]?.validationNotes || record.returnReason || 'Awaiting submitter revisions'}". The record will reappear for validation once resubmitted.
+            </p>
           </div>
         )}
 
@@ -257,8 +270,13 @@ export const BiomassRecords: React.FC = () => {
             <div>
               <p className="text-gray-500 font-medium mb-1">Availability Window</p>
               <p className="text-gray-900 font-medium">
-                {format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} to{' '}
-                {format(new Date(record.availabilityPeriodEnd), 'MMM d, yyyy')}
+                {record.availabilityPeriodStart && record.availabilityPeriodEnd
+                  ? `${format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} to ${format(new Date(record.availabilityPeriodEnd), 'MMM d, yyyy')}`
+                  : record.availabilityPeriodStart
+                  ? `From ${format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} (Flexible / Ongoing)`
+                  : record.availabilityPeriodEnd
+                  ? `Until ${format(new Date(record.availabilityPeriodEnd), 'MMM d, yyyy')}`
+                  : 'Immediate & Flexible Availability'}
               </p>
               <p className="text-gray-500 font-medium mb-1 mt-3">Present Internal Use</p>
               <p className="text-gray-900">{record.currentUse || 'None specified'}</p>
@@ -314,20 +332,26 @@ export const BiomassRecords: React.FC = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 space-y-3">
-              {recordValidations.map((val) => (
-                <div key={val.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 text-sm">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-semibold text-gray-900">
-                      {val.decision} &bull; <span className="font-normal text-gray-600">{val.validationBasis}</span>
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {format(new Date(val.validationDate), 'MMM d, yyyy HH:mm')}
-                    </span>
+              {recordValidations.map((val) => {
+                const validatorUser = profiles.find((p) => p.id === val.validatorId || p.email === val.validatorId);
+                const validatorName = validatorUser ? `${validatorUser.name} (${validatorUser.role})` : val.validatorId;
+                return (
+                  <div key={val.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 text-sm">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-semibold text-gray-900">
+                        {val.decision} &bull; <span className="font-normal text-gray-600">{val.validationBasis}</span>
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {format(new Date(val.validationDate), 'MMM d, yyyy HH:mm')}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600">
+                      Validator: <span className="font-semibold text-gray-900">{validatorName}</span>
+                    </p>
+                    {val.validationNotes && <p className="text-gray-700 mt-1 font-medium">{val.validationNotes}</p>}
                   </div>
-                  <p className="text-xs text-gray-600">Validator: {val.validatorId}</p>
-                  {val.validationNotes && <p className="text-gray-700 mt-1 font-medium">{val.validationNotes}</p>}
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
         )}

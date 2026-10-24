@@ -100,6 +100,7 @@ export const ListingDetail: React.FC = () => {
       const unit = referenceData.find((r) => r.id === record.originalUnit)?.label;
       const source = getSource(record.sourceId);
       const location = source ? getLocation(source.locationId) : getLocation(record.locationId);
+      const coop = source?.cooperativeId ? getOrganization(source.cooperativeId) : undefined;
       const availQty = record.remainingQuantity !== undefined ? record.remainingQuantity : record.quantity;
 
       return (
@@ -132,8 +133,11 @@ export const ListingDetail: React.FC = () => {
               <div>
                 <p className="text-gray-500">Availability Period</p>
                 <p className="font-medium">
-                  {format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} -{' '}
-                  {format(new Date(record.availabilityPeriodEnd), 'MMM d, yyyy')}
+                  {record.availabilityPeriodStart && record.availabilityPeriodEnd
+                    ? `${format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} - ${format(new Date(record.availabilityPeriodEnd), 'MMM d, yyyy')}`
+                    : record.availabilityPeriodStart
+                    ? `From ${format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} (Flexible)`
+                    : 'Immediate & Flexible'}
                 </p>
               </div>
               <div>
@@ -144,14 +148,35 @@ export const ListingDetail: React.FC = () => {
               </div>
             </div>
 
-            <div className="pt-4 border-t border-gray-100 mt-4">
-              <h4 className="text-sm font-semibold mb-2">Source Information</h4>
-              <p className="text-sm">
-                {source?.name} ({source?.type})
-              </p>
-              <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                <MapPin size={14} /> {location?.barangay}, {location?.city}
-              </p>
+            <div className="pt-4 border-t border-gray-100 mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <h4 className="text-sm font-semibold mb-1 text-gray-900">Biomass Source Location</h4>
+                <p className="text-sm font-medium text-gray-800">
+                  {source?.name} ({source?.type})
+                </p>
+                <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                  <MapPin size={13} className="text-agri-green-600 shrink-0" /> {location?.barangay}, {location?.city}
+                </p>
+                {record.accessLocationNotes && (
+                  <p className="text-xs text-gray-500 mt-1 italic">
+                    Access: {record.accessLocationNotes}
+                  </p>
+                )}
+              </div>
+              {coop && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-1 text-gray-900">Cooperative / Hub Office</h4>
+                  <p className="text-sm font-medium text-gray-800">{coop.name}</p>
+                  {coop.officeAddress && (
+                    <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                      <MapPin size={13} className="text-blue-600 shrink-0" /> {coop.officeAddress}
+                    </p>
+                  )}
+                  {coop.contactPhone && (
+                    <p className="text-xs text-gray-500 mt-0.5">Phone: {coop.contactPhone}</p>
+                  )}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
