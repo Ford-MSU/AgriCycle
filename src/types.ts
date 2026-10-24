@@ -18,6 +18,8 @@ export enum AggregationStatus {
 
 export enum InquiryStatus {
   SUBMITTED = 'SUBMITTED',
+  ACCEPTED = 'ACCEPTED',
+  DECLINED = 'DECLINED',
   ACKNOWLEDGED = 'ACKNOWLEDGED',
   IN_DISCUSSION = 'IN_DISCUSSION',
   CLOSED = 'CLOSED',

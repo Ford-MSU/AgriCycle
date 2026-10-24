@@ -98,12 +98,23 @@ export const Dashboard: React.FC = () => {
 
     accessibleRecords.forEach((r) => {
       const totalT = convertToMetricTonnes(r.quantity, r.originalUnit, referenceData);
-      const currentUseT = r.currentUseQuantity !== undefined
-        ? convertToMetricTonnes(r.currentUseQuantity, r.originalUnit, referenceData)
-        : 0;
       const reservedT = r.reservedQuantity !== undefined
         ? convertToMetricTonnes(r.reservedQuantity, r.originalUnit, referenceData)
         : 0;
+
+      let currentUseT = 0;
+      if (r.currentUseQuantity !== undefined && r.currentUseQuantity > 0) {
+        currentUseT = convertToMetricTonnes(r.currentUseQuantity, r.originalUnit, referenceData);
+      } else if (r.externalAvailability === 'NOT_AVAILABLE') {
+        currentUseT = totalT;
+      } else if (
+        r.currentUse &&
+        !r.currentUse.toLowerCase().includes('available') &&
+        !r.currentUse.toLowerCase().includes('not currently used') &&
+        r.remainingQuantity !== undefined
+      ) {
+        currentUseT = Math.max(0, totalT - convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData) - reservedT);
+      }
 
       const remainingT = r.remainingQuantity !== undefined
         ? convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData)

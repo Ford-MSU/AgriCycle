@@ -16,6 +16,10 @@ import {
   Phone,
   Mail,
   ShieldCheck,
+  XCircle,
+  Ban,
+  AlertCircle,
+  X,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -26,6 +30,12 @@ const StatusBadgeInquiry: React.FC<{ status: InquiryStatus }> = ({ status }) => 
   if (status === InquiryStatus.SUBMITTED) {
     label = 'Submitted';
     styles = 'bg-blue-50 text-blue-700 border border-blue-200';
+  } else if (status === InquiryStatus.ACCEPTED) {
+    label = 'Accepted';
+    styles = 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold';
+  } else if (status === InquiryStatus.DECLINED) {
+    label = 'Declined';
+    styles = 'bg-rose-50 text-rose-700 border border-rose-200';
   } else if (status === InquiryStatus.ACKNOWLEDGED || status === InquiryStatus.UNDER_REVIEW) {
     label = 'Acknowledged';
     styles = 'bg-amber-50 text-amber-800 border border-amber-200';
@@ -39,8 +49,10 @@ const StatusBadgeInquiry: React.FC<{ status: InquiryStatus }> = ({ status }) => 
   } else if (status === InquiryStatus.CLOSED) {
     label = 'Closed';
     styles = 'bg-gray-100 text-gray-600 border border-gray-200';
+  } else if (status === InquiryStatus.WITHDRAWN) {
+    label = 'Withdrawn';
+    styles = 'bg-gray-100 text-gray-600 border border-gray-300';
   } else if (
-    status === InquiryStatus.WITHDRAWN ||
     status === InquiryStatus.NO_LONGER_AVAILABLE ||
     status === InquiryStatus.EXPIRED
   ) {
@@ -80,6 +92,11 @@ export const Inquiries: React.FC = () => {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [actionError, setActionError] = useState('');
   const [activeTab, setActiveTab] = useState<'CHAT' | 'DETAILS'>('CHAT');
+
+  // Modals for Buyer Withdrawal & Coordinator Decline
+  const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
+  const [isDeclineModalOpen, setIsDeclineModalOpen] = useState(false);
+  const [declineReason, setDeclineReason] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -137,9 +154,17 @@ export const Inquiries: React.FC = () => {
     }
   }, [currentMessages.length, selectedInquiryId, activeTab]);
 
+  // Check if chat is enabled: strictly restricted until Coordinator accepts!
+  const isChatEnabled =
+    selectedInquiry?.status === InquiryStatus.ACCEPTED ||
+    selectedInquiry?.status === InquiryStatus.IN_DISCUSSION ||
+    selectedInquiry?.status === InquiryStatus.ACKNOWLEDGED ||
+    selectedInquiry?.status === InquiryStatus.RESPONDED ||
+    selectedInquiry?.status === InquiryStatus.FOLLOW_UP;
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!chatInput.trim() || !selectedInquiry) return;
+    if (!chatInput.trim() || !selectedInquiry || !isChatEnabled) return;
 
     setIsSendingMessage(true);
     setActionError('');
@@ -153,18 +178,58 @@ export const Inquiries: React.FC = () => {
     }
   };
 
-  const handleAcknowledge = async () => {
+  // Coordinator: Accept Inquiry
+  const handleAcceptInquiry = async () => {
     if (!selectedInquiry) return;
     setIsUpdatingStatus(true);
     setActionError('');
     try {
       await updateInquiryStatus(
         selectedInquiry.id,
-        InquiryStatus.ACKNOWLEDGED,
-        `Inquiry acknowledged by ${user.name} (${user.role}). Available for discussion.`
+        InquiryStatus.ACCEPTED,
+        `Inquiry accepted by ${user.name} (${user.role}). Direct conversation is now open.`
       );
     } catch (err: any) {
-      setActionError(err?.message || 'Failed to acknowledge inquiry.');
+      setActionError(err?.message || 'Failed to accept inquiry.');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // Coordinator: Decline Inquiry
+  const handleDeclineConfirm = async () => {
+    if (!selectedInquiry) return;
+    setIsUpdatingStatus(true);
+    setActionError('');
+    try {
+      await updateInquiryStatus(
+        selectedInquiry.id,
+        InquiryStatus.DECLINED,
+        declineReason.trim() || 'Inquiry declined by coordinator.'
+      );
+      setIsDeclineModalOpen(false);
+      setDeclineReason('');
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to decline inquiry.');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // Buyer: Withdraw Inquiry Confirmation
+  const handleWithdrawConfirm = async () => {
+    if (!selectedInquiry) return;
+    setIsUpdatingStatus(true);
+    setActionError('');
+    try {
+      await updateInquiryStatus(
+        selectedInquiry.id,
+        InquiryStatus.WITHDRAWN,
+        'Inquiry withdrawn by buyer.'
+      );
+      setIsWithdrawModalOpen(false);
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to withdraw inquiry.');
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -213,6 +278,13 @@ export const Inquiries: React.FC = () => {
     ? profiles.find((p) => p.id === selectedInquiry.buyerUserId || p.email === selectedInquiry.buyerUserId)
     : undefined;
 
+  const isTerminalStatus =
+    selectedInquiry?.status === InquiryStatus.CLOSED ||
+    selectedInquiry?.status === InquiryStatus.WITHDRAWN ||
+    selectedInquiry?.status === InquiryStatus.DECLINED ||
+    selectedInquiry?.status === InquiryStatus.NO_LONGER_AVAILABLE ||
+    selectedInquiry?.status === InquiryStatus.EXPIRED;
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
@@ -221,7 +293,7 @@ export const Inquiries: React.FC = () => {
             {user.role === Role.BUYER ? 'My Inquiries & Conversations' : 'Buyer Inquiries & Communication'}
           </h2>
           <p className="text-sm text-agri-earth-500 mt-1">
-            Direct communication, coordinator acknowledgment, and logistics coordination.
+            Direct communication, coordinator acceptance/decline workflow, and logistics coordination.
           </p>
         </div>
       </div>
@@ -307,21 +379,45 @@ export const Inquiries: React.FC = () => {
                     </h3>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <StatusBadgeInquiry status={selectedInquiry.status} />
 
-                    {/* Coordinator Quick Acknowledge Button */}
+                    {/* Coordinator Accept / Decline Workflow */}
                     {(user.role === Role.COORDINATOR || user.role === Role.ADMINISTRATOR) &&
                       selectedInquiry.status === InquiryStatus.SUBMITTED && (
-                        <Button
-                          size="sm"
-                          onClick={handleAcknowledge}
-                          isLoading={isUpdatingStatus}
-                          className="bg-amber-600 hover:bg-amber-700 text-white text-xs flex items-center gap-1.5"
-                        >
-                          <CheckCircle2 size={14} /> Acknowledge Inquiry
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            onClick={handleAcceptInquiry}
+                            isLoading={isUpdatingStatus}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs flex items-center gap-1.5 shadow-sm"
+                          >
+                            <CheckCircle2 size={14} /> Accept Inquiry
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setIsDeclineModalOpen(true)}
+                            disabled={isUpdatingStatus}
+                            className="border-rose-200 text-rose-700 hover:bg-rose-50 text-xs flex items-center gap-1.5"
+                          >
+                            <Ban size={14} /> Decline
+                          </Button>
+                        </div>
                       )}
+
+                    {/* Buyer Withdrawal Button in Header */}
+                    {user.role === Role.BUYER && !isTerminalStatus && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setIsWithdrawModalOpen(true)}
+                        disabled={isUpdatingStatus}
+                        className="text-xs text-rose-700 border-rose-300 hover:bg-rose-50 flex items-center gap-1.5"
+                      >
+                        <AlertCircle size={14} /> Withdraw Inquiry
+                      </Button>
+                    )}
                   </div>
                 </div>
 
@@ -364,75 +460,134 @@ export const Inquiries: React.FC = () => {
                 <div className="flex-1 flex flex-col min-h-0 bg-gray-50/50">
                   {/* Messages Area */}
                   <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {currentMessages.length === 0 ? (
+                    {/* Status Notice if Chat is NOT enabled */}
+                    {!isChatEnabled && (
+                      <div className="h-full flex flex-col items-center justify-center text-center p-6">
+                        {selectedInquiry.status === InquiryStatus.SUBMITTED ? (
+                          <div className="max-w-md bg-white border border-blue-200 rounded-xl p-6 shadow-sm flex flex-col items-center">
+                            <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
+                              <Clock size={24} />
+                            </div>
+                            <h4 className="text-sm font-bold text-gray-900">Awaiting Coordinator Acceptance</h4>
+                            <p className="text-xs text-blue-800 bg-blue-50/80 px-3 py-2 rounded-lg border border-blue-200 mt-3 font-medium">
+                              Direct conversation will be enabled once the Coordinator accepts the inquiry.
+                            </p>
+                            <p className="text-[11px] text-gray-400 mt-2">
+                              Submitted {format(new Date(selectedInquiry.submittedAt), 'MMMM d, yyyy h:mm a')}
+                            </p>
+                          </div>
+                        ) : selectedInquiry.status === InquiryStatus.DECLINED ? (
+                          <div className="max-w-md bg-white border border-rose-200 rounded-xl p-6 shadow-sm flex flex-col items-center">
+                            <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mb-3">
+                              <Ban size={24} />
+                            </div>
+                            <h4 className="text-sm font-bold text-gray-900">Inquiry Declined</h4>
+                            <p className="text-xs text-rose-700 bg-rose-50 px-3 py-2 rounded-lg border border-rose-200 mt-3">
+                              This inquiry was declined by the coordinator. Direct messaging is disabled.
+                            </p>
+                          </div>
+                        ) : selectedInquiry.status === InquiryStatus.WITHDRAWN ? (
+                          <div className="max-w-md bg-white border border-gray-200 rounded-xl p-6 shadow-sm flex flex-col items-center">
+                            <div className="w-12 h-12 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center mb-3">
+                              <AlertCircle size={24} />
+                            </div>
+                            <h4 className="text-sm font-bold text-gray-900">Inquiry Withdrawn</h4>
+                            <p className="text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 mt-3">
+                              This inquiry has been withdrawn by the buyer.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="max-w-md bg-white border border-gray-200 rounded-xl p-6 shadow-sm flex flex-col items-center">
+                            <div className="w-12 h-12 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center mb-3">
+                              <CheckCircle2 size={24} />
+                            </div>
+                            <h4 className="text-sm font-bold text-gray-900">Inquiry Closed</h4>
+                            <p className="text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 mt-3">
+                              This inquiry has been closed and archived.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Messages list when enabled or historical messages */}
+                    {isChatEnabled && currentMessages.length === 0 && (
                       <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-400">
                         <MessageSquare className="h-10 w-10 mb-2 opacity-40 text-agri-green-600" />
-                        <p className="text-sm font-medium text-gray-700">No messages exchanged yet</p>
+                        <p className="text-sm font-medium text-gray-700">Inquiry accepted for direct discussion</p>
                         <p className="text-xs text-gray-500 mt-1 max-w-sm">
-                          Send a message to discuss logistics, pickup timing, scale weighing, or price coordination.
+                          Send a message to coordinate availability, delivery timing, scale weighing, or price terms.
                         </p>
                       </div>
-                    ) : (
-                      currentMessages.map((msg) => {
-                        const isSelf = msg.senderId === user.id || msg.senderRole === user.role;
-                        return (
-                          <div
-                            key={msg.id}
-                            className={`flex flex-col ${isSelf ? 'items-end' : 'items-start'}`}
-                          >
-                            <div className="flex items-center gap-1.5 mb-1 text-[11px] text-gray-500">
-                              <span className="font-semibold text-gray-700">{msg.senderName}</span>
-                              <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                                msg.senderRole === Role.BUYER
-                                  ? 'bg-blue-100 text-blue-800'
-                                  : msg.senderRole === Role.COORDINATOR
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-purple-100 text-purple-800'
-                              }`}>
-                                {msg.senderRole}
-                              </span>
-                              <span>&bull;</span>
-                              <span>{format(new Date(msg.createdAt), 'MMM d, h:mm a')}</span>
-                            </div>
-
-                            <div
-                              className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                                isSelf
-                                  ? 'bg-agri-green-700 text-white rounded-br-none'
-                                  : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'
-                              }`}
-                            >
-                              <p className="whitespace-pre-wrap">{msg.message}</p>
-                            </div>
-                          </div>
-                        );
-                      })
                     )}
+
+                    {currentMessages.map((msg) => {
+                      const isSelf = msg.senderId === user.id || msg.senderRole === user.role;
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex flex-col ${isSelf ? 'items-end' : 'items-start'}`}
+                        >
+                          <div className="flex items-center gap-1.5 mb-1 text-[11px] text-gray-500">
+                            <span className="font-semibold text-gray-700">{msg.senderName}</span>
+                            <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                              msg.senderRole === Role.BUYER
+                                ? 'bg-blue-100 text-blue-800'
+                                : msg.senderRole === Role.COORDINATOR
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-purple-100 text-purple-800'
+                            }`}>
+                              {msg.senderRole}
+                            </span>
+                            <span>&bull;</span>
+                            <span>{format(new Date(msg.createdAt), 'MMM d, h:mm a')}</span>
+                          </div>
+
+                          <div
+                            className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                              isSelf
+                                ? 'bg-agri-green-700 text-white rounded-br-none'
+                                : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'
+                            }`}
+                          >
+                            <p className="whitespace-pre-wrap">{msg.message}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
                     <div ref={messagesEndRef} />
                   </div>
 
-                  {/* Chat Input Bar */}
-                  <form
-                    onSubmit={handleSendMessage}
-                    className="p-3 border-t border-gray-200 bg-white flex items-center gap-2"
-                  >
-                    <input
-                      type="text"
-                      className="flex-1 px-3.5 py-2.5 text-sm border border-gray-200 rounded-lg focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
-                      placeholder="Type a message to coordinate availability, pickup, or terms..."
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      disabled={isSendingMessage}
-                    />
-                    <Button
-                      type="submit"
-                      disabled={!chatInput.trim() || isSendingMessage}
-                      isLoading={isSendingMessage}
-                      className="shrink-0 bg-agri-green-600 hover:bg-agri-green-700 text-white px-4"
+                  {/* Chat Input Bar - strictly visible and active ONLY when chat is enabled */}
+                  {isChatEnabled ? (
+                    <form
+                      onSubmit={handleSendMessage}
+                      className="p-3 border-t border-gray-200 bg-white flex items-center gap-2"
                     >
-                      <Send size={15} />
-                    </Button>
-                  </form>
+                      <input
+                        type="text"
+                        className="flex-1 px-3.5 py-2.5 text-sm border border-gray-200 rounded-lg focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                        placeholder="Type a message to coordinate availability, pickup, or terms..."
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        disabled={isSendingMessage}
+                      />
+                      <Button
+                        type="submit"
+                        disabled={!chatInput.trim() || isSendingMessage}
+                        isLoading={isSendingMessage}
+                        className="shrink-0 bg-agri-green-600 hover:bg-agri-green-700 text-white px-4"
+                      >
+                        <Send size={15} />
+                      </Button>
+                    </form>
+                  ) : (
+                    <div className="p-3 border-t border-gray-200 bg-gray-100 text-center text-xs text-gray-500">
+                      {selectedInquiry.status === InquiryStatus.SUBMITTED
+                        ? 'Direct conversation will be enabled once the Coordinator accepts the inquiry.'
+                        : 'Direct conversation is disabled for this inquiry status.'}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -586,8 +741,9 @@ export const Inquiries: React.FC = () => {
                           onChange={(e) => setNewStatus(e.target.value as InquiryStatus)}
                         >
                           <option value="">Choose new status...</option>
-                          <option value={InquiryStatus.ACKNOWLEDGED}>Acknowledged</option>
+                          <option value={InquiryStatus.ACCEPTED}>Accepted</option>
                           <option value={InquiryStatus.IN_DISCUSSION}>In Discussion</option>
+                          <option value={InquiryStatus.DECLINED}>Declined</option>
                           <option value={InquiryStatus.CLOSED}>Closed</option>
                         </select>
                         <input
@@ -609,17 +765,17 @@ export const Inquiries: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Buyer Withdrawal */}
-                  {user.role === Role.BUYER && selectedInquiry.status !== InquiryStatus.CLOSED && (
+                  {/* Buyer Withdrawal in Details Tab */}
+                  {user.role === Role.BUYER && !isTerminalStatus && (
                     <div className="pt-4 border-t border-gray-100 flex justify-end">
                       <Button
                         variant="outline"
                         size="sm"
-                        isLoading={isUpdatingStatus}
-                        onClick={() => handleStatusChange(InquiryStatus.CLOSED, 'Buyer closed the inquiry.')}
-                        className="text-xs text-red-600 border-red-200 hover:bg-red-50"
+                        disabled={isUpdatingStatus}
+                        onClick={() => setIsWithdrawModalOpen(true)}
+                        className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 flex items-center gap-1.5"
                       >
-                        Close / Withdraw Inquiry
+                        <AlertCircle size={14} /> Withdraw Inquiry
                       </Button>
                     </div>
                   )}
@@ -629,6 +785,127 @@ export const Inquiries: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* MODAL 1: BUYER WITHDRAW CONFIRMATION MODAL */}
+      {isWithdrawModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-gray-100">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertCircle size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Withdraw Inquiry</h3>
+                <p className="text-xs text-gray-500">Inquiry {selectedInquiry?.id}</p>
+              </div>
+            </div>
+
+            {/* Exact Required Message */}
+            <p className="text-sm text-gray-700 py-2 font-medium">
+              Are you sure to withdraw this inquiry?
+            </p>
+
+            <div className="mt-6 flex flex-col-reverse sm:flex-row justify-end gap-2.5">
+              {/* Exact Required Cancel Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsWithdrawModalOpen(false)}
+                disabled={isUpdatingStatus}
+                className="text-xs"
+              >
+                No, I want to keep the inquiry.
+              </Button>
+
+              {/* Exact Required Confirm Button */}
+              <Button
+                size="sm"
+                onClick={handleWithdrawConfirm}
+                isLoading={isUpdatingStatus}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-xs"
+              >
+                Yes, I want to withdraw.
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: COORDINATOR DECLINE CONFIRMATION MODAL */}
+      {isDeclineModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-gray-100">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                  <Ban size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Decline Inquiry</h3>
+                  <p className="text-xs text-gray-500">Inquiry {selectedInquiry?.id}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsDeclineModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-600 mb-3">
+              Please provide a reason for declining this inquiry. The buyer will be notified.
+            </p>
+
+            <div className="space-y-2 mb-4">
+              <label className="text-xs font-semibold text-gray-700 block">Decline Reason</label>
+              <textarea
+                rows={3}
+                value={declineReason}
+                onChange={(e) => setDeclineReason(e.target.value)}
+                placeholder="e.g. Currently committed to internal farm boiler use / Insufficient volume..."
+                className="w-full text-xs p-2.5 border border-gray-200 rounded-lg focus:ring-agri-green-500 focus:border-agri-green-500"
+              />
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {[
+                  'Volume committed to internal farm use',
+                  'Insufficient remaining stock',
+                  'Logistics cannot be arranged for requested date',
+                ].map((reason) => (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() => setDeclineReason(reason)}
+                    className="text-[11px] bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded"
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsDeclineModalOpen(false)}
+                disabled={isUpdatingStatus}
+                className="text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleDeclineConfirm}
+                isLoading={isUpdatingStatus}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-xs"
+              >
+                Decline Inquiry
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

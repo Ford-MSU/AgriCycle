@@ -54,6 +54,7 @@ export const MapView: React.FC = () => {
     getBiomassTypes,
     getSource,
     getLocation,
+    getOrganization,
     getAggregationMembers,
   } = useData();
   const [searchParams] = useSearchParams();
@@ -252,9 +253,19 @@ export const MapView: React.FC = () => {
                         </span>
                       </div>
                       <h3 className="font-bold text-gray-900">{type}</h3>
-                      <p className="text-xs text-agri-earth-600 mb-2 border-b border-gray-100 pb-1.5">
-                        {item.source?.name} &bull; {item.location.barangay}
-                      </p>
+                      <div className="text-xs text-agri-earth-700 mb-2 border-b border-gray-100 pb-1.5 space-y-0.5">
+                        <p className="font-semibold text-gray-800 flex items-center gap-1">
+                          <span>📍 Source:</span> {item.source?.name} ({item.location.barangay}, {item.location.city})
+                        </p>
+                        {(() => {
+                          const coop = item.source?.cooperativeId ? getOrganization(item.source.cooperativeId) : null;
+                          return coop ? (
+                            <p className="text-[11px] text-blue-700">
+                              🏢 Coord Office: {coop.name}
+                            </p>
+                          ) : null;
+                        })()}
+                      </div>
 
                       <div className="space-y-1 mb-3 text-xs">
                         <p>

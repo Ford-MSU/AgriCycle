@@ -94,9 +94,15 @@ export function mapBiomassRecordRow(row: any): BiomassRecord {
     locationId: row.location_id,
     status: row.status as RecordStatus,
     isTheoreticalEstimate: Boolean(row.is_theoretical_estimate),
-    availabilityPeriodStart: row.availability_period_start,
-    availabilityPeriodEnd: row.availability_period_end,
+    availabilityPeriodStart: row.availability_period_start || undefined,
+    availabilityPeriodEnd: row.availability_period_end || undefined,
     currentUse: row.current_use || 'Not specified',
+    currentUseQuantity:
+      row.current_use_quantity !== null && row.current_use_quantity !== undefined
+        ? Number(row.current_use_quantity)
+        : 0,
+    externalAvailability:
+      row.external_availability || (Number(row.remaining_quantity ?? qty) > 0 ? 'AVAILABLE_TO_OTHERS' : 'NOT_AVAILABLE'),
     reservedQuantity: reserved,
     remainingQuantity: remaining,
     condition: row.condition || 'Not specified',
@@ -386,9 +392,11 @@ export async function createBiomassRecordInSupabase(
     location_id: record.locationId,
     status: record.status,
     is_theoretical_estimate: record.isTheoreticalEstimate,
-    availability_period_start: record.availabilityPeriodStart,
-    availability_period_end: record.availabilityPeriodEnd,
+    availability_period_start: record.availabilityPeriodStart || null,
+    availability_period_end: record.availabilityPeriodEnd || null,
     current_use: record.currentUse,
+    current_use_quantity: record.currentUseQuantity ?? 0,
+    external_availability: record.externalAvailability || 'AVAILABLE_TO_OTHERS',
     reserved_quantity: reserved,
     remaining_quantity: remaining,
     condition: record.condition,
@@ -444,6 +452,10 @@ export async function updateBiomassRecordInSupabase(
   if (updates.conditionNote !== undefined) dbUpdates.condition_note = updates.conditionNote;
   if (updates.storage !== undefined) dbUpdates.storage = updates.storage;
   if (updates.currentUse !== undefined) dbUpdates.current_use = updates.currentUse;
+  if (updates.currentUseQuantity !== undefined) dbUpdates.current_use_quantity = updates.currentUseQuantity;
+  if (updates.externalAvailability !== undefined) dbUpdates.external_availability = updates.externalAvailability;
+  if (updates.availabilityPeriodStart !== undefined) dbUpdates.availability_period_start = updates.availabilityPeriodStart || null;
+  if (updates.availabilityPeriodEnd !== undefined) dbUpdates.availability_period_end = updates.availabilityPeriodEnd || null;
   if (updates.accessLocationNotes !== undefined) dbUpdates.access_location_notes = updates.accessLocationNotes;
   if (updates.validationDate !== undefined) dbUpdates.validation_date = updates.validationDate;
   if (updates.isTheoreticalEstimate !== undefined) dbUpdates.is_theoretical_estimate = updates.isTheoreticalEstimate;
@@ -584,6 +596,23 @@ export async function updateInquiryStatusInSupabase(
   });
 
   if (error) {
+    // If remote database enum does not yet contain custom enum value, fallback to compatible standard enum
+    let fallbackStatus: string | null = null;
+    if (newStatus === InquiryStatus.ACCEPTED || (newStatus as any) === 'ACCEPTED' || newStatus === InquiryStatus.IN_DISCUSSION || newStatus === InquiryStatus.ACKNOWLEDGED) {
+      fallbackStatus = 'RESPONDED';
+    } else if (newStatus === InquiryStatus.DECLINED || (newStatus as any) === 'DECLINED') {
+      fallbackStatus = 'CLOSED';
+    }
+
+    if (fallbackStatus) {
+      const { error: retryError } = await client.rpc('update_inquiry_status_tx', {
+        p_inquiry_id: inquiryId,
+        p_new_status: fallbackStatus,
+        p_notes: notes ? `${notes} (Marked: ${newStatus})` : `Status marked as ${newStatus}`,
+      });
+      if (!retryError) return;
+    }
+
     throw new Error(error.message || 'Failed to update inquiry status.');
   }
 }

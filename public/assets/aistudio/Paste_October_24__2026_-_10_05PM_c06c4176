@@ -1,0 +1,1262 @@
+# AGRICYCLE: CONSOLIDATED WEBSITE IMPROVEMENTS AND FEATURE IMPLEMENTATION
+
+## 1. YOUR ROLE AND OBJECTIVE
+
+Act as a senior full-stack developer, database engineer, UI/UX designer, and application security specialist.
+
+Your task is to **modify and improve the existing AgriCycle application according to all three rounds of stakeholder feedback**, while preserving the application's current architecture, database, existing features, and established business rules wherever possible.
+
+AgriCycle is a community-based e-commerce marketplace for agricultural biomass waste within the circular economy. It aims to connect agricultural biomass producers and aggregators with potential buyers, support local coordination, improve biomass utilization, and make agricultural waste more economically useful.
+
+This is an enhancement of an existing application, NOT a request to build a new application from scratch.
+
+The current application includes role-specific dashboards, biomass records, inquiry management, traceability, maps, administrative functions, and database-backed functionality. These features must be examined before implementing changes.
+
+### Primary objective
+
+Implement all requested improvements from the three feedback rounds, particularly:
+
+1. Biomass availability classification and conditional availability dates.
+2. Accurate biomass quantity allocation and remaining-quantity calculations.
+3. Improved biomass record details and traceability.
+4. Correct, consistently updated dashboard metrics.
+5. Better biomass location selection, mapping, and organization management.
+6. Improved buyer inquiry workflows, including coordinator acceptance or rejection.
+7. Inquiry-specific messaging that remains inaccessible until an inquiry is accepted.
+8. Buyer-initiated inquiry withdrawal with confirmation.
+9. Better notifications, audit trails, user management, and administrative analytics.
+10. Appropriate role-based permissions, database security, and session inactivity handling.
+
+**Do not stop after changing the visual interface.** Where a feature involves permissions, calculations, persistence, or status transitions, implement and verify the corresponding application logic and database behavior as well.
+
+---
+
+# 2. MANDATORY FIRST STEP: INSPECT THE EXISTING APPLICATION
+
+Before modifying any code, inspect the complete existing application to understand its current structure and behavior.
+
+Examine:
+
+- The frontend framework and application entry points.
+- Page and component structure.
+- Routing and navigation.
+- Authentication and session management.
+- Existing user roles and permissions.
+- Biomass record creation, editing, review, and validation workflows.
+- Quantity calculations and availability classification.
+- Database schema, relationships, constraints, and existing records.
+- Database functions, triggers, policies, and row-level security rules, if present.
+- Buyer inquiry submission and management.
+- Existing messaging or communication features.
+- Notification mechanisms.
+- Dashboards, charts, and map components.
+- Administrative audit logs and user management.
+- Existing loading, empty, error, and success states.
+
+Use the supplied source code, current project files, screenshots, and actual database schema as the primary sources of truth.
+
+### Important implementation rules
+
+1. Do not replace the application with a new template or unrelated architecture.
+2. Do not remove existing working features simply because they are not mentioned in this prompt.
+3. Do not assume database table names, field names, enum values, relationships, or API behavior without inspecting the actual implementation.
+4. Reuse existing components, functions, services, and database structures whenever appropriate.
+5. Make targeted changes that fit the current architecture.
+6. If a database migration is necessary, make it safe for existing records and compatible with the current deployment.
+7. Preserve historical data and relationships.
+8. Do not insert fake users, fake biomass records, fake inquiries, fake statistics, or invented coordinates into production data.
+9. If a requested feature already exists, improve or correct it instead of creating a duplicate implementation.
+10. If the source code and database disagree, identify the inconsistency and resolve it carefully rather than silently assuming either one is correct.
+11. If a requested change depends on an unresolved business rule, inspect the existing behavior first and use the most conservative interpretation consistent with the feedback.
+12. Do not claim that a feature works, a migration succeeded, or a test passed unless it has actually been verified.
+
+After inspecting the project, develop a brief implementation plan and proceed with the changes. Do not stop at producing recommendations or a plan; implement the changes in the available project.
+
+---
+
+# 3. BIOMASS RECORDS AND AVAILABILITY MANAGEMENT
+
+## 3.1. Implement accurate biomass availability classification
+
+Review the existing biomass availability fields, classification logic, quantity calculations, and user interface.
+
+The system must distinguish between:
+
+- Total biomass quantity recorded.
+- Biomass currently used internally by the producer.
+- Biomass reserved or committed.
+- Biomass remaining and potentially available for buyer inquiries.
+- Biomass that is not currently available for the market.
+
+Do not classify biomass as available for the market merely because its total recorded quantity is greater than zero.
+
+Use the actual quantity allocations and applicable availability rules.
+
+At minimum, use the following calculation:
+
+**Remaining Quantity = Total Quantity − Current Internal Use Quantity − Reserved/Committed Quantity**
+
+Validate the calculation against the actual database structure and any other existing allocation fields.
+
+### Requirements
+
+- Prevent negative remaining quantities.
+- Prevent internal use and reserved quantities from exceeding the total quantity.
+- Validate quantity inputs both in the interface and in the appropriate backend or database layer.
+- Recalculate dependent values when relevant quantities change.
+- Avoid using different formulas for the same metric in different components.
+- Do not treat the same biomass quantity as both internally used and reserved.
+- Handle missing, null, or legacy quantity values safely.
+- Clearly distinguish available, unavailable, and other applicable statuses.
+- Ensure buyers cannot initiate new inquiries for records that are not eligible for inquiries under the application's availability rules.
+- Preserve existing validation and review statuses, such as pending, approved, returned for correction, or rejected, where applicable.
+
+If the current database has a field such as `currentUseQuantity`, inspect whether the application consistently uses it. Correct any fallback or mapping logic that incorrectly excludes current internal use from the remaining-quantity calculation.
+
+Do not introduce a competing calculation when a shared calculation function or authoritative database calculation already exists.
+
+## 3.2. Make availability dates conditionally required
+
+Implement the availability-date requirement based on actual market availability.
+
+### Required behavior
+
+**When biomass remains available for the market:**
+- Require the Availability Start Date.
+- Require the Availability End Date.
+- Validate that both dates are valid.
+- Ensure the end date is not earlier than the start date.
+- Provide clear validation messages if the dates are missing or invalid.
+
+**When no biomass is available for the market:**
+- Do not require the Availability Start Date.
+- Do not require the Availability End Date.
+- Allow the record to be saved or updated without these dates when permitted by the existing record workflow.
+- Do not force users to enter misleading dates for biomass that is not available.
+
+Determine market availability using the actual remaining quantity and applicable availability rules, not total quantity alone.
+
+The interface should communicate why dates are required or optional.
+
+When a quantity change makes the biomass unavailable, handle previously entered dates consistently. Do not delete historical information unnecessarily.
+
+Review server-side and database validation as well. Conditional date requirements must not be enforced only by hiding a required marker in the interface.
+
+If existing records have missing dates, preserve them and apply the new rules without causing unrelated records to become invalid.
+
+## 3.3. Remove the theoretical-estimate checkbox from the relevant form
+
+Remove the checkbox labeled:
+
+**"Check if this is a Theoretical Estimate"**
+
+from the relevant biomass form, as requested in the feedback.
+
+However:
+
+- Do not automatically delete the corresponding database field.
+- Do not erase existing values.
+- Inspect whether the field is used by reporting, historical records, other forms, or business logic.
+- Preserve backend compatibility if the field is still needed elsewhere.
+- Remove or adjust associated interface validation only where appropriate.
+
+The objective is to remove the unwanted form control without damaging existing data or functionality.
+
+## 3.4. Improve the Internal Use Description
+
+Inspect the existing Internal Use Description field and its relationship to the internal-use quantity.
+
+If the field already exists, reuse it rather than creating a duplicate.
+
+The description should allow the coordinator or authorized user to explain how the producer uses some of the biomass internally.
+
+Examples may include using crop residues for composting, animal bedding, or other farm activities.
+
+Requirements:
+
+- Keep the description separate from the numerical Current Internal Use Quantity.
+- Allow an appropriate optional text description.
+- Preserve existing values.
+- Display the description in relevant record details when available.
+- Do not require a description unless the existing business rules or stakeholder requirements justify it.
+- Do not treat descriptive text as a substitute for the numerical quantity.
+
+## 3.5. Standardize biomass quantity units
+
+Review every biomass form, detail page, dashboard, calculation, report, and inquiry-related quantity display.
+
+Remove **"Bags (50kg)"** as a selectable quantity unit.
+
+Prefer standardized mass units:
+
+- Kilograms (kg)
+- Metric tonnes (t)
+
+If both units are supported, use the correct conversion:
+
+**1 metric tonne = 1,000 kilograms**
+
+Review the existing **"Truckloads"** unit. Truckloads do not represent a standardized mass because capacity can vary. Do not silently assume that one truckload has a fixed weight.
+
+If the existing application supports truckloads, inspect its current use and determine a safe approach that does not introduce incorrect conversions. If the unit is removed from new selections, preserve historical records and ensure they remain understandable.
+
+### Unit-handling requirements
+
+- Store or calculate quantities consistently.
+- Convert units accurately when a conversion is needed.
+- Prevent arithmetic across incompatible units without conversion.
+- Keep existing records intact.
+- Handle legacy units safely.
+- Update labels and validation messages.
+- Ensure dashboards and reports use consistent units.
+- Do not reinterpret an existing quantity without reliable information about its original unit.
+
+---
+
+# 4. BIOMASS RECORD DETAILS AND TRACEABILITY
+
+## 4.1. Show biomass quantity allocations in Record Details
+
+Update the relevant Record Details view to clearly show:
+
+1. Total Quantity
+2. Current Internal Use Quantity
+3. Reserved/Committed Quantity
+4. Remaining Quantity
+5. Internal Use Description, when available
+6. Availability status
+7. Availability Start Date and Availability End Date, when applicable
+
+Use the application's existing terminology where it is already consistent.
+
+The numerical remaining quantity must follow:
+
+**Remaining Quantity = Total Quantity − Current Internal Use Quantity − Reserved/Committed Quantity**
+
+Display quantities using appropriate units.
+
+If the record is unavailable for market inquiries, make that state clear to the user.
+
+Do not present reserved or committed biomass as freely available to other buyers.
+
+Where relevant, distinguish between a quantity being available for inquiry and a confirmed commercial transaction. An inquiry alone must not automatically reserve or deduct biomass.
+
+## 4.2. Show the submitter's name and role
+
+In the **Traceability & Access** section, replace the user-facing "Submitted by" identifier with the submitter's human-readable name and role.
+
+For example, display an appropriate format such as:
+
+**Submitted by: Juan Dela Cruz — Cooperative/Hub Coordinator**
+
+Use the actual person's name and actual role from the application's existing user and profile data.
+
+Requirements:
+
+- Do not display a raw internal user ID as the primary user-facing submitter identity.
+- Retain the internal user ID in the database where needed for relationships and auditing.
+- Do not remove foreign keys or compromise record integrity.
+- Resolve names and roles through the existing profile or user-role structure.
+- Handle unavailable profile information gracefully.
+- Do not invent a name or role when profile data is missing.
+- Apply the same human-readable presentation to other relevant validator or reviewer identity fields where the existing interface currently displays only an ID.
+
+For example, where a record displays a validator, show the validator's name instead of exposing only the validator ID.
+
+Preserve existing audit and traceability history.
+
+## 4.3. Preserve the correction-return workflow
+
+Review the feature or label:
+
+**"Returned for Correction by LGU Reviewer"**
+
+The coordinator-facing correction workflow should be available on the **Cooperative/Hub Coordinator side**, rather than being incorrectly placed only in LGU Record Details.
+
+Requirements:
+
+- LGU reviewers must retain the ability to return records for correction.
+- Preserve the return reason and relevant review history.
+- Make the returned status and correction instructions accessible to the appropriate coordinator.
+- Allow the coordinator to review the feedback and make permitted corrections.
+- Preserve the existing resubmission and revalidation workflow.
+- Prevent unauthorized users from changing reviewer decisions or correction history.
+- Do not remove the LGU's review capability while moving or improving the coordinator-facing interface.
+
+Use the existing status and database model where possible.
+
+---
+
+# 5. BIOMASS LOCATION AND ORGANIZATION MANAGEMENT
+
+## 5.1. Improve barangay selection
+
+Review all relevant forms that require a barangay.
+
+Make barangay selection searchable so users can find the appropriate barangay without manually scrolling through a long dropdown.
+
+Requirements:
+
+- Use the application's existing reference data or location dataset.
+- Preserve valid existing barangay values.
+- Avoid creating duplicate barangay entries.
+- Support keyboard navigation and accessible form interaction.
+- Display a clear message when no matching barangay is found.
+- Do not allow arbitrary invalid location values if the field is intended to use a controlled reference list.
+
+Do not invent or silently replace official location records.
+
+## 5.2. Improve map visibility for biomass records
+
+Review the existing map components and biomass coordinate handling.
+
+Biomass records with valid latitude and longitude coordinates should appear on the map when they fall within the viewing user's authorized data scope.
+
+Requirements:
+
+- Verify that latitude and longitude are mapped correctly.
+- Check that valid records are not accidentally excluded by filters, status conditions, or incorrect field mappings.
+- Display appropriate map markers and useful record information.
+- Apply the same authorization and geographic-scope rules used elsewhere in the application.
+- Preserve existing map functionality.
+- Handle missing or invalid coordinates gracefully.
+- Do not invent coordinates for records without valid location data.
+- Do not expose restricted records through map markers, tooltips, popups, or map API responses.
+
+Where practical, allow authorized users to open the relevant record from its map marker.
+
+## 5.3. Separate biomass location, collection location, and organization office location
+
+Inspect the current location model.
+
+Do not treat these as interchangeable:
+
+1. **Biomass Source Location:** Where the biomass originates or is recorded.
+2. **Collection Location:** Where a buyer and seller may arrange to collect biomass.
+3. **Organization Office Location:** The registered or administrative location of a cooperative, hub, or related organization.
+
+Reuse existing fields when they already represent these distinct concepts. If additional fields or relationships are necessary, introduce them safely.
+
+Requirements:
+
+- Preserve existing location data.
+- Do not overwrite the biomass source location with the organization's office address.
+- Allow the appropriate location to be shown or selected in relevant forms.
+- Apply the correct access restrictions to location data.
+- Do not automatically assume that the biomass collection location is identical to the organization office location.
+
+## 5.4. Improve cooperative/hub association
+
+Review the association between aggregation groups, biomass records, and cooperative/hub organizations.
+
+The cooperative/hub association should be optional where the current business process allows an aggregation group or record to exist without an assigned organization.
+
+Where applicable, allow an authorized user to:
+
+- Select an existing cooperative or hub.
+- Register a new cooperative or hub when necessary.
+- Associate the relevant aggregation group or record with the selected organization.
+
+Requirements:
+
+- Prevent accidental duplicate organizations.
+- Check existing organization records before creating a new one.
+- Validate required organization fields.
+- Preserve existing relationships.
+- Do not automatically assign an unrelated organization.
+- Handle unassigned organizations or aggregation groups gracefully.
+- Keep the association optional only where the actual business rules permit it.
+- Do not weaken access control to make organization assignment easier.
+
+---
+
+# 6. BUYER INQUIRIES AND COMMUNICATION
+
+This section is a major priority.
+
+Improve the existing inquiry system while preserving its existing functionality. Do not replace it with an unrelated messaging application or a full transaction-processing platform.
+
+The inquiry workflow must clearly distinguish between submitting an inquiry, accepting it for discussion, declining it, communicating, and withdrawing it.
+
+## 6.1. Preserve existing inquiry functionality
+
+Inspect the current Manage Inquiries and Buyer Inquiries & Communication features.
+
+Keep the existing relevant features, such as inquiry lists, record details, status indicators, communication history, filtering, search, and other currently implemented management tools.
+
+Do not remove working functionality merely because the workflow is changing.
+
+Before modifying the status model, inspect the existing values, including any of the following that are present:
+
+- SUBMITTED
+- UNDER_REVIEW
+- RESPONDED
+- FOLLOW_UP
+- CLOSED
+- ARCHIVED
+
+Do not blindly replace existing enum values or status definitions.
+
+Design a compatible status transition model and safely map legacy statuses where needed.
+
+Keep internal database values compatible with existing records whenever possible, while presenting clear, understandable statuses in the interface.
+
+## 6.2. Implement coordinator Accept/Decline actions
+
+When a buyer submits an inquiry, the assigned or authorized Cooperative/Hub Coordinator must be able to review the inquiry and choose either:
+
+- **Accept**
+- **Decline**
+
+The acceptance decision controls whether the inquiry's chat becomes available.
+
+### Expected workflow
+
+**Step 1 — Buyer submits an inquiry**
+
+- Save the inquiry.
+- Associate it with the correct biomass record and buyer.
+- Preserve any existing buyer-provided details, including preferred collection date/time if the application already supports these fields.
+- Set the inquiry to the appropriate initial status.
+- Notify the appropriate coordinator when the existing notification infrastructure supports it.
+
+**Step 2 — Coordinator reviews the inquiry**
+
+Display the inquiry details and appropriate actions.
+
+The coordinator can accept or decline the inquiry, subject to authorization and the current inquiry state.
+
+**Step 3A — Coordinator accepts**
+
+- Persist the acceptance decision.
+- Update the inquiry status appropriately.
+- Record the decision and relevant timestamp if supported by the current schema or a safe extension.
+- Make the inquiry-specific chat available to the authorized buyer and coordinator.
+- Notify the buyer of the decision where appropriate.
+
+**Step 3B — Coordinator declines**
+
+- Persist the decline decision.
+- Update the inquiry status appropriately.
+- Keep the inquiry record and history.
+- Keep the chat inaccessible for that declined inquiry unless an explicitly supported existing business rule says otherwise.
+- Notify the buyer of the decision where appropriate.
+- Do not delete the inquiry or its history.
+
+### Acceptance is not a transaction
+
+Accepting an inquiry means the coordinator agrees to discuss the inquiry.
+
+It does not mean:
+
+- A purchase has been completed.
+- A supply agreement has been finalized.
+- Payment has been made.
+- Biomass has been reserved automatically.
+- Stock has been deducted automatically.
+- Collection has been confirmed.
+
+Do not implement automatic reservation, payment, or inventory deduction merely because an inquiry is accepted.
+
+Any actual reservation or quantity commitment must follow an explicit, authorized process supported by the existing application.
+
+## 6.3. Restrict chat access until acceptance
+
+The buyer and coordinator must not be able to use the inquiry's chat before the coordinator accepts the inquiry.
+
+### Before acceptance
+
+- The chat composer must be disabled or inaccessible.
+- Prevent users from sending messages through alternative UI paths.
+- Display a clear message explaining that chat becomes available after the inquiry is accepted.
+- Keep the inquiry details accessible to authorized users.
+- Do not expose message submission controls that imply the chat is already active.
+
+### After acceptance
+
+- Enable the persistent, inquiry-specific conversation for the authorized buyer and coordinator.
+- Associate every message with the correct inquiry.
+- Preserve message history.
+- Display sender identity and timestamp appropriately.
+- Ensure the conversation remains accessible after refresh or a new session, subject to authorization and retention rules.
+- Prevent unrelated buyers or coordinators from accessing the conversation.
+
+### After decline or withdrawal
+
+- Prevent new messages when the inquiry is no longer eligible for communication.
+- Preserve existing history.
+- Show the appropriate closed, declined, or withdrawn state.
+- Do not delete previous messages merely because an inquiry's state changes.
+
+If the application already has a messaging system, extend it rather than creating an unnecessary duplicate.
+
+## 6.4. Enforce inquiry permissions in the backend
+
+Chat restrictions must not exist only in the interface.
+
+Enforce authorization using the application's actual backend and database security architecture.
+
+For every message creation or relevant inquiry action, verify that:
+
+- The user is authenticated.
+- The user is authorized to access the specific inquiry.
+- The user is the associated buyer or an authorized coordinator.
+- The inquiry has been accepted.
+- The inquiry remains in a state that permits messaging.
+- The inquiry has not been withdrawn or otherwise closed in a way that prohibits further communication.
+
+Apply these restrictions through the appropriate backend authorization checks, database policies, or row-level security policies, depending on the existing architecture.
+
+Do not rely on hiding buttons, disabling a component, or trusting client-submitted user IDs.
+
+Do not allow a user to modify an inquiry ID or message payload to gain access to another user's conversation.
+
+## 6.5. Allow buyers to withdraw their own inquiries
+
+Buyers must be able to withdraw their own inquiries through an explicit confirmation dialog.
+
+Display a clearly labeled **Withdraw Inquiry** action wherever appropriate for an inquiry that is eligible for withdrawal.
+
+When the buyer clicks the action, display this confirmation message:
+
+**"Are you sure to withdraw this inquiry?"**
+
+Provide these two buttons with the specified wording:
+
+- **"Yes, I want to withdraw."**
+- **"No, I want to keep the inquiry."**
+
+### If the buyer selects "No, I want to keep the inquiry."
+
+- Close the confirmation dialog.
+- Do not change the inquiry status.
+- Do not delete or modify the inquiry.
+- Do not send a withdrawal notification.
+- Keep the inquiry and any existing conversation unchanged.
+
+### If the buyer selects "Yes, I want to withdraw."
+
+- Verify that the authenticated user owns the inquiry.
+- Verify that the inquiry is currently eligible for withdrawal.
+- Update the inquiry to the appropriate withdrawn or equivalent status.
+- Preserve the inquiry record and its history.
+- Prevent new chat messages if the withdrawn state prohibits further communication.
+- Keep historical messages accessible to authorized users according to the existing access and retention rules.
+- Notify the relevant coordinator where appropriate.
+- Display a clear success or failure message.
+
+### Withdrawal safeguards
+
+- Do not physically delete the inquiry.
+- Prevent duplicate or conflicting withdrawal actions.
+- Handle simultaneous updates safely.
+- Do not let a buyer withdraw another buyer's inquiry.
+- Do not allow a buyer to change the coordinator's decision directly.
+- Do not allow withdrawal to alter biomass quantities or create a reservation.
+- If an inquiry is already closed, declined, or withdrawn, handle the action according to the existing business rules and clearly communicate its current state.
+
+The confirmation dialog must be functional, accessible, and consistent with the application's visual design.
+
+---
+
+# 7. DASHBOARDS AND BIOMASS ANALYTICS
+
+## 7.1. Correct "Biomass Availability vs. Internal Utilization"
+
+Keep the existing dashboard visualization labeled:
+
+**"Biomass Availability vs. Internal Utilization"**
+
+Do not remove the chart.
+
+The feedback specifically identifies that **"Internal Producer Use" does not update in real time**, while "Available for Inquiries" and "Reserved/Committed" appear to update.
+
+Investigate the actual cause instead of simply refreshing the chart's appearance.
+
+Possible areas to inspect include:
+
+- Data fetching and caching.
+- Stale component state.
+- Missing database subscriptions or refresh triggers.
+- Incomplete field mapping.
+- Different data sources used by different metrics.
+- Incorrect aggregation logic.
+- Filters or authorization conditions that exclude records.
+- Update handlers that fail to refresh dependent metrics.
+
+These are investigation areas, not assumptions about the confirmed cause.
+
+### Required behavior
+
+- Internal Producer Use must update consistently after relevant changes.
+- Available for Inquiries and Reserved/Committed must remain accurate.
+- The chart must use consistent, authoritative quantity calculations.
+- Relevant changes must update the chart without requiring an unnecessary full-page reload, where the current architecture supports reactive updates.
+- If true real-time subscriptions are not supported or appropriate, use a reliable refresh or invalidation mechanism so the chart updates consistently after successful changes.
+- Handle loading and error states appropriately.
+- Do not display fabricated or hardcoded data.
+
+## 7.2. Keep dashboard calculations consistent
+
+Use the same business rules for quantities across:
+
+- Biomass Record Details.
+- Coordinator dashboards.
+- LGU dashboards.
+- Buyer-facing availability indicators.
+- Administrative analytics.
+- Maps and related summaries.
+
+At minimum, keep the following values conceptually distinct:
+
+- Total Quantity.
+- Internal Producer Use.
+- Reserved/Committed Quantity.
+- Remaining Quantity.
+- Available for Inquiries.
+
+Do not double-count the same biomass quantity.
+
+Do not add internal-use and reserved quantities together incorrectly if the underlying records already account for these allocations.
+
+Make sure dashboard totals respect the user's authorized scope. For example, a cooperative coordinator should not automatically receive unrestricted statistics for all cooperatives if the existing access model restricts them to assigned organizations.
+
+## 7.3. Preserve and improve role-specific dashboards
+
+Inspect the existing dashboards for:
+
+- System Administrator.
+- LGU users and reviewers.
+- Cooperative/Hub Coordinators.
+
+Preserve their current relevant metrics and functionality.
+
+Improve accuracy, consistency, and usability where necessary.
+
+Administrative analytics should provide a useful overview aligned with the LGU and Cooperative/Hub dashboards, but the administrator's view must remain appropriate to the administrator role.
+
+For each role, enforce the appropriate data scope and permissions.
+
+Do not show empty placeholder charts as if they contain real data.
+
+Where data is unavailable, display an honest empty state or explanatory message.
+
+## 7.4. Improve map and dashboard integration
+
+Where the existing application uses maps or location-based summaries:
+
+- Ensure relevant records appear when their coordinates are valid.
+- Use the correct role-based data scope.
+- Keep map counts and dashboard counts consistent where they represent the same population.
+- Respect existing status and availability filters.
+- Avoid counting the same record multiple times.
+- Do not invent missing geographic data.
+
+---
+
+# 8. NOTIFICATIONS
+
+Inspect the current notification system and extend it rather than introducing a duplicate notification architecture.
+
+Where supported and appropriate, notify the relevant user about:
+
+- A biomass record being returned for correction.
+- Relevant changes in validation or review status.
+- A buyer submitting an inquiry.
+- A coordinator accepting an inquiry.
+- A coordinator declining an inquiry.
+- A buyer withdrawing an inquiry.
+- Other important events already supported by the existing system.
+
+### Requirements
+
+- Deliver notifications to the correct authorized recipient.
+- Avoid duplicate notifications for the same action.
+- Preserve existing notification features.
+- Provide appropriate read/unread behavior if already supported.
+- Make notifications link to the relevant record or inquiry where possible.
+- Do not expose sensitive information to unauthorized recipients.
+- Do not create false notifications when an operation fails.
+- Keep notification state consistent with the underlying event.
+
+If the application currently supports only in-app notifications, preserve that approach unless another channel is already implemented and appropriate.
+
+Do not claim that email, SMS, or push notifications are implemented unless the required infrastructure actually exists and has been configured.
+
+---
+
+# 9. SYSTEM ADMINISTRATOR IMPROVEMENTS
+
+## 9.1. Improve the Admin Users tab
+
+Inspect the current Admin navigation and user management implementation.
+
+The Admin Users tab should display actual registered users using the existing authentication and profile data.
+
+Organize users by their assigned roles and provide useful role-based filtering where appropriate.
+
+At minimum, support the roles that actually exist in the application, such as:
+
+- System Administrator.
+- LGU users or reviewers.
+- Cooperative/Hub Coordinators.
+- Buyers, if buyers are represented in the administrative user-management model.
+
+Use the application's actual role definitions. Do not create duplicate role systems or assume every example role exists as a distinct database enum.
+
+Requirements:
+
+- Display real registered users, not hardcoded examples.
+- Show human-readable names and relevant profile information.
+- Display assigned roles accurately.
+- Allow administrators to filter or group users by role.
+- Handle missing profile fields gracefully.
+- Respect the current administrator's permissions.
+- Do not expose passwords, authentication secrets, or sensitive internal information.
+- Do not let unauthorized users assign themselves privileged roles.
+- Preserve existing user records and authentication relationships.
+
+If user-management actions already exist, preserve them and enforce their current permissions.
+
+## 9.2. Remove Roles and Permission and Reference Data from Admin navigation
+
+Remove the **Roles and Permission** and **Reference Data** tabs from the visible System Administrator navigation, as requested in the earlier feedback.
+
+This is a navigation change, not an instruction to delete their underlying data or functionality.
+
+**Do not:**
+
+- Drop role or permission tables.
+- Delete reference-data tables.
+- Delete reference-data records.
+- Remove required database policies.
+- Break components or services that still depend on these structures.
+- Remove role checks or permissions from the backend.
+- Delete unrelated administrative functions.
+
+Preserve all underlying structures needed by the application.
+
+If the relevant pages have other dependencies, inspect those dependencies before making changes.
+
+## 9.3. Improve administrative audit trails
+
+Review the current audit-trail functionality.
+
+Where the system records important actions, ensure that the actor's identity is presented in a human-readable way, including:
+
+- Actor's full name.
+- Actor's role.
+- Action performed.
+- Relevant record or entity.
+- Timestamp.
+- Other existing audit metadata.
+
+Do not display only an internal user ID as the primary actor identity.
+
+Preserve internal identifiers where needed for database relationships and integrity.
+
+Audit information must reflect actual actions. Do not create fabricated historical audit entries.
+
+Protect audit history from unauthorized modification or deletion.
+
+For newly recorded actions, use the application's existing audit mechanism or extend it safely.
+
+Where an action must be auditable, capture the actor from a trusted authenticated context rather than accepting an arbitrary actor identity from the client.
+
+## 9.4. Align administrative analytics
+
+Review existing administrative dashboard metrics.
+
+Keep the analytics useful and consistent with the relevant metrics available to LGU and Cooperative/Hub users.
+
+Requirements:
+
+- Use accurate data from the actual database.
+- Reuse the authoritative quantity and status logic.
+- Avoid duplicate counting.
+- Ensure the administrator sees the intended administrative scope.
+- Preserve appropriate role restrictions for other users.
+- Provide useful loading, error, and empty states.
+- Avoid adding charts that merely display fabricated or static values.
+
+---
+
+# 10. SESSION INACTIVITY AND AUTHENTICATION SECURITY
+
+Inspect the current authentication, session management, and logout behavior.
+
+Implement session inactivity handling with a default inactivity timeout of **30 minutes**, unless the existing application's documented security policy requires a different timeout.
+
+### Requirements
+
+- Track relevant user activity using a method appropriate to the current application.
+- Reset the inactivity timer after qualifying activity.
+- Sign out the user after the configured inactivity period.
+- Clear or invalidate the relevant client-side session state using the application's authentication mechanism.
+- Redirect the user to the appropriate login screen.
+- Provide a clear message that the session expired due to inactivity, where appropriate.
+- Prevent the timer from creating multiple simultaneous logout handlers.
+- Clean up event listeners and timers when components or sessions change.
+- Handle browser tabs and session refreshes consistently.
+- Do not confuse inactivity timeout with an arbitrary page-refresh timer.
+- Do not rely on client-side timing alone to authorize protected database operations.
+
+Preserve the application's existing authentication flow and role-based routing.
+
+Do not expose protected data after sign-out.
+
+Verify that session expiration does not accidentally delete form data or database records that have already been saved.
+
+---
+
+# 11. ROLE-BASED ACCESS CONTROL AND DATA SECURITY
+
+Review all existing role checks and database security policies before making changes.
+
+The application must preserve a clear separation between the permissions of the following user groups:
+
+### System Administrator
+Access only to administrative functions permitted by the existing design and security rules.
+
+### LGU users and reviewers
+Access to records and review actions within their authorized LGU or administrative scope.
+
+### Cooperative/Hub Coordinators
+Access to their authorized organizational records, biomass-management functions, correction workflows, and relevant buyer inquiries.
+
+### Buyers
+Access to their own inquiries, eligible buyer-facing biomass information, and conversations they are authorized to participate in.
+
+Use the actual role definitions and relationships found in the current project.
+
+### Mandatory security requirements
+
+- Enforce permissions in the backend and database, not just in the UI.
+- Preserve and verify row-level security policies where supported.
+- Restrict access to records based on the authenticated user's role and authorized relationships.
+- Prevent unauthorized users from viewing, updating, deleting, or messaging through records they do not own or manage.
+- Validate inquiry ownership for buyer withdrawal.
+- Validate coordinator authority for Accept/Decline decisions.
+- Validate inquiry acceptance before allowing messages.
+- Prevent unauthorized changes to biomass quantity allocations.
+- Prevent unauthorized changes to validation decisions and audit history.
+- Avoid exposing service-role secrets or privileged credentials in frontend code.
+- Do not disable database security policies to make a feature work.
+- Do not use unrestricted administrative database access from the browser.
+- Do not trust role, owner, or actor IDs supplied by the client without verification.
+- Preserve existing foreign keys and data relationships.
+
+If the project uses Supabase, inspect the current Supabase schema, RLS policies, database functions, triggers, and authentication integration. Make changes that are compatible with the actual Supabase setup.
+
+Do not assume Supabase is configured in a particular way without checking the supplied code and database configuration.
+
+---
+
+# 12. DATABASE MIGRATIONS AND EXISTING DATA
+
+Any schema changes must be carefully planned.
+
+Before adding or changing database fields, tables, relationships, constraints, status values, or policies:
+
+1. Inspect the current schema.
+2. Determine whether the information already exists.
+3. Reuse existing fields and relationships when appropriate.
+4. Identify dependencies in frontend and backend code.
+5. Plan a migration that preserves existing records.
+6. Handle legacy nulls and historical status values.
+7. Update related application code consistently.
+8. Verify that existing workflows continue to work.
+
+### Examples of changes requiring special care
+
+- Inquiry status transitions.
+- Inquiry acceptance and withdrawal.
+- Message access rules.
+- Biomass quantity allocation.
+- Availability-date validation.
+- Human-readable user and validator identities.
+- Organization relationships.
+- Location fields.
+- Audit-trail metadata.
+
+Do not blindly replace enum values, delete old fields, drop tables, or rewrite historical records.
+
+If a new status or field is needed, make it compatible with existing records and ensure the application can safely handle old and new values during the transition.
+
+If historical data cannot be mapped reliably, preserve it and report the limitation rather than inventing a value.
+
+Where possible, make migrations repeatable and safe to execute in the intended environment.
+
+Do not run destructive migrations against production data without explicit authorization and a verified backup/recovery strategy.
+
+---
+
+# 13. USER INTERFACE AND EXPERIENCE REQUIREMENTS
+
+Apply the changes consistently across the existing AgriCycle interface.
+
+Preserve the current branding, visual design, component patterns, and responsive layout unless a specific change requires an adjustment.
+
+The interface should be understandable to users who are not technically experienced.
+
+### General requirements
+
+- Use clear labels and helpful instructions.
+- Keep terminology consistent across forms, dashboards, and record details.
+- Show loading indicators during asynchronous operations.
+- Provide clear success and error messages.
+- Validate user input before submission.
+- Avoid silently failing operations.
+- Prevent duplicate submissions where appropriate.
+- Use confirmation dialogs for important actions, especially inquiry withdrawal.
+- Provide appropriate empty states.
+- Make forms usable on supported desktop and mobile screen sizes.
+- Maintain accessible form labels, keyboard navigation, focus handling, and dialog behavior.
+- Avoid unnecessary visual clutter.
+- Keep existing navigation and page behavior stable.
+
+### Important terminology
+
+Use consistent terminology for:
+
+- Total Quantity.
+- Current Internal Use Quantity.
+- Reserved/Committed Quantity.
+- Remaining Quantity.
+- Available for Inquiries.
+- Availability Start Date.
+- Availability End Date.
+- Buyer Inquiry.
+- Accept.
+- Decline.
+- Withdraw Inquiry.
+- Submitted by.
+- Validator or Reviewer.
+
+Where the existing application uses slightly different labels, standardize them without changing the underlying meaning or confusing users.
+
+---
+
+# 14. REQUIRED END-TO-END WORKFLOWS
+
+After implementing the changes, verify the complete workflows, not just individual buttons.
+
+## Workflow A: Biomass quantity and availability
+
+1. An authorized coordinator creates or edits a biomass record.
+2. The coordinator enters total quantity and current internal use.
+3. The coordinator enters any reserved/committed quantity.
+4. The application calculates remaining quantity correctly.
+5. The application determines whether the biomass is available for market inquiries.
+6. If biomass is available, availability start and end dates are required.
+7. If biomass is unavailable, those dates are not required.
+8. Record Details display all relevant quantity allocations.
+9. The dashboard updates using the same underlying values.
+10. Buyers see the correct inquiry eligibility.
+
+## Workflow B: Biomass validation and correction
+
+1. A coordinator submits a record through the existing workflow.
+2. An authorized LGU reviewer reviews it.
+3. The reviewer can return it for correction with a reason.
+4. The coordinator can view the returned status and correction instructions.
+5. The coordinator can make permitted changes and resubmit.
+6. The reviewer and coordinator identities appear in human-readable form.
+7. The history of the record remains intact.
+
+## Workflow C: Buyer inquiry acceptance and messaging
+
+1. A buyer views eligible biomass.
+2. The buyer submits an inquiry.
+3. The inquiry is saved with the correct buyer and biomass record.
+4. The relevant coordinator can see and review it.
+5. The buyer cannot send chat messages before acceptance.
+6. The coordinator accepts the inquiry.
+7. The authorized buyer and coordinator can now communicate.
+8. Messages persist and remain associated with the correct inquiry.
+9. Other users cannot access the conversation.
+10. The inquiry acceptance does not automatically reserve or deduct biomass.
+
+## Workflow D: Buyer inquiry decline
+
+1. A buyer submits an inquiry.
+2. The coordinator reviews it.
+3. The coordinator declines it.
+4. The inquiry remains in the database.
+5. The buyer receives an appropriate status update or notification where supported.
+6. The chat remains inaccessible for new messages.
+7. The inquiry's history remains preserved.
+
+## Workflow E: Buyer inquiry withdrawal
+
+1. A buyer opens their own eligible inquiry.
+2. The buyer selects Withdraw Inquiry.
+3. The application displays the exact confirmation question and two specified buttons.
+4. Selecting "No, I want to keep the inquiry." closes the dialog without changing anything.
+5. Selecting "Yes, I want to withdraw." withdraws the inquiry after server-side authorization and state validation.
+6. The inquiry remains in the database.
+7. The appropriate communication restrictions are applied.
+8. The relevant coordinator is notified where supported.
+9. Another buyer cannot withdraw the inquiry.
+10. Withdrawal does not alter biomass quantities.
+
+## Workflow F: Dashboard updates
+
+1. A coordinator changes a relevant biomass quantity.
+2. The application saves the change.
+3. Remaining Quantity is recalculated.
+4. Internal Producer Use updates consistently.
+5. Available for Inquiries and Reserved/Committed remain accurate.
+6. The dashboard and Record Details agree.
+7. Unauthorized records do not leak into another user's metrics.
+
+## Workflow G: Administrative management
+
+1. An administrator opens the Admin Users tab.
+2. Actual registered users are displayed.
+3. The administrator filters or groups users by role.
+4. Audit trails show human-readable actor names and roles where available.
+5. Administrative analytics use actual data.
+6. Roles and Permission and Reference Data are absent from the visible Admin navigation.
+7. Their underlying data and required security structures remain intact.
+
+## Workflow H: Inactivity timeout
+
+1. A user signs in.
+2. The inactivity timer starts.
+3. Qualifying activity resets the timer.
+4. After the configured inactivity period, the user is signed out.
+5. Protected content is no longer accessible.
+6. The user can sign in again through the existing authentication flow.
+
+---
+
+# 15. TESTING AND VALIDATION REQUIREMENTS
+
+After implementation, run the checks available in the current development environment.
+
+Do not assume tests pass just because the code was changed.
+
+### A. Code and build checks
+
+Where supported, run:
+
+- TypeScript type checking.
+- Linting.
+- The existing production build.
+- Relevant automated tests.
+- Database migration validation.
+- Relevant integration or end-to-end tests.
+
+Resolve errors introduced by the changes.
+
+Do not make unrelated architectural changes simply to silence warnings.
+
+### B. Quantity calculation tests
+
+Verify at least these scenarios:
+
+- Total = 1,000 kg, Internal Use = 200 kg, Reserved = 100 kg → Remaining = 700 kg.
+- Total = 1,000 kg, Internal Use = 1,000 kg, Reserved = 0 kg → Remaining = 0 kg.
+- Total = 1,000 kg, Internal Use = 200 kg, Reserved = 800 kg → Remaining = 0 kg.
+- Internal Use plus Reserved exceeds Total → reject the invalid allocation.
+- Missing or null legacy values → handle safely according to the actual data model.
+- Kilogram-to-tonne conversions → verify that the displayed and calculated values remain consistent.
+
+### C. Availability-date tests
+
+Verify that:
+
+- Dates are required when biomass is actually available for market inquiries.
+- Dates are optional when biomass is not available.
+- An end date earlier than the start date is rejected.
+- Changing quantity allocations updates the availability state appropriately.
+- Existing records without dates remain manageable under the new rules.
+
+### D. Inquiry permission tests
+
+Verify that:
+
+- A buyer can submit an inquiry for eligible biomass.
+- A buyer cannot submit inquiries for ineligible biomass.
+- The correct coordinator can accept or decline the inquiry.
+- An unauthorized coordinator cannot modify another coordinator's inquiry unless authorized by the actual role model.
+- Chat is unavailable before acceptance.
+- Chat becomes available after acceptance.
+- Chat remains unavailable after decline or withdrawal when the inquiry state prohibits communication.
+- A buyer can withdraw their own eligible inquiry.
+- A buyer cannot withdraw another buyer's inquiry.
+- Selecting "No, I want to keep the inquiry." leaves the inquiry unchanged.
+- Selecting "Yes, I want to withdraw." preserves the record and applies the appropriate state transition.
+- Inquiry withdrawal and acceptance cannot create inconsistent states through simultaneous actions.
+- Existing inquiry history and messages remain preserved.
+
+### E. Dashboard tests
+
+Verify that:
+
+- Internal Producer Use updates after relevant data changes.
+- Available for Inquiries updates correctly.
+- Reserved/Committed updates correctly.
+- Record Details and dashboard calculations agree.
+- The same biomass is not counted twice.
+- Each dashboard respects the intended role and data scope.
+
+### F. Security tests
+
+Verify that:
+
+- Unauthorized users cannot access protected records.
+- Buyers cannot access other buyers' inquiries or conversations.
+- Buyers cannot bypass the chat acceptance requirement through direct requests.
+- Unauthorized users cannot manipulate biomass quantities.
+- Unauthorized users cannot change audit history or reviewer decisions.
+- Database policies remain enabled and effective.
+- Privileged secrets are not exposed in frontend code.
+
+If a test cannot be performed because the necessary database, credentials, services, or environment are unavailable, report it as **not verified** instead of claiming success.
+
+---
+
+# 16. IMPLEMENTATION PRIORITY
+
+Use the following priority order to reduce dependencies and avoid inconsistent behavior.
+
+### Priority 1 — Data integrity and core business logic
+
+- Inspect the current schema and code.
+- Correct remaining-quantity calculations.
+- Standardize quantity-unit handling.
+- Implement conditional availability dates.
+- Ensure consistent market-availability classification.
+- Update Record Details quantity allocations.
+
+### Priority 2 — Workflow and traceability
+
+- Improve submitter and validator name/role displays.
+- Correct the coordinator-facing returned-for-correction workflow.
+- Improve barangay selection.
+- Correct biomass map visibility.
+- Separate the relevant location concepts.
+- Improve optional cooperative/hub associations.
+
+### Priority 3 — Dashboard accuracy
+
+- Fix Internal Producer Use updates.
+- Align dashboard metrics with Record Details.
+- Ensure role-specific data scope and prevent double counting.
+
+### Priority 4 — Inquiry workflow
+
+- Inspect and preserve existing inquiry features.
+- Implement coordinator Accept/Decline actions.
+- Restrict chat until acceptance.
+- Enforce messaging authorization in the backend.
+- Implement buyer inquiry withdrawal and its confirmation dialog.
+- Preserve inquiry and message history.
+
+### Priority 5 — Administration and notifications
+
+- Improve the Admin Users tab.
+- Remove the two specified tabs from visible Admin navigation without deleting their underlying structures.
+- Improve audit-trail identity displays.
+- Align administrative analytics.
+- Extend relevant notifications.
+
+### Priority 6 — Authentication, security, and final verification
+
+- Implement inactivity sign-out.
+- Review role-based access and RLS.
+- Validate database migrations.
+- Run available tests and build checks.
+- Correct any regressions.
+
+You may adjust this order if inspection reveals a dependency that requires a different sequence, but do not skip a requirement.
+
+---
+
+# 17. DEFINITION OF DONE
+
+The implementation is complete only when the relevant requirements have been addressed in the actual project.
+
+Before declaring completion, confirm that:
+
+- The existing application architecture is preserved.
+- Biomass quantity calculations are consistent.
+- Availability dates are conditionally required.
+- The theoretical-estimate checkbox is removed from the relevant form without damaging backend compatibility.
+- Quantity units are handled consistently and safely.
+- Record Details show internal use, reserved/committed quantities, and remaining quantity.
+- Traceability displays human-readable submitter and validator identities where available.
+- The correction-return workflow is accessible to the appropriate coordinator while LGU review capabilities remain intact.
+- Barangay selection is searchable.
+- Biomass records with valid coordinates appear on authorized maps.
+- Biomass source, collection, and organization office locations are not confused.
+- Cooperative/hub associations follow the correct optionality and duplicate-prevention rules.
+- Internal Producer Use updates consistently on the dashboard.
+- Existing dashboard metrics and role-specific data scopes remain correct.
+- Coordinators can accept or decline buyer inquiries.
+- Chat is inaccessible before acceptance and properly restricted afterward.
+- Buyers can withdraw their own eligible inquiries using the required confirmation dialog.
+- Inquiry and message history is preserved.
+- Notifications work where the required infrastructure exists.
+- Admin user management displays actual users and supports role-based filtering.
+- The specified Admin navigation tabs are removed without deleting their underlying data structures.
+- Audit trails display human-readable actor information where available.
+- Session inactivity handling is implemented using the intended timeout.
+- Backend authorization and database security policies enforce the required restrictions.
+- Existing data and unrelated functionality remain intact.
+- Available tests and build checks have been run and their actual results are reported.
+
+---
+
+# 18. FINAL RESPONSE REQUIRED FROM YOU
+
+After completing the implementation, provide a concise but detailed implementation report with these sections:
+
+### 1. Changes Implemented
+List the completed changes by feature area.
+
+### 2. Files Modified
+Identify the actual source files modified and briefly explain their purpose.
+
+### 3. Database Changes
+List any actual schema changes, migrations, policies, triggers, or functions added or modified.
+
+If no database changes were necessary, explicitly state that.
+
+### 4. Security and Permissions
+Explain how the inquiry workflow, messaging, withdrawal, role-based access, and other relevant permissions are enforced.
+
+### 5. Testing Results
+List the checks actually run and their results.
+
+Clearly distinguish:
+- Passed
+- Failed
+- Not run
+- Not verified
+
+### 6. Remaining Issues
+Identify anything that could not be implemented or verified, including missing environment configuration, unavailable database access, or unresolved business rules.
+
+### 7. Manual Verification Steps
+Provide the specific steps needed to verify the most important workflows in the running application.
+
+Do not claim that the entire application is working unless it has actually been tested.
+
+---
+
+## FINAL INSTRUCTION
+
+Proceed carefully and systematically.
+
+**Inspect first, implement second, validate third.**
+
+Use the existing AgriCycle codebase as the foundation. Preserve its working features, existing records, relationships, authentication, and security model. Make the smallest set of reliable changes that fully addresses all three feedback rounds.
+
+Do not merely redesign the screens. Ensure the interface, business logic, database, authorization, dashboards, and inquiry workflows behave consistently.
+
+If you discover a conflict between the current implementation and a feedback requirement, investigate it, choose a safe implementation consistent with the requirements above, and document any limitation.
+
+The final result should be a more accurate, secure, maintainable, and user-friendly version of the existing AgriCycle application.

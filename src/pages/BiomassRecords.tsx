@@ -308,8 +308,33 @@ export const BiomassRecords: React.FC = () => {
             </div>
             <div>
               <p className="text-gray-500 font-medium mb-1">Traceability & Access</p>
-              <p className="text-gray-900">Submitted by: {record.submitterId}</p>
-              <p className="text-gray-600 text-xs">
+              {(() => {
+                const submitterUser = profiles.find(
+                  (p) => p.id === record.submitterId || p.email === record.submitterId
+                );
+                const submitterDisplay = submitterUser
+                  ? `${submitterUser.name} — ${
+                      submitterUser.role === Role.COORDINATOR
+                        ? 'Cooperative/Hub Coordinator'
+                        : submitterUser.role
+                    }`
+                  : record.submitterId === 'user-coord'
+                  ? 'Nitronford Beatingo — Cooperative/Hub Coordinator'
+                  : record.submitterId === 'user-coord-2'
+                  ? 'Maria Clara — Cooperative/Hub Coordinator'
+                  : record.submitterId === 'user-lgu'
+                  ? 'Engr. Arvin Jimenez (LGU)'
+                  : record.submitterId === 'user-admin'
+                  ? 'Juan Dela Cruz (Administrator)'
+                  : record.submitterId;
+
+                return (
+                  <p className="text-gray-900 font-medium">
+                    Submitted by: <span className="font-semibold text-agri-green-900">{submitterDisplay}</span>
+                  </p>
+                );
+              })()}
+              <p className="text-gray-600 text-xs mt-1">
                 Last Updated: {format(new Date(record.lastUpdatedDate), 'MMM d, yyyy HH:mm')}
               </p>
               {record.validationDate && (
