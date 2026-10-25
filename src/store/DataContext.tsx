@@ -25,6 +25,7 @@ import { isSupabaseConfigured } from '../lib/supabaseClient';
 import {
   fetchAllDataFromSupabase,
   createLocationInSupabase,
+  createOrganizationInSupabase,
   createSourceInSupabase,
   createBiomassRecordInSupabase,
   updateBiomassRecordInSupabase,
@@ -426,6 +427,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     type: 'COOPERATIVE' | 'HUB' | 'LGU' | 'BUYER' | 'ADMIN';
     locationId?: string;
   }): Promise<Organization> => {
+    if (isSupabaseConfigured) {
+      const created = await createOrganizationInSupabase(orgInput, user || undefined);
+      await refreshData();
+      return created;
+    }
+
     const newOrg: Organization = {
       id: `org-${Date.now()}`,
       ...orgInput,
@@ -597,16 +604,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): Promise<AggregationGroup> => {
     if (!user) throw new Error('You must be signed in to create an aggregation group.');
 
+    // Enforce that none of the selected records are already assigned to an active aggregation group
+    const activeMemberRecordIds = new Set(
+      aggregationMembers.filter((m) => m.isActive).map((m) => m.biomassRecordId)
+    );
+    const conflictingRecord = memberRecordIds.find((id) => activeMemberRecordIds.has(id));
+    if (conflictingRecord) {
+      throw new Error(`Biomass record ${conflictingRecord} is already assigned to an active aggregation group and cannot be re-aggregated.`);
+    }
+
+    const cleanHubId = hubId && hubId.trim().length > 0 ? hubId.trim() : undefined;
+
     let createdGroup: AggregationGroup;
     if (isSupabaseConfigured) {
-      createdGroup = await createAggregationGroupInSupabase(name, biomassTypeId, hubId || '', memberRecordIds, user, notes);
+      createdGroup = await createAggregationGroupInSupabase(name, biomassTypeId, cleanHubId, memberRecordIds, user, notes);
       await refreshData();
     } else {
       const newGroup: AggregationGroup = {
         id: `AG-${Math.floor(100 + Math.random() * 900)}`,
         name,
         biomassTypeId,
-        hubId: hubId || undefined,
+        hubId: cleanHubId,
         status: AggregationStatus.ACTIVE,
         notes,
         createdBy: user.id,
@@ -677,6 +695,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     additionalRequirements?: string;
   }): Promise<Inquiry> => {
     if (!user) throw new Error('You must be signed in to submit an inquiry.');
+
+    // Reject inquiries on individual records that are consolidated into an active aggregation group
+    if (input.targetType === 'RECORD') {
+      const activeMember = aggregationMembers.find((m) => m.biomassRecordId === input.targetId && m.isActive);
+      if (activeMember) {
+        const parentGroup = aggregationGroups.find((g) => g.id === activeMember.groupId);
+        const groupName = parentGroup ? `"${parentGroup.name}"` : 'an aggregation group';
+        throw new Error(
+          `Biomass record ${input.targetId} is consolidated into ${groupName} and cannot receive independent buyer inquiries. Please inquire through the aggregation group listing.`
+        );
+      }
+    }
 
     let createdInq: Inquiry;
     if (isSupabaseConfigured) {

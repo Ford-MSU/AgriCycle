@@ -6,9 +6,9 @@ import { RecordStatus, Role, BiomassRecord, SystemAction } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { hasPermission, Permission } from '../utils/rbac';
-import { Search, Filter, Plus, AlertTriangle, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Search, Filter, Plus, AlertTriangle, ArrowLeft, ShieldCheck, Layers } from 'lucide-react';
 import { format } from 'date-fns';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { CreateRecordForm } from '../components/CreateRecordForm';
 import { ValidationForm } from '../components/ValidationForm';
 
@@ -18,6 +18,8 @@ export const BiomassRecords: React.FC = () => {
     records,
     referenceData,
     validationRecords,
+    aggregationGroups,
+    aggregationMembers,
     profiles,
     isLoading,
     getSource,
@@ -217,6 +219,41 @@ export const BiomassRecords: React.FC = () => {
             </p>
           </div>
         )}
+
+        {(() => {
+          const activeMembership = aggregationMembers.find(
+            (m) => m.biomassRecordId === record.id && m.isActive
+          );
+          const parentGroup = activeMembership
+            ? aggregationGroups.find((g) => g.id === activeMembership.groupId)
+            : undefined;
+
+          if (!parentGroup) return null;
+
+          return (
+            <div className="bg-agri-green-50 border border-agri-green-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-agri-green-900 shadow-sm">
+              <div className="flex items-start gap-3">
+                <span className="p-1.5 bg-agri-green-100 text-agri-green-800 rounded mt-0.5">
+                  <Layers size={18} />
+                </span>
+                <div>
+                  <p className="font-semibold text-agri-green-900">
+                    Consolidated into Aggregation Group: {parentGroup.name}
+                  </p>
+                  <p className="text-agri-green-700 text-xs mt-0.5">
+                    This biomass record is actively aggregated and cannot be added to another group. Independent buyer listing is suppressed to prevent double counting.
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/aggregation-hubs"
+                className="text-xs font-semibold px-3 py-1.5 bg-white border border-agri-green-300 rounded-lg text-agri-green-800 hover:bg-agri-green-100 transition-colors shrink-0 text-center"
+              >
+                View Hubs
+              </Link>
+            </div>
+          );
+        })()}
 
         <Card>
           <CardHeader className="flex flex-row justify-between items-start border-b border-gray-100 pb-4">
@@ -587,6 +624,21 @@ export const BiomassRecords: React.FC = () => {
                         </td>
                         <td className="px-5 py-4">
                           <StatusBadge status={record.status} />
+                          {(() => {
+                            const activeMember = aggregationMembers.find(
+                              (m) => m.biomassRecordId === record.id && m.isActive
+                            );
+                            if (!activeMember) return null;
+                            const group = aggregationGroups.find((g) => g.id === activeMember.groupId);
+                            return (
+                              <span
+                                className="block mt-1 text-[10px] font-semibold text-agri-green-800 bg-agri-green-50 border border-agri-green-200 px-1.5 py-0.5 rounded truncate max-w-[150px]"
+                                title={`Aggregated in: ${group?.name || activeMember.groupId}`}
+                              >
+                                Aggregated &bull; {group?.name || activeMember.groupId}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="px-5 py-4 text-agri-earth-500 text-xs">
                           {format(new Date(record.lastUpdatedDate), 'MMM d, yyyy')}

@@ -13,6 +13,7 @@ export const BiomassListings: React.FC = () => {
   const {
     records,
     aggregationGroups,
+    aggregationMembers,
     referenceData,
     isLoading,
     getBiomassTypes,
@@ -27,8 +28,16 @@ export const BiomassListings: React.FC = () => {
 
   if (!user) return null;
 
-  // Combine Validated Individual Records and Active Groups for the Listing
-  const validatedRecords = records.filter((r) => r.status === RecordStatus.VALIDATED);
+  // Identify records that are actively consolidated in an aggregation group
+  const activeAggregatedRecordIds = new Set(
+    aggregationMembers.filter((m) => m.isActive).map((m) => m.biomassRecordId)
+  );
+
+  // Combine Validated UNAGGREGATED Individual Records and Active Groups for the Marketplace Listing
+  // (Aggregated records must not appear as independent products)
+  const unaggregatedValidatedRecords = records.filter(
+    (r) => r.status === RecordStatus.VALIDATED && !activeAggregatedRecordIds.has(r.id)
+  );
   const activeGroups = aggregationGroups.filter((g) => g.status === AggregationStatus.ACTIVE);
 
   const getGroupTotals = (groupId: string) => {
@@ -51,7 +60,7 @@ export const BiomassListings: React.FC = () => {
   };
 
   const allListings = [
-    ...validatedRecords.map((r) => {
+    ...unaggregatedValidatedRecords.map((r) => {
       const src = getSource(r.sourceId);
       const loc = src ? getLocation(src.locationId) : getLocation(r.locationId);
       return {

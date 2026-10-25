@@ -464,6 +464,16 @@ class MockDatabase {
   }
 
   addAggregationGroup(group: AggregationGroup, memberRecordIds: string[], userId: string) {
+    // Enforce that none of the member records are already in an active group
+    const activeMemberIds = new Set(
+      this.aggregationMembers.filter((m) => m.isActive).map((m) => m.biomassRecordId)
+    );
+    for (const recordId of memberRecordIds) {
+      if (activeMemberIds.has(recordId)) {
+        throw new Error(`Biomass record ${recordId} is already assigned to an active aggregation group.`);
+      }
+    }
+
     this.aggregationGroups.push(group);
     
     memberRecordIds.forEach(recordId => {
@@ -489,6 +499,17 @@ class MockDatabase {
 
   // Inquiries
   addInquiry(inquiry: Inquiry, userId: string) {
+    if (inquiry.targetType === 'RECORD') {
+      const activeMember = this.aggregationMembers.find(
+        (m) => m.biomassRecordId === inquiry.targetId && m.isActive
+      );
+      if (activeMember) {
+        throw new Error(
+          `Biomass record ${inquiry.targetId} is consolidated into an aggregation group and cannot receive independent buyer inquiries.`
+        );
+      }
+    }
+
     this.inquiries.push(inquiry);
     
     // Add to history already handled during creation, just log to audit

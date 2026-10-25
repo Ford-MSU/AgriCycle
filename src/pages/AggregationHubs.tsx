@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { RecordStatus, Role, AggregationGroup, AggregationStatus } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
-import { Plus, Info, MapPin, ArrowLeft, AlertTriangle } from 'lucide-react';
+import { Plus, Info, MapPin, ArrowLeft, AlertTriangle, Lock } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 
@@ -23,6 +23,7 @@ export const AggregationHubs: React.FC = () => {
     getSource,
     getLocation,
     getOrganization,
+    getAggregationGroup,
     getAggregationMembers,
     addAggregationGroup,
     addOrganization,
@@ -45,15 +46,29 @@ export const AggregationHubs: React.FC = () => {
   const [newHubName, setNewHubName] = useState('');
   const [newHubType, setNewHubType] = useState<'HUB' | 'COOPERATIVE'>('COOPERATIVE');
 
+  // Pre-fill coordinator's hub if available and not yet selected
+  useEffect(() => {
+    if (user?.organizationId && !formHub) {
+      const userOrg = organizations.find((o) => o.id === user.organizationId);
+      if (userOrg && (userOrg.type === 'HUB' || userOrg.type === 'COOPERATIVE')) {
+        setFormHub(userOrg.id);
+      }
+    }
+  }, [user, organizations, formHub]);
+
   const handleAddNewHub = async () => {
     if (!newHubName.trim()) return;
-    const created = await addOrganization({
-      name: newHubName.trim(),
-      type: newHubType,
-    });
-    setFormHub(created.id);
-    setNewHubName('');
-    setIsAddHubOpen(false);
+    try {
+      const created = await addOrganization({
+        name: newHubName.trim(),
+        type: newHubType,
+      });
+      setFormHub(created.id);
+      setNewHubName('');
+      setIsAddHubOpen(false);
+    } catch (err: any) {
+      setFormError(err?.message || 'Failed to register new hub organization.');
+    }
   };
 
   if (!user) return null;
@@ -132,7 +147,7 @@ export const AggregationHubs: React.FC = () => {
       await addAggregationGroup(
         formName.trim(),
         formBiomassType,
-        formHub || undefined,
+        formHub?.trim() ? formHub.trim() : undefined,
         selectedMembers,
         formNotes.trim() || undefined
       );
@@ -260,14 +275,28 @@ export const AggregationHubs: React.FC = () => {
   );
 
   const renderCreate = () => {
-    let eligibleRecords = records.filter(
+    // Map active aggregated memberships: biomassRecordId -> { groupId, addedAt }
+    const activeMemberMap = new Map<string, { groupId: string; addedAt: string }>();
+    aggregationMembers
+      .filter((m) => m.isActive)
+      .forEach((m) => {
+        activeMemberMap.set(m.biomassRecordId, { groupId: m.groupId, addedAt: m.addedAt });
+      });
+
+    // Eligible records: VALIDATED, matching biomass type, NOT in any active group
+    const eligibleRecords = records.filter(
       (r) =>
-        r.status === RecordStatus.VALIDATED && (!formBiomassType || r.biomassTypeId === formBiomassType)
+        r.status === RecordStatus.VALIDATED &&
+        (!formBiomassType || r.biomassTypeId === formBiomassType) &&
+        !activeMemberMap.has(r.id)
     );
 
-    // Prevent double counting (filter out records already in an active group)
-    const activeMemberIds = new Set(aggregationMembers.filter((m) => m.isActive).map((m) => m.biomassRecordId));
-    eligibleRecords = eligibleRecords.filter((r) => !activeMemberIds.has(r.id));
+    // Already-aggregated records matching biomass type (or all if none selected yet)
+    const aggregatedRecords = records.filter(
+      (r) =>
+        (!formBiomassType || r.biomassTypeId === formBiomassType) &&
+        activeMemberMap.has(r.id)
+    );
 
     return (
       <div className="space-y-6 max-w-4xl mx-auto">
@@ -432,16 +461,23 @@ export const AggregationHubs: React.FC = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>2. Select Eligible Members</CardTitle>
-            <CardDescription>
-              Only VALIDATED, ungrouped records matching the selected Biomass Type are shown.
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>2. Select Eligible Members</CardTitle>
+                <CardDescription>
+                  Only VALIDATED, unaggregated records matching the selected Biomass Type are selectable.
+                </CardDescription>
+              </div>
+              <span className="text-xs font-semibold px-2 py-0.5 bg-agri-green-100 text-agri-green-800 rounded-full">
+                {eligibleRecords.length} Available
+              </span>
+            </div>
           </CardHeader>
           <CardContent>
             {!formBiomassType ? (
               <p className="text-sm text-gray-500 py-4 text-center">Please select a Biomass Type above.</p>
             ) : eligibleRecords.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4 text-center">No eligible validated records found for this type.</p>
+              <p className="text-sm text-gray-500 py-4 text-center">No unaggregated validated records found for this type.</p>
             ) : (
               <div className="space-y-2">
                 {eligibleRecords.map((record) => {
@@ -492,7 +528,80 @@ export const AggregationHubs: React.FC = () => {
           </CardContent>
         </Card>
 
-        <div className="flex justify-end gap-3">
+        {/* Section 3: Already Aggregated Records (placed below eligible records as requested) */}
+        <Card className="border-gray-200 bg-gray-50/60">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-gray-700 flex items-center gap-2">
+                  <Lock size={16} className="text-gray-400" />
+                  3. Already Aggregated Records (Not Selectable)
+                </CardTitle>
+                <CardDescription className="text-xs text-gray-500">
+                  These records are already committed to an active aggregation group and cannot be added to another group.
+                </CardDescription>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-0.5 bg-gray-200 text-gray-700 rounded-full">
+                {aggregatedRecords.length} Consolidated
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!formBiomassType ? (
+              <p className="text-sm text-gray-400 py-3 text-center">Select a Biomass Type above to view already-aggregated records.</p>
+            ) : aggregatedRecords.length === 0 ? (
+              <p className="text-sm text-gray-500 py-3 text-center">No biomass records of this type are currently aggregated.</p>
+            ) : (
+              <div className="space-y-2">
+                {aggregatedRecords.map((record) => {
+                  const source = getSource(record.sourceId);
+                  const location = source ? getLocation(source.locationId) : getLocation(record.locationId);
+                  const unit = referenceData.find((u) => u.id === record.originalUnit)?.label;
+                  const membership = activeMemberMap.get(record.id);
+                  const parentGroup = membership ? getAggregationGroup(membership.groupId) : undefined;
+                  const availQty = record.remainingQuantity !== undefined ? record.remainingQuantity : record.quantity;
+
+                  return (
+                    <div
+                      key={record.id}
+                      className="flex items-start gap-3 p-3 border border-gray-200 bg-white/90 rounded-lg select-none"
+                    >
+                      <div className="mt-1 shrink-0 p-1 bg-gray-100 rounded text-gray-400" title="Locked: already member of an active group">
+                        <Lock size={14} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-gray-700 text-sm">{source?.name}</p>
+                            <span className="text-[11px] font-bold px-2 py-0.5 bg-agri-green-100 text-agri-green-800 rounded border border-agri-green-200">
+                              Aggregated &bull; {parentGroup?.name || `Group ${membership?.groupId}`}
+                            </span>
+                          </div>
+                          <p className="font-bold text-gray-600 text-sm">
+                            {availQty.toLocaleString()} <span className="text-xs font-normal text-gray-500">{unit}</span>
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 mt-1">
+                          <span>{location?.barangay || 'Butuan'}</span>
+                          <span>&bull;</span>
+                          <span>Record ID: {record.id}</span>
+                          {membership?.addedAt && (
+                            <>
+                              <span>&bull;</span>
+                              <span>Added {format(new Date(membership.addedAt), 'MMM d, yyyy')}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="flex justify-end gap-3 pt-2">
           <Button variant="outline" onClick={() => setView('LIST')}>
             Cancel
           </Button>

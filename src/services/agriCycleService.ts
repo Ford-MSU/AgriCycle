@@ -355,6 +355,23 @@ export async function createLocationInSupabase(
   return mapLocationRow(data);
 }
 
+export async function createOrganizationInSupabase(
+  org: Omit<Organization, 'id'> & { id?: string },
+  user?: User
+): Promise<Organization> {
+  const client = getSupabaseClient();
+  const payload: Record<string, any> = {
+    name: org.name,
+    type: org.type,
+    location_id: org.locationId || null,
+  };
+  if (org.id && isValidUuid(org.id)) payload.id = org.id;
+
+  const { data, error } = await client.from('organizations').insert(payload).select('*').single();
+  if (error) throw new Error(`Failed to create organization: ${error.message}`);
+  return mapOrganizationRow(data);
+}
+
 export async function createSourceInSupabase(
   source: Omit<BiomassSource, 'id'> & { id?: string },
   user: User
@@ -517,17 +534,18 @@ export async function submitValidationInSupabase(
 export async function createAggregationGroupInSupabase(
   name: string,
   biomassTypeId: string,
-  hubId: string,
+  hubId: string | null | undefined,
   memberRecordIds: string[],
   user: User,
   notes?: string
 ): Promise<AggregationGroup> {
   const client = getSupabaseClient();
+  const sanitizedHubId = hubId && hubId.trim().length > 0 && isValidUuid(hubId.trim()) ? hubId.trim() : null;
 
   const { data, error } = await client.rpc('create_aggregation_group_with_members', {
     p_name: name,
     p_biomass_type_id: biomassTypeId,
-    p_hub_id: hubId,
+    p_hub_id: sanitizedHubId,
     p_member_record_ids: memberRecordIds,
     p_notes: notes || null,
   });

@@ -6,7 +6,7 @@ import { StatusBadge } from '../components/ui/StatusBadge';
 import { BiomassRecord, AggregationGroup, RecordStatus } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
-import { ArrowLeft, MapPin, Send, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, MapPin, Send, AlertTriangle, Lock } from 'lucide-react';
 import { format } from 'date-fns';
 
 export const ListingDetail: React.FC = () => {
@@ -15,6 +15,7 @@ export const ListingDetail: React.FC = () => {
   const { user } = useAuth();
   const {
     referenceData,
+    aggregationMembers,
     getRecord,
     getSource,
     getLocation,
@@ -39,6 +40,15 @@ export const ListingDetail: React.FC = () => {
   const record: BiomassRecord | undefined = type === 'record' ? getRecord(id) : undefined;
   const group: AggregationGroup | undefined = type === 'group' ? getAggregationGroup(id) : undefined;
 
+  // Check if this individual record is consolidated into an active aggregation group
+  const activeAggregationMembership =
+    type === 'record' && record
+      ? aggregationMembers.find((m) => m.biomassRecordId === record.id && m.isActive)
+      : undefined;
+  const parentAggregationGroup = activeAggregationMembership
+    ? getAggregationGroup(activeAggregationMembership.groupId)
+    : undefined;
+
   if (!record && !group) {
     return <div className="text-center py-10">Listing no longer available.</div>;
   }
@@ -50,6 +60,11 @@ export const ListingDetail: React.FC = () => {
 
   const handleSubmitInquiry = async () => {
     setFormError('');
+    if (type === 'record' && parentAggregationGroup) {
+      setFormError('This biomass record is consolidated into an aggregation group and cannot receive independent buyer inquiries.');
+      return;
+    }
+
     if (!inquiryQty || isNaN(Number(inquiryQty)) || Number(inquiryQty) <= 0) {
       setFormError('Please enter a valid requested quantity.');
       return;
@@ -271,9 +286,44 @@ export const ListingDetail: React.FC = () => {
         </div>
       )}
 
+      {parentAggregationGroup && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 text-sm shadow-sm">
+          <div className="flex items-start gap-3">
+            <Lock className="shrink-0 mt-0.5 text-amber-600" size={18} />
+            <div>
+              <p className="font-semibold text-amber-900">
+                Consolidated into Aggregation Group: {parentAggregationGroup.name}
+              </p>
+              <p className="text-amber-700 text-xs mt-0.5">
+                This biomass record has been consolidated into an active aggregation group and is no longer available as an independent listing.
+                Individual buyer inquiries on this record are closed.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate(`/listings/group/${parentAggregationGroup.id}`)}
+            className="border-amber-400 text-amber-900 hover:bg-amber-100 shrink-0 font-medium"
+          >
+            View Group Listing
+          </Button>
+        </div>
+      )}
+
       {renderBiomassInfo()}
 
-      {!showInquiryForm ? (
+      {parentAggregationGroup ? (
+        <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-center text-sm text-gray-600">
+          Independent inquiries are disabled because this biomass record is part of{' '}
+          <button
+            onClick={() => navigate(`/listings/group/${parentAggregationGroup.id}`)}
+            className="text-agri-green-700 font-semibold underline hover:text-agri-green-800"
+          >
+            {parentAggregationGroup.name}
+          </button>. Please submit your inquiry through the group listing.
+        </div>
+      ) : !showInquiryForm ? (
         <div className="flex justify-end">
           <Button onClick={() => setShowInquiryForm(true)} icon={<Send size={16} />}>
             Submit Inquiry

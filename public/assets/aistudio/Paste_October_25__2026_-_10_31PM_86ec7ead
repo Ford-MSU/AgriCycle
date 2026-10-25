@@ -1,0 +1,935 @@
+# AGRICYCLE — FIX AND IMPROVE AGGREGATION HUBS
+
+## 1. ROLE AND OBJECTIVE
+
+Act as a senior full-stack developer, database engineer, and UI/UX engineer.
+
+Modify the existing AgriCycle application to address the latest Cooperative/Hub Coordinator feedback concerning the Aggregation Hubs feature.
+
+Implement the following requirements:
+
+1. A biomass record can belong to only one aggregation group at a time.
+2. Once aggregated, a record must be clearly labeled and removed from the Eligible records section.
+3. Already-aggregated records must appear in a separate section below Eligible records.
+4. Aggregated biomass records must not appear as independent products in the buyer-facing marketplace.
+5. Fix the foreign-key constraint error involving `aggregation_groups_hub_id_fkey`.
+6. Preserve the original biomass records, their history, validation information, and relationships.
+7. Enforce aggregation membership and buyer-listing restrictions in the backend or database, not just in the frontend.
+
+**Modify the existing application. Do not rebuild AgriCycle from scratch.**
+
+Use the supplied source code, actual database schema, current application architecture, and existing business rules.
+
+Do not remove unrelated functionality or introduce a separate aggregation system that duplicates the existing implementation.
+
+---
+
+# 2. FIRST STEP: INSPECT THE EXISTING IMPLEMENTATION
+
+Before editing code, inspect the existing Aggregation Hubs functionality and trace how aggregation groups and their member records are stored.
+
+Inspect the following:
+
+- Aggregation Hubs page and components.
+- Create Aggregation Group form.
+- Eligible biomass records query.
+- Selected member records state and validation.
+- Existing aggregation-group creation function.
+- Database functions or API services used to create groups.
+- Aggregation group and member tables.
+- The foreign key `aggregation_groups_hub_id_fkey`.
+- The relationship between aggregation groups and hub/cooperative records.
+- The relationship between aggregation groups and biomass records.
+- Existing status and listing-eligibility rules.
+- Buyer-facing biomass listing queries.
+- Buyer inquiry eligibility checks.
+- Relevant database constraints, indexes, triggers, and RLS policies.
+- Existing quantity calculations and aggregation totals.
+- Existing audit logging and notifications, where applicable.
+
+Use the actual code and schema as the source of truth.
+
+Do not assume that a field or table exists merely because its name seems appropriate.
+
+### Required diagnostic process
+
+For each issue:
+
+1. Identify the relevant component, service, and database operation.
+2. Trace the existing behavior from the interface to the database.
+3. Identify the actual root cause.
+4. Determine the smallest safe change that solves the problem.
+5. Check dependencies and existing data.
+6. Implement the fix.
+7. Verify the behavior and related workflows.
+
+After the initial inspection, proceed with implementation. Do not stop after providing a plan.
+
+---
+
+# 3. ISSUE ONE: PREVENT A BIOMASS RECORD FROM BEING ADDED TO MULTIPLE GROUPS
+
+## 3.1. Required business rule
+
+A biomass record must not belong to multiple aggregation groups simultaneously.
+
+When a coordinator successfully adds a biomass record to an aggregation group, the application must recognize that record as already aggregated.
+
+The record must no longer be eligible for another aggregation group.
+
+### Example
+
+Suppose these records exist:
+
+- Biomass Record A — rice husk, 500 kg.
+- Biomass Record B — rice straw, 300 kg.
+- Biomass Record C — rice husk, 700 kg.
+
+The coordinator creates:
+
+**Aggregation Group 1 — Rice Husk Consolidation**
+
+- Biomass Record A
+- Biomass Record C
+
+After the group is successfully created:
+
+- Records A and C must be marked or recognized as already aggregated.
+- They must disappear from the Eligible records section.
+- They must appear under the Already Aggregated section.
+- They must not be selectable when creating Aggregation Group 2.
+- Record B may remain eligible if it satisfies the existing requirements.
+
+The same rule must apply regardless of which authorized coordinator attempts to create the next group.
+
+## 3.2. Determine the authoritative membership relationship
+
+Inspect the existing database schema to determine how group membership is represented.
+
+The application may already use a group-member table or another relationship between biomass records and aggregation groups.
+
+Reuse the existing relationship where appropriate.
+
+Do not create a second membership table if the current schema already provides a suitable one.
+
+Determine how the application identifies the current aggregation group for each biomass record.
+
+A record's membership should be derived from the authoritative database relationship rather than a frontend-only flag.
+
+If the current schema cannot prevent duplicate membership, implement a safe database change.
+
+### Database enforcement
+
+If the existing design uses a membership table with one row per group-member association, enforce the one-group-per-record rule through an appropriate database constraint or equivalent atomic mechanism.
+
+For example, if appropriate to the actual schema, a unique constraint on the biomass-record identifier in the membership table can prevent a record from being added to multiple groups.
+
+Do not apply this example blindly. Inspect the existing schema and confirm that the constraint matches the intended relationship.
+
+If historical records or group membership statuses complicate this design, implement an appropriate alternative that preserves valid history.
+
+The backend must reject conflicting membership attempts even if a user bypasses the interface.
+
+## 3.3. Prevent duplicate membership during group creation
+
+Before a group is created, verify that every selected biomass record is eligible for aggregation.
+
+For each selected record, verify:
+
+- The record exists.
+- The record is within the coordinator's authorized scope.
+- The record meets the existing validation requirements.
+- The record satisfies the existing aggregation eligibility rules.
+- The record is not already assigned to another active aggregation group.
+- The record's quantity and unit information meet the current grouping requirements.
+- The record has not become ineligible since the selection was made.
+
+Do not rely on the list displayed when the form first opened. The database may have changed since then.
+
+### Handle concurrent requests
+
+If two users attempt to aggregate the same record at approximately the same time:
+
+- Only one valid membership operation may succeed.
+- The other operation must be rejected safely.
+- The rejected operation must not create a duplicate group membership.
+- The user should receive a clear message explaining that one or more selected records are no longer eligible.
+
+Use appropriate database constraints, transactions, or atomic operations supported by the existing architecture.
+
+Avoid a race condition where the application checks membership, allows the group creation, and only later discovers that another group already claimed the record.
+
+## 3.4. Handle partial failures safely
+
+Creating an aggregation group and assigning its member records are related operations.
+
+Inspect whether the existing code creates the group first and assigns members afterward.
+
+If group creation succeeds but adding its members fails, the application must not leave behind an apparently successful but incomplete group without clearly handling that condition.
+
+Where supported by the current database architecture, use an atomic transaction or database function to:
+
+1. Validate the group information.
+2. Validate the selected hub/cooperative relationship.
+3. Confirm that all selected records are eligible.
+4. Confirm that no selected record already belongs to another group.
+5. Create the group.
+6. Add the membership relationships.
+7. Commit the operation only if the required steps succeed.
+
+If the current architecture cannot perform the entire operation atomically, implement safe failure handling and explain the limitation.
+
+Do not silently leave partial data.
+
+---
+
+# 4. ISSUE TWO: ORGANIZE ELIGIBLE AND ALREADY-AGGREGATED RECORDS
+
+## 4.1. Required interface layout
+
+Improve the existing Create Aggregation Group interface or its record-selection area.
+
+The record list must contain two clearly separated sections in this order:
+
+### Section A: Eligible Records
+
+Display records that can currently be added to a new aggregation group.
+
+This section should contain only records that meet the existing eligibility and authorization rules and are not already assigned to another aggregation group.
+
+Each eligible record should display useful information already available in the application, such as:
+
+- Biomass record identifier.
+- Biomass type.
+- Source or farm name.
+- Barangay or source location.
+- Available or remaining quantity.
+- Unit of measurement.
+- Validation status, where relevant.
+- Other relevant details that help the coordinator identify the record.
+
+Include the existing selection control for records that can be added to a new group.
+
+Only records in this section may be selected for the new aggregation group.
+
+### Section B: Already Aggregated
+
+Place this section directly below Eligible Records.
+
+Display records that are already assigned to an aggregation group.
+
+Use a clear heading such as:
+
+**Already Aggregated**
+
+Each record should display a visible label, such as:
+
+**Aggregated — [Aggregation Group Name]**
+
+Where useful, also show:
+
+- Biomass record identifier.
+- Biomass type.
+- Source or farm name.
+- Quantity and unit.
+- Aggregation group name.
+- Group status, if supported.
+- Date added to the group, if available.
+
+The interface should make it immediately clear that the record has already been assigned to a group.
+
+Do not display an enabled selection checkbox or another control that allows the record to be added to a second group.
+
+Do not make the section appear identical to the Eligible section.
+
+## 4.2. Visual organization
+
+Preserve the current AgriCycle design and layout conventions.
+
+Improve the organization without redesigning the entire application.
+
+Requirements:
+
+- Eligible Records must appear first.
+- Already Aggregated must appear below Eligible Records.
+- Use clear section headings.
+- Use a visible aggregated-status badge.
+- Keep record information readable.
+- Maintain consistent spacing and alignment.
+- Support the existing responsive layouts.
+- Display loading, empty, and error states appropriately.
+
+If no eligible records exist, display an appropriate empty state in the Eligible section.
+
+If no records have been aggregated, display an appropriate empty state in the Already Aggregated section.
+
+Do not hide the second section merely because it currently contains no records.
+
+## 4.3. Accurate grouping and filtering
+
+Populate the two sections from the actual database relationships.
+
+Do not rely solely on a local array that may become stale after another user creates an aggregation group.
+
+For each biomass record:
+
+- If it is eligible and not assigned to a group, display it in Eligible Records.
+- If it is assigned to a group, display it in Already Aggregated.
+- Never display the same record in both sections.
+- Do not display the same record multiple times because of duplicate joins.
+- Do not display a record in either section if the current user's permissions prohibit access to it.
+
+If a record's group association changes, refresh or update the displayed sections so that the record moves to the correct section.
+
+The interface must remain accurate after group creation, successful refreshes, and relevant changes made by other authorized users.
+
+## 4.4. Display the correct aggregation group
+
+When a record is already aggregated, display the actual group to which it belongs.
+
+Do not assign a group label based on the current form selection or a hardcoded value.
+
+Retrieve the correct group name using the authoritative membership relationship.
+
+If a historical or invalid relationship prevents the group name from being retrieved:
+
+- Preserve the biomass record.
+- Display a safe fallback message indicating that its aggregation association needs attention.
+- Do not incorrectly make the record eligible for a new group.
+- Do not silently create a new membership.
+
+---
+
+# 5. ISSUE THREE: REMOVE AGGREGATED BIOMASS FROM INDEPENDENT BUYER LISTINGS
+
+## 5.1. Required buyer-facing behavior
+
+Once a biomass record has been successfully assigned to an aggregation group, it must no longer appear as an independent product in the buyer-facing marketplace.
+
+This means the buyer should not see both:
+
+- The original biomass record as an individual listing.
+- The same biomass record as part of a consolidated aggregation group.
+
+The original record must remain in the database for traceability and group calculations.
+
+The restriction concerns its independent buyer-facing listing eligibility, not the deletion of the record.
+
+## 5.2. Inspect the current buyer listing logic
+
+Trace how the application obtains and displays buyer-facing biomass listings.
+
+Inspect:
+
+- Buyer marketplace queries.
+- Biomass listing components.
+- Listing-status filters.
+- Validation-status filters.
+- Availability checks.
+- Inquiry submission validation.
+- Any view or database function that supplies buyer listings.
+- Any cached or locally derived list of available products.
+- The relationship between aggregation groups and their member records.
+
+Determine whether the existing buyer interface obtains records from a general biomass-record query or a dedicated listing query.
+
+Make the smallest appropriate change to the actual source of buyer-facing eligibility.
+
+Do not simply hide aggregated records in one component while leaving them accessible through another query or inquiry-submission path.
+
+## 5.3. Exclude aggregated records from individual listings
+
+An individual biomass record should be eligible for independent buyer-facing listing only when it meets the existing business rules and is not currently assigned to an aggregation group in a way that removes its independent listing eligibility.
+
+The exact implementation should follow the current schema.
+
+Possible approaches include:
+
+- Excluding records that have an active aggregation-group membership from the independent listing query.
+- Reusing an existing listing-eligibility field if it already represents this condition.
+- Updating an existing listing-eligibility state when group membership is successfully created, if the current data model requires that approach.
+
+Do not add redundant status fields if the existing membership relationship already provides a reliable source of truth.
+
+If a new field is necessary, explain why the existing relationships cannot safely express the required behavior and keep it synchronized with membership changes.
+
+### Required conditions
+
+- A record successfully added to an aggregation group must stop appearing as an independent buyer product.
+- The record must not remain independently inquiry-eligible.
+- The record must remain available to authorized coordinators and reviewers according to existing permissions.
+- The record must remain associated with its aggregation group.
+- The record must not be deleted.
+- Its original quantity and historical information must be preserved.
+
+## 5.4. Enforce the restriction beyond the interface
+
+The restriction must not depend only on hiding a listing card.
+
+Where appropriate to the existing architecture, enforce buyer eligibility in the backend, database query, view, function, or RLS policy.
+
+A buyer must not be able to submit an inquiry for an individual record that is no longer eligible simply by calling a backend operation directly or using a stale listing.
+
+Before saving a new inquiry, recheck that the selected individual record remains eligible.
+
+If the record has become aggregated since the buyer opened the marketplace:
+
+- Reject the new inquiry against the individual record.
+- Explain that the listing is no longer available as an independent item.
+- Where appropriate, direct the buyer to the corresponding group listing if that group is intended to be buyer-facing.
+- Do not automatically transfer or rewrite the inquiry to another listing.
+
+Preserve the existing inquiry authorization and status-transition rules.
+
+## 5.5. Treat aggregation groups as distinct from member records
+
+Inspect the current business rules to determine whether an aggregation group itself is intended to be a buyer-facing listing.
+
+If group listings are supported:
+
+- Show the group as the appropriate consolidated listing where it satisfies the existing publication, validation, availability, and authorization requirements.
+- Use the group's correct aggregate quantity and unit.
+- Avoid double-counting the same member records and the group total.
+- Ensure buyers cannot separately inquire about a member record that is already represented by the group.
+
+If aggregation groups are not currently intended to be buyer-facing listings, do not automatically publish them merely to hide the individual records.
+
+In that case, exclude aggregated members from independent listings while preserving the group's internal management functionality.
+
+Do not invent a new marketplace transaction workflow.
+
+## 5.6. Preserve validation and availability rules
+
+Aggregation membership is not the same as validation status.
+
+Do not change a validated record to rejected, unvalidated, or archived merely to prevent it from appearing in buyer listings.
+
+Similarly, do not automatically mark a record unavailable for all purposes just because it is aggregated.
+
+The system should distinguish between:
+
+- Validation status.
+- Availability status.
+- Aggregation-group membership.
+- Buyer-facing listing eligibility.
+
+Reuse existing fields and relationships wherever possible.
+
+Do not introduce conflicting states or redundant status values.
+
+---
+
+# 6. ISSUE FOUR: FIX THE FOREIGN-KEY ERROR
+
+## 6.1. Reported error
+
+The application displays:
+
+`insert or update on table "aggregation_groups" violates foreign key constraint "aggregation_groups_hub_id_fkey"`
+
+This error occurs during aggregation-group creation.
+
+The current source includes a group-creation path that passes `hubId || ''` into the Supabase creation function.
+
+Investigate this behavior carefully.
+
+An empty string is not a valid substitute for a real hub identifier, and it is not equivalent to SQL `NULL`.
+
+However, confirm the actual schema and database function before deciding on the complete fix.
+
+## 6.2. Inspect the foreign-key relationship
+
+Inspect the database definition for:
+
+- The `aggregation_groups` table.
+- The `hub_id` column.
+- The referenced table and column.
+- The referenced hub/cooperative records.
+- Whether `hub_id` is nullable.
+- Any existing default value.
+- Any trigger or database function that modifies `hub_id`.
+- The frontend function that inserts the group.
+- Any conversion between organization IDs and display names.
+
+Determine whether the error is caused by:
+
+- An empty-string value.
+- A stale or nonexistent hub ID.
+- A mismatch between frontend and database identifiers.
+- A selected organization that was never persisted.
+- An incorrect referenced table or column.
+- An invalid default.
+- Another actual constraint or data-mapping problem.
+
+Do not assume the cause without inspecting the implementation.
+
+## 6.3. Handle optional and required hub associations correctly
+
+Follow the existing business rules for whether a hub association is required.
+
+### If the hub association is optional
+
+- Allow the form to represent no selected hub.
+- Pass `NULL` or omit the value according to the database function's expected input and schema.
+- Never substitute an empty string for a missing foreign key.
+- Ensure the database column permits null values before relying on this behavior.
+
+### If the hub association is required
+
+- Require the coordinator to select a valid hub or cooperative.
+- Validate that the selected identifier exists in the referenced table.
+- Display a clear validation message if the selection is missing or invalid.
+- Prevent the submission from proceeding with an invalid identifier.
+
+Do not weaken the schema's integrity rules merely to make the form submit.
+
+## 6.4. Correct the frontend-to-database mapping
+
+Verify that the value selected in the interface is the actual database identifier expected by the foreign key.
+
+Do not send:
+
+- An organization name where an ID is expected.
+- A temporary frontend identifier where a persisted ID is required.
+- An empty string for a missing value.
+- An unrelated organization ID.
+- A fabricated ID.
+
+If the application supports creating a new hub or cooperative from the form:
+
+1. Validate the new organization's information.
+2. Create the organization through the existing authorized operation.
+3. Obtain the actual persisted database ID.
+4. Use that ID when creating the aggregation group.
+5. Handle failures without leaving inconsistent group or organization records.
+
+Prevent duplicate organizations if an equivalent record already exists, following the application's existing duplicate-detection rules.
+
+## 6.5. Preserve the foreign-key constraint
+
+Do not drop or disable `aggregation_groups_hub_id_fkey`.
+
+Do not bypass database referential integrity.
+
+The objective is to supply valid data and correct the creation workflow, not to remove the protection that prevents invalid associations.
+
+If a schema migration is required, make it safe and minimal.
+
+Preserve existing aggregation groups and their hub relationships.
+
+---
+
+# 7. KEEP AGGREGATION QUANTITIES AND REPORTING ACCURATE
+
+The aggregation changes must preserve the current quantity model.
+
+Inspect how the application calculates the total quantity for an aggregation group.
+
+Do not assume that summing member quantities is always correct without checking the meaning of the fields.
+
+Preserve the established quantity rules, including the distinction between:
+
+- Total recorded quantity.
+- Current internal use.
+- Reserved or committed quantity.
+- Remaining quantity.
+- Available quantity.
+
+Where the existing business rules define:
+
+Remaining Quantity = Total Quantity − Current Internal Use Quantity − Reserved/Committed Quantity
+
+ensure the calculation is applied consistently.
+
+### Aggregation-specific safeguards
+
+- Do not count a member record twice within one group.
+- Do not count the same member record in multiple groups.
+- Do not count a group total and all its members as separate biomass production in the same report.
+- Do not combine incompatible units without a valid conversion.
+- Preserve the existing mixed-unit validation.
+- Do not change the original member-record quantities merely because a group was created.
+- Do not treat aggregation membership as a stock reservation or confirmed sale.
+- Do not automatically deduct quantity from available stock when creating a group unless an existing, explicitly approved business rule requires it.
+
+If group totals are calculated dynamically, ensure the calculation continues to work after records become ineligible for individual buyer listings.
+
+Hiding a member record from the marketplace must not remove it from the group-total calculation.
+
+---
+
+# 8. PERMISSIONS, DATA INTEGRITY, AND SECURITY
+
+Preserve AgriCycle's existing authentication and role-based access control.
+
+Inspect the current RLS policies and backend authorization before making changes.
+
+### Coordinator permissions
+
+A coordinator may create or manage aggregation groups only within the scope permitted by the current application.
+
+Verify that the coordinator is authorized to:
+
+- Access the selected biomass records.
+- Associate records with the selected hub or cooperative.
+- Create the aggregation group.
+- Add eligible member records.
+- View the group's member records.
+
+Do not allow a coordinator to aggregate records belonging to unrelated organizations or outside their authorized scope.
+
+### Buyer permissions
+
+Buyers must not be able to:
+
+- View aggregated member records as independent products.
+- Add or remove aggregation-group members.
+- Change aggregation-group membership.
+- Bypass listing eligibility by directly submitting an inquiry for an aggregated member.
+- Access internal aggregation-management data beyond what the buyer-facing design explicitly permits.
+
+### Database enforcement
+
+Enforce the necessary rules in the database or trusted backend.
+
+Do not rely exclusively on frontend filtering.
+
+Do not disable RLS.
+
+Do not expose service-role credentials in frontend code.
+
+Do not weaken foreign-key constraints or uniqueness rules to make the operation appear successful.
+
+---
+
+# 9. EXISTING DATA AND MIGRATION SAFEGUARDS
+
+Before changing the schema or modifying existing group membership:
+
+1. Inspect the existing aggregation groups.
+2. Inspect all group-member relationships.
+3. Identify records that appear in more than one group.
+4. Identify records whose hub association is invalid or missing.
+5. Determine whether the existing data represents valid history or inconsistent state.
+6. Plan a safe correction strategy before applying any migration.
+
+Do not automatically delete duplicate membership rows without understanding which relationship is correct.
+
+If existing records belong to multiple groups, preserve the historical information where necessary and establish one authoritative current membership according to the actual business rules.
+
+If existing groups have invalid hub references, do not assign them to an arbitrary hub.
+
+Preserve the original data and document any records that require manual resolution.
+
+Use a migration only when the actual schema requires one.
+
+Do not claim that a migration has been applied unless it has actually been executed.
+
+---
+
+# 10. TESTING REQUIREMENTS
+
+Run the available tests and verify the changes in the running application where possible.
+
+Do not report tests as passed unless they were actually performed.
+
+## Test Group A: Group creation and membership
+
+### A1. Successful aggregation
+
+1. Sign in as an authorized Cooperative/Hub Coordinator.
+2. Open Aggregation Hubs.
+3. Select eligible biomass records.
+4. Create a valid aggregation group.
+5. Confirm that group creation succeeds.
+6. Confirm that the selected records are assigned to the group.
+7. Confirm that the group displays the correct members and quantities.
+
+### A2. Prevent duplicate aggregation
+
+1. Create a group containing Biomass Record A.
+2. Return to the Create Aggregation Group interface.
+3. Confirm that Record A is no longer in Eligible Records.
+4. Confirm that Record A appears in Already Aggregated.
+5. Confirm that the group name is displayed correctly.
+6. Attempt to add Record A to another group.
+7. Confirm that the interface and backend reject the attempt.
+
+### A3. Concurrent aggregation
+
+Where practical, simulate two authorized users attempting to aggregate the same record.
+
+Confirm that:
+
+- Only one membership operation succeeds.
+- No duplicate membership is created.
+- The rejected operation displays a useful error.
+- No incomplete group is silently left behind.
+
+### A4. Ineligible records
+
+Verify that records that fail the existing validation or aggregation requirements cannot be added to a new group.
+
+### A5. Refresh and persistence
+
+After successfully creating a group:
+
+- Refresh the application.
+- Reopen Aggregation Hubs.
+- Confirm that the membership remains correct.
+- Confirm that the record is still displayed in Already Aggregated.
+- Confirm that the record does not return to Eligible Records.
+
+## Test Group B: Interface organization
+
+Verify that:
+
+- Eligible Records appears first.
+- Already Aggregated appears directly below it.
+- The two sections display the correct records.
+- No record appears in both sections.
+- Aggregated records have a clear group label.
+- Aggregated records cannot be selected again.
+- Both sections handle empty states.
+- Loading and error states are clear.
+- The layout remains usable on supported screen sizes.
+
+## Test Group C: Buyer-facing listings
+
+### C1. Before aggregation
+
+Confirm that a valid, eligible, unaggregated record appears in the buyer-facing marketplace when all existing listing requirements are met.
+
+### C2. After aggregation
+
+1. Aggregate the record into a group.
+2. Refresh the buyer marketplace.
+3. Confirm that the individual record no longer appears as an independent product.
+4. Confirm that it cannot be used to submit a new independent inquiry.
+5. Confirm that the original record remains in the database.
+
+### C3. Existing group listing behavior
+
+If the existing application supports buyer-facing aggregation-group listings:
+
+- Confirm that the appropriate group appears when it satisfies the existing listing rules.
+- Confirm that the member record is not separately listed.
+- Confirm that the same biomass is not counted twice.
+
+If group listings are not supported, verify that the application does not accidentally publish a new listing merely because a group was created.
+
+### C4. Direct backend access
+
+Where practical, attempt to retrieve or inquire about an aggregated member through the available backend operations.
+
+Confirm that unauthorized independent listing access is prevented by the actual query, backend logic, or database policy—not just by the user interface.
+
+### C5. Existing inquiries
+
+Verify that historical inquiries associated with records that later become aggregated remain preserved.
+
+Do not automatically delete or rewrite existing inquiries.
+
+Ensure that any existing inquiry is handled according to the current business rules and authorization model.
+
+## Test Group D: Foreign-key validation
+
+### D1. Valid hub
+
+Select a valid existing hub or cooperative.
+
+Create an aggregation group and confirm that the correct identifier is saved.
+
+### D2. Missing optional hub
+
+If the association is optional, create a group without selecting a hub.
+
+Confirm that the database receives a valid nullable value rather than an empty string.
+
+### D3. Missing required hub
+
+If the association is required, attempt to create a group without selecting a hub.
+
+Confirm that the application prevents submission and displays a clear message.
+
+### D4. Invalid hub identifier
+
+Verify that an invalid or nonexistent hub ID cannot be saved.
+
+### D5. New hub or cooperative
+
+If the interface supports creating a new organization, create one through the supported workflow and verify that its actual persisted ID is used when creating the group.
+
+### D6. Error handling
+
+If group creation fails, confirm that:
+
+- The application displays a useful error.
+- No false success message is shown.
+- No inconsistent membership is created.
+- Existing records remain intact.
+
+## Test Group E: Regression and security
+
+Confirm that:
+
+- Biomass record creation still works.
+- LGU validation remains functional.
+- Existing group details remain accessible to authorized users.
+- Group totals remain accurate.
+- Quantity calculations remain correct.
+- Existing dashboards remain accurate.
+- Buyer inquiry permissions remain intact.
+- Role-based access restrictions remain enforced.
+- RLS remains enabled.
+- Existing data is preserved.
+- No unrelated features have been removed.
+
+---
+
+# 11. IMPLEMENTATION ORDER
+
+Follow this sequence unless the actual architecture requires a different order.
+
+### Priority 1: Diagnose and fix the foreign-key error
+
+Inspect the `aggregation_groups` insertion path and `aggregation_groups_hub_id_fkey`.
+
+Correct the hub/cooperative ID mapping and missing-value handling.
+
+### Priority 2: Enforce one-group-per-record membership
+
+Inspect the current membership schema and implement reliable backend/database enforcement.
+
+Prevent duplicate assignments, including concurrent requests.
+
+### Priority 3: Organize the Aggregation Hubs interface
+
+Separate the record list into:
+
+1. Eligible Records.
+2. Already Aggregated.
+
+Display the correct group label and prevent re-selection.
+
+### Priority 4: Exclude aggregated members from independent buyer listings
+
+Update the authoritative listing-eligibility logic and inquiry validation.
+
+Preserve the original records and their relationships.
+
+### Priority 5: Validate quantity consistency and security
+
+Verify group totals, membership relationships, permissions, and database integrity.
+
+### Priority 6: Run regression tests
+
+Test the complete aggregation workflow and the buyer marketplace.
+
+Report any remaining limitations honestly.
+
+---
+
+# 12. DEFINITION OF DONE
+
+The task is complete only when all applicable criteria have been verified.
+
+## Aggregation membership
+
+- A biomass record cannot belong to multiple active aggregation groups.
+- Membership is enforced by the backend or database.
+- Duplicate membership attempts are rejected safely.
+- Existing records and relationships are preserved.
+
+## Aggregation Hubs interface
+
+- Eligible Records appears first.
+- Already Aggregated appears below it.
+- Each aggregated record has a clear label identifying its group.
+- Aggregated records cannot be selected for another group.
+- The interface reflects actual persisted membership.
+
+## Buyer marketplace
+
+- Aggregated member records no longer appear as independent products.
+- Buyers cannot create new independent inquiries for ineligible aggregated members.
+- Original records remain preserved.
+- Existing group listing behavior is respected.
+- The same biomass is not counted twice.
+
+## Foreign-key integrity
+
+- The actual root cause of the `aggregation_groups_hub_id_fkey` error has been identified.
+- Valid hub associations are saved correctly.
+- Optional associations use the correct nullable representation when permitted.
+- Required associations are validated.
+- The foreign-key constraint remains enabled.
+
+## Application integrity
+
+- Existing quantity calculations remain correct.
+- Existing validation and authorization rules remain intact.
+- RLS and other security controls remain enabled.
+- Relevant tests have been performed.
+- Unverified behavior and remaining issues are documented.
+
+---
+
+# 13. FINAL IMPLEMENTATION REPORT
+
+After implementation, provide the following report.
+
+## A. Root Causes
+
+Explain the actual cause of the foreign-key error and any other issues discovered.
+
+## B. Files Modified
+
+List the files actually changed and explain each change.
+
+## C. Database Changes
+
+List any actual schema changes, constraints, indexes, functions, triggers, or policies modified.
+
+If no database changes were needed, state that explicitly.
+
+## D. Aggregation Membership
+
+Explain how the application prevents a biomass record from being assigned to multiple groups.
+
+## E. Interface Changes
+
+Explain how Eligible Records and Already Aggregated are displayed and how the group label is obtained.
+
+## F. Buyer Listing Changes
+
+Explain how aggregated member records are excluded from independent buyer listings and how inquiry eligibility is enforced.
+
+## G. Testing Results
+
+Separate results into:
+
+- Passed.
+- Failed.
+- Not run.
+- Not verified.
+
+## H. Remaining Issues
+
+List any unresolved data inconsistencies, deployment requirements, or limitations.
+
+Do not claim that a database migration was applied, a test passed, or a feature works unless the result has actually been verified.
+
+---
+
+# FINAL INSTRUCTION
+
+Inspect the existing application first, diagnose the actual problems, and then implement the necessary changes.
+
+Do not solve this by simply hiding aggregated records in the frontend.
+
+The final implementation must enforce unique aggregation membership, accurately label and organize records, prevent aggregated member records from appearing as independent buyer products, and correct the invalid hub foreign-key value without weakening database integrity.
+
+Preserve the existing AgriCycle architecture, records, relationships, quantity rules, permissions, and unrelated functionality.
+
+Proceed with implementation after the initial inspection. Do not stop after providing a plan.
