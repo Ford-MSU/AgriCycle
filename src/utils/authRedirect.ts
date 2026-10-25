@@ -64,9 +64,11 @@ export function normalizeAuthRedirectHash(): void {
     (rawHash.includes('access_token=') ||
       rawHash.includes('error=') ||
       rawHash.includes('error_code=') ||
+      rawHash.includes('token_hash=') ||
       rawHash.includes('type=signup') ||
       rawHash.includes('type=recovery') ||
-      rawHash.includes('type=invite'));
+      rawHash.includes('type=invite') ||
+      rawHash.includes('type=email'));
 
   if (isRawAuthHash) {
     const paramsString = rawHash.substring(1);
@@ -79,6 +81,7 @@ export function normalizeAuthRedirectHash(): void {
   const urlParams = new URLSearchParams(search);
   const hasAuthSearchParams =
     urlParams.has('code') ||
+    urlParams.has('token_hash') ||
     urlParams.has('error') ||
     urlParams.has('error_code') ||
     urlParams.has('error_description');

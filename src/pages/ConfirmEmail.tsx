@@ -16,6 +16,9 @@ import {
   AlertTriangle,
   RefreshCw,
   Mail,
+  KeyRound,
+  LogIn,
+  Info,
 } from 'lucide-react';
 
 export const ConfirmEmail: React.FC = () => {
@@ -24,8 +27,26 @@ export const ConfirmEmail: React.FC = () => {
   const [confirmedEmail, setConfirmedEmail] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
 
+  // Recovery interaction mode: 'otp' | 'resend'
+  const [recoveryTab, setRecoveryTab] = useState<'signin' | 'otp' | 'resend'>('signin');
+
+  // Stored / prefilled email
+  const initialEmail = () => {
+    try {
+      return localStorage.getItem('agricycle_registered_email') || '';
+    } catch {
+      return '';
+    }
+  };
+
+  // 6-digit OTP verification state
+  const [otpEmail, setOtpEmail] = useState(initialEmail);
+  const [otpCode, setOtpCode] = useState('');
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [otpFeedback, setOtpFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // Resend confirmation link state
-  const [resendEmail, setResendEmail] = useState('');
+  const [resendEmail, setResendEmail] = useState(initialEmail);
   const [isResending, setIsResending] = useState(false);
   const [resendFeedback, setResendFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -41,7 +62,7 @@ export const ConfirmEmail: React.FC = () => {
       const fullHash = window.location.hash || '';
       const fullSearch = window.location.search || '';
 
-      // Parse query string inside hash (e.g., #/confirm-email?error_code=otp_expired)
+      // Parse query string inside hash (e.g., #/confirm-email?error_code=otp_expired or ?token_hash=...)
       let hashQuery = '';
       if (fullHash.includes('?')) {
         hashQuery = fullHash.substring(fullHash.indexOf('?') + 1);
@@ -64,9 +85,44 @@ export const ConfirmEmail: React.FC = () => {
         searchParams.get('error_description') ||
         hashParams.get('error_description');
 
-      // Check for PKCE exchange code
+      // Check for PKCE exchange code or Token Hash
       const pkceCode = searchParams.get('code') || hashParams.get('code');
+      const tokenHash = searchParams.get('token_hash') || hashParams.get('token_hash');
+      const otpType = searchParams.get('type') || hashParams.get('type') || 'email';
 
+      // 2. Handle Token Hash verification if present (scanner-immune direct route)
+      if (tokenHash && isSupabaseConfigured && supabase) {
+        try {
+          let otpRes = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: otpType as any,
+          });
+
+          if (otpRes.error && otpType === 'email') {
+            // Fallback retry with 'signup'
+            otpRes = await supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: 'signup' as any,
+            });
+          }
+
+          if (otpRes.data?.user) {
+            if (!isSubscribed) return;
+            setConfirmedEmail(otpRes.data.user.email || null);
+            setStatus('success');
+            setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account.');
+
+            if (window.history && window.history.replaceState) {
+              window.history.replaceState(null, '', window.location.pathname + '#/confirm-email');
+            }
+            return;
+          }
+        } catch {
+          // Continue to error/code handling
+        }
+      }
+
+      // 3. Handle explicit errors (such as otp_expired from email security scanners or expired links)
       if (errCode || rawDescription) {
         if (!isSubscribed) return;
         setErrorCode(errCode);
@@ -78,7 +134,9 @@ export const ConfirmEmail: React.FC = () => {
           (rawDescription && /expired|invalid|already/i.test(rawDescription));
 
         if (isExpiredOrInvalid) {
-          setMessage('Your email confirmation link is invalid or has expired. Please request a new confirmation email and try again.');
+          setMessage(
+            'Your email confirmation link was already used or has expired. This frequently occurs when email security filters pre-scan links. Your account may already be confirmed!'
+          );
         } else {
           const decoded = rawDescription
             ? decodeURIComponent(rawDescription.replace(/\+/g, ' '))
@@ -88,14 +146,15 @@ export const ConfirmEmail: React.FC = () => {
         return;
       }
 
-      // 2. PKCE code exchange if present
+      // 4. PKCE code exchange if present
       if (pkceCode && isSupabaseConfigured && supabase) {
         try {
           const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(pkceCode);
           if (exchangeError) {
             if (!isSubscribed) return;
             setStatus('error');
-            setMessage('Your email confirmation link is invalid or has expired. Please request a new confirmation email and try again.');
+            setErrorCode('pkce_exchange_failed');
+            setMessage('Your email confirmation link is invalid or has expired. Please request a new confirmation email or enter your 6-digit code.');
             return;
           }
 
@@ -105,7 +164,6 @@ export const ConfirmEmail: React.FC = () => {
             setStatus('success');
             setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account.');
 
-            // Clean up credentials from URL bar
             if (window.history && window.history.replaceState) {
               window.history.replaceState(null, '', window.location.pathname + '#/confirm-email');
             }
@@ -116,7 +174,7 @@ export const ConfirmEmail: React.FC = () => {
         }
       }
 
-      // 3. Inspect active Supabase session or exchanged access token
+      // 5. Inspect active Supabase session or exchanged access token
       if (isSupabaseConfigured && supabase) {
         try {
           const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -134,7 +192,6 @@ export const ConfirmEmail: React.FC = () => {
             setStatus('success');
             setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account.');
 
-            // Clean up tokens from hash
             if (window.history && window.history.replaceState) {
               window.history.replaceState(null, '', window.location.pathname + '#/confirm-email');
             }
@@ -163,9 +220,8 @@ export const ConfirmEmail: React.FC = () => {
                 setConfirmedEmail(user.email);
                 setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account.');
               } else {
-                // If no tokens were in URL and no session exists, guide user to sign in or resend
                 setStatus('error');
-                setMessage('No active verification credentials found in this link. Please request a new confirmation email or sign in.');
+                setMessage('No active verification credentials found in this link. Please enter your 6-digit confirmation code or sign in.');
               }
             }
           }, 3500);
@@ -199,11 +255,72 @@ export const ConfirmEmail: React.FC = () => {
     };
   }, [location, user]);
 
+  // Handle manual 6-digit OTP code verification
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOtpFeedback(null);
+
+    const emailToVerify = otpEmail.trim() || initialEmail();
+    const cleanCode = otpCode.trim();
+
+    if (!emailToVerify || !emailToVerify.includes('@')) {
+      setOtpFeedback({ type: 'error', text: 'Please enter your registered email address.' });
+      return;
+    }
+
+    if (!cleanCode || cleanCode.length < 6) {
+      setOtpFeedback({ type: 'error', text: 'Please enter the 6-digit confirmation code from your email.' });
+      return;
+    }
+
+    if (!isSupabaseConfigured || !supabase) {
+      setStatus('success');
+      setConfirmedEmail(emailToVerify);
+      setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account.');
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+    try {
+      // Try 'signup' OTP type first
+      let res = await supabase.auth.verifyOtp({
+        email: emailToVerify,
+        token: cleanCode,
+        type: 'signup',
+      });
+
+      // If 'signup' fails, retry with 'email' OTP type
+      if (res.error) {
+        res = await supabase.auth.verifyOtp({
+          email: emailToVerify,
+          token: cleanCode,
+          type: 'email',
+        });
+      }
+
+      if (res.error) {
+        throw new Error(res.error.message || 'Invalid or expired confirmation code.');
+      }
+
+      setConfirmedEmail(res.data?.user?.email || emailToVerify);
+      setStatus('success');
+      setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account.');
+    } catch (err: any) {
+      setOtpFeedback({
+        type: 'error',
+        text: err?.message || 'Verification failed. Please check the code and try again.',
+      });
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  // Handle resending confirmation email
   const handleResend = async (e: React.FormEvent) => {
     e.preventDefault();
     setResendFeedback(null);
 
-    const emailToSend = resendEmail.trim() || confirmedEmail || user?.email || '';
+    const emailToSend = resendEmail.trim() || otpEmail.trim() || confirmedEmail || user?.email || initialEmail();
     if (!emailToSend || !emailToSend.includes('@')) {
       setResendFeedback({ type: 'error', text: 'Please enter a valid email address.' });
       return;
@@ -220,15 +337,17 @@ export const ConfirmEmail: React.FC = () => {
     }
   };
 
+  const isOtpExpiredError = errorCode === 'otp_expired' || errorCode === 'access_denied';
+
   return (
     <div className="min-h-screen bg-agri-cream-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Decorative background accents */}
       <div className="absolute top-[-10%] left-[-10%] w-[45%] h-[45%] rounded-full bg-agri-green-200/30 blur-3xl pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[45%] h-[45%] rounded-full bg-agri-accent-500/10 blur-3xl pointer-events-none" />
 
-      <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10 px-4">
+      <div className="sm:mx-auto sm:w-full sm:max-w-lg relative z-10 px-4">
         {/* Brand header */}
-        <div className="flex flex-col items-center mb-8 text-center">
+        <div className="flex flex-col items-center mb-6 text-center">
           <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-agri-green-600 text-white shadow-lg shadow-agri-green-600/20 mb-3">
             <Leaf size={30} strokeWidth={2} />
           </div>
@@ -245,12 +364,14 @@ export const ConfirmEmail: React.FC = () => {
               status === 'success'
                 ? 'bg-agri-green-600'
                 : status === 'error'
-                ? 'bg-red-500'
+                ? isOtpExpiredError
+                  ? 'bg-amber-500'
+                  : 'bg-red-500'
                 : 'bg-agri-accent-500 animate-pulse'
             }`}
           />
 
-          <CardHeader className="text-center pt-8 pb-4">
+          <CardHeader className="text-center pt-8 pb-3">
             {status === 'verifying' && (
               <div className="mx-auto flex items-center justify-center w-16 h-16 rounded-full bg-agri-green-50 text-agri-green-600 mb-3">
                 <Loader2 size={36} className="animate-spin text-agri-green-600" />
@@ -264,15 +385,25 @@ export const ConfirmEmail: React.FC = () => {
             )}
 
             {status === 'error' && (
-              <div className="mx-auto flex items-center justify-center w-16 h-16 rounded-full bg-red-50 text-red-600 ring-8 ring-red-50/50 mb-3 animate-in zoom-in-75 duration-300">
-                <XCircle size={40} className="text-red-600" />
+              <div
+                className={`mx-auto flex items-center justify-center w-16 h-16 rounded-full mb-3 animate-in zoom-in-75 duration-300 ${
+                  isOtpExpiredError
+                    ? 'bg-amber-50 text-amber-600 ring-8 ring-amber-50/50'
+                    : 'bg-red-50 text-red-600 ring-8 ring-red-50/50'
+                }`}
+              >
+                {isOtpExpiredError ? (
+                  <AlertTriangle size={38} className="text-amber-600" />
+                ) : (
+                  <XCircle size={40} className="text-red-600" />
+                )}
               </div>
             )}
 
             <CardTitle className="text-xl font-bold text-gray-900">
               {status === 'verifying' && 'Verifying Email Confirmation'}
               {status === 'success' && 'Email Confirmed Successfully!'}
-              {status === 'error' && 'Confirmation Link Issue'}
+              {status === 'error' && (isOtpExpiredError ? 'Link Already Used or Expired' : 'Confirmation Link Issue')}
             </CardTitle>
 
             <CardDescription className="text-sm text-gray-600 mt-2">
@@ -280,7 +411,7 @@ export const ConfirmEmail: React.FC = () => {
             </CardDescription>
           </CardHeader>
 
-          <CardContent className="space-y-6 pt-2 pb-8">
+          <CardContent className="space-y-6 pt-1 pb-8">
             {status === 'success' && (
               <>
                 {confirmedEmail && (
@@ -316,58 +447,194 @@ export const ConfirmEmail: React.FC = () => {
 
             {status === 'error' && (
               <div className="space-y-5">
-                {/* Dedicated Resend Confirmation Email Form */}
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-700">
-                    <RefreshCw size={14} className="text-agri-green-600" />
-                    Request New Confirmation Email
-                  </div>
-                  <p className="text-xs text-gray-600">
-                    Enter the email address you registered with to receive a fresh verification link.
-                  </p>
-
-                  <form onSubmit={handleResend} className="space-y-3">
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                        <Mail size={16} />
-                      </div>
-                      <input
-                        type="email"
-                        value={resendEmail}
-                        onChange={(e) => setResendEmail(e.target.value)}
-                        placeholder="your.email@example.com"
-                        required
-                        className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-agri-green-500 focus:border-agri-green-500"
-                      />
+                {/* Explain why otp_expired occurs and guide user */}
+                {isOtpExpiredError && (
+                  <div className="p-4 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-2">
+                    <div className="flex items-center gap-1.5 font-semibold text-amber-800 text-sm">
+                      <Info size={16} className="text-amber-700 shrink-0" />
+                      <span>Why did this happen?</span>
                     </div>
+                    <p className="leading-relaxed">
+                      Institutional email systems (such as Google Workspace for <strong>@g.msuiit.edu.ph</strong> or Microsoft Defender) automatically pre-scan links in incoming emails to verify safety. That security scan visits the link and marks the one-time token as consumed.
+                    </p>
+                    <div className="pt-1.5 border-t border-amber-200/80 font-medium text-amber-950">
+                      ✨ <strong>Good News:</strong> The security scan often completes the verification on the server! You may already be verified.
+                    </div>
+                  </div>
+                )}
 
-                    {resendFeedback && (
-                      <div
-                        className={`p-3 rounded-lg text-xs flex items-start gap-2 ${
-                          resendFeedback.type === 'success'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                            : 'bg-red-50 text-red-700 border border-red-200'
-                        }`}
-                      >
-                        {resendFeedback.type === 'success' ? (
-                          <CheckCircle2 size={15} className="shrink-0 mt-0.5 text-emerald-600" />
-                        ) : (
-                          <AlertTriangle size={15} className="shrink-0 mt-0.5 text-red-600" />
-                        )}
-                        <span>{resendFeedback.text}</span>
-                      </div>
-                    )}
+                {/* Primary Action Button: Try Signing In */}
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-emerald-900">Step 1: Try Signing In</h3>
+                    <p className="text-xs text-emerald-700 mt-0.5">
+                      If your account was already verified, you can sign in directly with your password.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => navigate('/login')}
+                    className="w-full py-2.5 bg-agri-green-700 hover:bg-agri-green-800 text-white font-semibold text-sm shadow-sm flex items-center justify-center gap-2"
+                  >
+                    <LogIn size={16} />
+                    <span>Try Signing In Now</span>
+                  </Button>
+                </div>
 
-                    <Button
-                      type="submit"
-                      disabled={isResending}
-                      isLoading={isResending}
-                      className="w-full bg-agri-green-600 hover:bg-agri-green-700 text-white font-medium text-sm py-2 flex items-center justify-center gap-2"
+                {/* Alternative Options Header */}
+                <div className="pt-2 border-t border-gray-200">
+                  <div className="flex items-center justify-center gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setRecoveryTab('otp')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                        recoveryTab === 'otp'
+                          ? 'bg-agri-green-600 text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
                     >
-                      <Send size={15} />
-                      <span>{isResending ? 'Sending...' : 'Send New Confirmation Link'}</span>
-                    </Button>
-                  </form>
+                      <KeyRound size={13} />
+                      <span>Enter 6-Digit Code</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRecoveryTab('resend')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                        recoveryTab === 'resend'
+                          ? 'bg-agri-green-600 text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      <RefreshCw size={13} />
+                      <span>Resend Email</span>
+                    </button>
+                  </div>
+
+                  {/* Tab 1: Enter 6-digit Code */}
+                  {recoveryTab === 'otp' && (
+                    <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3 animate-in fade-in-50 duration-200">
+                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-700">
+                        <KeyRound size={14} className="text-agri-green-600" />
+                        Verify with 6-Digit Code
+                      </div>
+                      <p className="text-xs text-gray-600">
+                        If your email included a 6-digit numeric confirmation code, enter it below:
+                      </p>
+
+                      <form onSubmit={handleVerifyOtp} className="space-y-3">
+                        <div className="relative">
+                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                            <Mail size={15} />
+                          </div>
+                          <input
+                            type="email"
+                            value={otpEmail}
+                            onChange={(e) => setOtpEmail(e.target.value)}
+                            placeholder="your.email@example.com"
+                            required
+                            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-xs sm:text-sm bg-white focus:ring-agri-green-500 focus:border-agri-green-500"
+                          />
+                        </div>
+
+                        <div className="relative">
+                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                            <KeyRound size={15} />
+                          </div>
+                          <input
+                            type="text"
+                            maxLength={8}
+                            value={otpCode}
+                            onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                            placeholder="6-digit code (e.g. 123456)"
+                            required
+                            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm tracking-widest font-mono bg-white focus:ring-agri-green-500 focus:border-agri-green-500"
+                          />
+                        </div>
+
+                        {otpFeedback && (
+                          <div
+                            className={`p-2.5 rounded-lg text-xs flex items-start gap-2 ${
+                              otpFeedback.type === 'success'
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                : 'bg-red-50 text-red-700 border border-red-200'
+                            }`}
+                          >
+                            {otpFeedback.type === 'success' ? (
+                              <CheckCircle2 size={14} className="shrink-0 mt-0.5 text-emerald-600" />
+                            ) : (
+                              <AlertTriangle size={14} className="shrink-0 mt-0.5 text-red-600" />
+                            )}
+                            <span>{otpFeedback.text}</span>
+                          </div>
+                        )}
+
+                        <Button
+                          type="submit"
+                          disabled={isVerifyingOtp}
+                          isLoading={isVerifyingOtp}
+                          className="w-full bg-agri-green-600 hover:bg-agri-green-700 text-white font-medium text-xs sm:text-sm py-2 flex items-center justify-center gap-2"
+                        >
+                          <ShieldCheck size={15} />
+                          <span>{isVerifyingOtp ? 'Verifying Code...' : 'Verify Code & Activate'}</span>
+                        </Button>
+                      </form>
+                    </div>
+                  )}
+
+                  {/* Tab 2: Resend Confirmation Email */}
+                  {recoveryTab === 'resend' && (
+                    <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3 animate-in fade-in-50 duration-200">
+                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-700">
+                        <RefreshCw size={14} className="text-agri-green-600" />
+                        Request New Confirmation Email
+                      </div>
+                      <p className="text-xs text-gray-600">
+                        Enter your email address to receive a fresh verification link.
+                      </p>
+
+                      <form onSubmit={handleResend} className="space-y-3">
+                        <div className="relative">
+                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                            <Mail size={15} />
+                          </div>
+                          <input
+                            type="email"
+                            value={resendEmail}
+                            onChange={(e) => setResendEmail(e.target.value)}
+                            placeholder="your.email@example.com"
+                            required
+                            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-xs sm:text-sm bg-white focus:ring-agri-green-500 focus:border-agri-green-500"
+                          />
+                        </div>
+
+                        {resendFeedback && (
+                          <div
+                            className={`p-2.5 rounded-lg text-xs flex items-start gap-2 ${
+                              resendFeedback.type === 'success'
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                : 'bg-red-50 text-red-700 border border-red-200'
+                            }`}
+                          >
+                            {resendFeedback.type === 'success' ? (
+                              <CheckCircle2 size={14} className="shrink-0 mt-0.5 text-emerald-600" />
+                            ) : (
+                              <AlertTriangle size={14} className="shrink-0 mt-0.5 text-red-600" />
+                            )}
+                            <span>{resendFeedback.text}</span>
+                          </div>
+                        )}
+
+                        <Button
+                          type="submit"
+                          disabled={isResending}
+                          isLoading={isResending}
+                          className="w-full bg-agri-green-600 hover:bg-agri-green-700 text-white font-medium text-xs sm:text-sm py-2 flex items-center justify-center gap-2"
+                        >
+                          <Send size={15} />
+                          <span>{isResending ? 'Sending...' : 'Send New Confirmation Link'}</span>
+                        </Button>
+                      </form>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-2 pt-1">

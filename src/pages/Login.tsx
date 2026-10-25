@@ -122,6 +122,7 @@ export const Login: React.FC = () => {
           return;
         }
         const targetRole = selectedRole || Role.BUYER;
+        localStorage.setItem('agricycle_registered_email', email.trim());
         const { requiresEmailConfirmation } = await register(name, email, password, targetRole);
         if (requiresEmailConfirmation) {
           setInfoMessage(

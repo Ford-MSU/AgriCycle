@@ -39,16 +39,29 @@
                 Welcome to <strong>AgriCycle</strong>! Please confirm your email address (<strong style="color: #1f2937;">{{ .Email }}</strong>) to activate your account and access biomass listings, aggregation hub inventories, and trade inquiries.
               </p>
 
-              <!-- Primary Action Button -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 28px 0;">
+              <!-- Primary Action Button (Scanner-Immune TokenHash Link) -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 24px 0 16px 0;">
                 <tr>
                   <td align="center" style="border-radius: 8px; background-color: #2e7d32;">
-                    <a href="{{ .ConfirmationURL }}" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none; border-radius: 8px; background-color: #2e7d32; border: 1px solid #2e7d32; letter-spacing: 0.2px;">
+                    <a href="{{ .SiteURL }}/#/confirm-email?token_hash={{ .TokenHash }}&type=email" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none; border-radius: 8px; background-color: #2e7d32; border: 1px solid #2e7d32; letter-spacing: 0.2px;">
                       Confirm Email Address &rarr;
                     </a>
                   </td>
                 </tr>
               </table>
+
+              <!-- 6-Digit OTP Code Alternative (100% immune to scanner consumption) -->
+              <div style="background-color: #f7faf4; border: 2px dashed #2e7d32; border-radius: 10px; padding: 18px; text-align: center; margin: 20px 0;">
+                <p style="margin: 0 0 4px 0; font-size: 11px; font-weight: 700; color: #1e3a2f; text-transform: uppercase; letter-spacing: 1.2px;">
+                  Or use this 6-digit confirmation code
+                </p>
+                <div style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #2e7d32; padding: 6px 0;">
+                  {{ .Token }}
+                </div>
+                <p style="margin: 4px 0 0 0; font-size: 11px; color: #6b7280;">
+                  Enter this code in AgriCycle if your email security scanner blocks the link.
+                </p>
+              </div>
 
               <!-- Security Notice Callout -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f7faf4; border-left: 4px solid #2e7d32; border-radius: 4px; margin-bottom: 24px;">
@@ -66,7 +79,7 @@
                 Having trouble clicking the button? Copy and paste this URL into your browser:
               </p>
               <p style="margin: 0; font-size: 11px; line-height: 1.4; color: #2e7d32; word-break: break-all; background-color: #f3f4f6; padding: 8px 12px; border-radius: 6px; font-family: monospace;">
-                {{ .ConfirmationURL }}
+                {{ .SiteURL }}/#/confirm-email?token_hash={{ .TokenHash }}&type=email
               </p>
             </td>
           </tr>
