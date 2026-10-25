@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Scale,
   MapPin,
+  Map,
   Building,
   Filter,
   Layers,
@@ -187,7 +188,7 @@ export const Dashboard: React.FC = () => {
     });
 
     return Array.from(map.values())
-      .map((b) => ({
+      .map((b: { barangay: string; totalTonnes: number; availableTonnes: number; internalTonnes: number; count: number }) => ({
         ...b,
         totalTonnes: Math.round(b.totalTonnes * 10) / 10,
         availableTonnes: Math.round(b.availableTonnes * 10) / 10,
@@ -227,7 +228,7 @@ export const Dashboard: React.FC = () => {
     });
 
     return Array.from(map.values())
-      .map((e) => ({ ...e, totalTonnes: Math.round(e.totalTonnes * 10) / 10 }))
+      .map((e: { id: string; name: string; type: string; barangay: string; totalTonnes: number; recordCount: number }) => ({ ...e, totalTonnes: Math.round(e.totalTonnes * 10) / 10 }))
       .sort((a, b) => b.totalTonnes - a.totalTonnes)
       .slice(0, 5);
   }, [accessibleRecords, sources, locations, referenceData]);
@@ -605,7 +606,7 @@ export const Dashboard: React.FC = () => {
 
           {/* Top Producing Mills, Companies & Farms */}
           <Card className="flex flex-col">
-            <CardHeader className="pb-3 border-b border-gray-100 flex items-center justify-between">
+            <CardHeader className="pb-3 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Building className="text-agri-green-600" size={18} />
@@ -617,9 +618,11 @@ export const Dashboard: React.FC = () => {
               </div>
               <Link
                 to="/map"
-                className="text-xs font-semibold text-agri-green-600 hover:text-agri-green-700 flex items-center gap-1"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-agri-green-50 hover:border-agri-green-300 text-xs font-semibold text-agri-green-700 hover:text-agri-green-800 transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-agri-green-500 focus:ring-offset-1"
+                aria-label="View Map of top producing mills and farming groups"
               >
-                View Map <ExternalLink size={12} />
+                <Map size={13} className="text-agri-green-600 shrink-0" aria-hidden="true" />
+                <span>View Map</span>
               </Link>
             </CardHeader>
             <CardContent className="pt-4 flex-1">
