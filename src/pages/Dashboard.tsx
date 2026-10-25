@@ -12,7 +12,7 @@ import {
   MessageSquare,
   Scale,
   MapPin,
-  Map,
+  Map as MapIcon,
   Building,
   Filter,
   Layers,
@@ -621,7 +621,7 @@ export const Dashboard: React.FC = () => {
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-agri-green-50 hover:border-agri-green-300 text-xs font-semibold text-agri-green-700 hover:text-agri-green-800 transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-agri-green-500 focus:ring-offset-1"
                 aria-label="View Map of top producing mills and farming groups"
               >
-                <Map size={13} className="text-agri-green-600 shrink-0" aria-hidden="true" />
+                <MapIcon size={13} className="text-agri-green-600 shrink-0" aria-hidden="true" />
                 <span>View Map</span>
               </Link>
             </CardHeader>
