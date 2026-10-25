@@ -2,11 +2,13 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Role } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { fetchUserProfileFromSupabase } from '../services/agriCycleService';
+import { getAuthRedirectUrl } from '../utils/authRedirect';
 
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string, expectedRole?: Role) => Promise<void>;
   register: (name: string, email: string, password: string, role?: Role) => Promise<{ requiresEmailConfirmation: boolean }>;
+  resendConfirmationEmail: (email: string) => Promise<{ success: boolean; message: string }>;
   logout: () => Promise<void>;
   isLoading: boolean;
   isSupabaseAuth: boolean;
@@ -184,10 +186,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       if (isSupabaseConfigured && supabase) {
+        const emailRedirectTo = getAuthRedirectUrl('/confirm-email');
+
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
           options: {
+            emailRedirectTo,
             data: {
               name: name.trim(),
               role: role,
@@ -233,6 +238,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const resendConfirmationEmail = async (
+    email: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      throw new Error('Please enter a valid email address.');
+    }
+
+    if (isSupabaseConfigured && supabase) {
+      const emailRedirectTo = getAuthRedirectUrl('/confirm-email');
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: cleanEmail,
+        options: {
+          emailRedirectTo,
+        },
+      });
+
+      if (error) {
+        if (error.status === 429 || error.message.toLowerCase().includes('rate limit')) {
+          throw new Error(
+            'Too many requests. For security reasons, please wait a minute before requesting another confirmation email.'
+          );
+        }
+        throw new Error(error.message);
+      }
+
+      return {
+        success: true,
+        message: 'A replacement confirmation email has been dispatched. Please check your inbox.',
+      };
+    }
+
+    // Demo mode fallback
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    return {
+      success: true,
+      message: 'Demo mode: Replacement confirmation email simulated.',
+    };
+  };
+
   const logout = async () => {
     if (isSupabaseConfigured && supabase) {
       await supabase.auth.signOut();
@@ -247,6 +293,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         login,
         register,
+        resendConfirmationEmail,
         logout,
         isLoading,
         isSupabaseAuth: isSupabaseConfigured,

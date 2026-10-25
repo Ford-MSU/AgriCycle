@@ -294,7 +294,7 @@ export async function fetchAllDataFromSupabase(): Promise<AgriCycleDataset> {
 export async function fetchUserProfileFromSupabase(
   userId: string,
   email?: string,
-  fallbackRole: Role = Role.BUYER
+  fallbackRole?: Role
 ): Promise<User | null> {
   if (!isSupabaseConfigured || !supabase) return null;
 
@@ -313,8 +313,26 @@ export async function fetchUserProfileFromSupabase(
     return mapProfileRow(data);
   }
 
-  // If profile trigger hasn't created the row yet, create initial profile
+  // If profile trigger hasn't completed or row needs to be initialized,
+  // resolve the intended role from Auth metadata (never force BUYER if user registered as LGU or COORDINATOR)
   if (email) {
+    let resolvedRole: Role = fallbackRole || Role.BUYER;
+
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const metaRole = authData?.user?.user_metadata?.role || authData?.user?.user_metadata?.requested_role;
+      if (
+        metaRole === Role.ADMINISTRATOR ||
+        metaRole === Role.COORDINATOR ||
+        metaRole === Role.LGU ||
+        metaRole === Role.BUYER
+      ) {
+        resolvedRole = metaRole as Role;
+      }
+    } catch {
+      // Fallback
+    }
+
     const defaultName = email.split('@')[0];
     const { data: inserted, error: insertError } = await supabase
       .from('profiles')
@@ -322,12 +340,21 @@ export async function fetchUserProfileFromSupabase(
         id: userId,
         name: defaultName,
         email,
-        role: fallbackRole,
+        role: resolvedRole,
       })
       .select('*')
       .single();
 
     if (insertError) {
+      // If the database trigger inserted the row concurrently, re-fetch
+      const { data: recheckData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (recheckData) return mapProfileRow(recheckData);
+
       console.error('Error creating initial profile:', insertError.message);
       return null;
     }

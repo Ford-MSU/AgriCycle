@@ -17,6 +17,11 @@ import { Reports } from './pages/Reports';
 import { AuditLogs } from './pages/AuditLogs';
 import { UsersPage } from './pages/Users';
 import { Role } from './types';
+import { normalizeAuthRedirectHash } from './utils/authRedirect';
+
+// Normalize any incoming Supabase auth fragments (#access_token=... or #error=...)
+// so HashRouter routes directly to /confirm-email
+normalizeAuthRedirectHash();
 
 // Simple protected route wrapper
 const ProtectedRoute = ({ 

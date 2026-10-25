@@ -12,13 +12,24 @@ import {
   ArrowRight,
   ShieldCheck,
   MailCheck,
+  Send,
+  AlertTriangle,
+  RefreshCw,
+  Mail,
 } from 'lucide-react';
 
 export const ConfirmEmail: React.FC = () => {
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
   const [message, setMessage] = useState('Verifying your email address...');
   const [confirmedEmail, setConfirmedEmail] = useState<string | null>(null);
-  const { user } = useAuth();
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+
+  // Resend confirmation link state
+  const [resendEmail, setResendEmail] = useState('');
+  const [isResending, setIsResending] = useState(false);
+  const [resendFeedback, setResendFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const { user, resendConfirmationEmail } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -26,78 +37,141 @@ export const ConfirmEmail: React.FC = () => {
     let isSubscribed = true;
 
     const verifyConfirmation = async () => {
-      // 1. Check for URL error fragments / query parameters (e.g. #error=access_denied&error_description=...)
-      const fullUrl = window.location.href;
-      const hash = window.location.hash;
-      const search = window.location.search;
+      // 1. Inspect URL parameters across hash and search
+      const fullHash = window.location.hash || '';
+      const fullSearch = window.location.search || '';
 
-      const urlParams = new URLSearchParams(search);
-      const hashParams = new URLSearchParams(
-        hash.includes('#') ? hash.substring(hash.indexOf('#') + 1) : ''
-      );
+      // Parse query string inside hash (e.g., #/confirm-email?error_code=otp_expired)
+      let hashQuery = '';
+      if (fullHash.includes('?')) {
+        hashQuery = fullHash.substring(fullHash.indexOf('?') + 1);
+      } else if (fullHash.includes('#') && fullHash.indexOf('#') !== fullHash.lastIndexOf('#')) {
+        hashQuery = fullHash.substring(fullHash.lastIndexOf('#') + 1);
+      } else if (!fullHash.startsWith('#/')) {
+        hashQuery = fullHash.replace(/^#/, '');
+      }
 
-      const errorDescription =
-        urlParams.get('error_description') ||
-        hashParams.get('error_description') ||
-        urlParams.get('error') ||
+      const searchParams = new URLSearchParams(fullSearch);
+      const hashParams = new URLSearchParams(hashQuery);
+
+      const errCode =
+        searchParams.get('error_code') ||
+        hashParams.get('error_code') ||
+        searchParams.get('error') ||
         hashParams.get('error');
 
-      if (errorDescription) {
-        if (isSubscribed) {
-          setStatus('error');
-          setMessage(decodeURIComponent(errorDescription.replace(/\+/g, ' ')));
+      const rawDescription =
+        searchParams.get('error_description') ||
+        hashParams.get('error_description');
+
+      // Check for PKCE exchange code
+      const pkceCode = searchParams.get('code') || hashParams.get('code');
+
+      if (errCode || rawDescription) {
+        if (!isSubscribed) return;
+        setErrorCode(errCode);
+        setStatus('error');
+
+        const isExpiredOrInvalid =
+          errCode === 'otp_expired' ||
+          errCode === 'access_denied' ||
+          (rawDescription && /expired|invalid|already/i.test(rawDescription));
+
+        if (isExpiredOrInvalid) {
+          setMessage('Your email confirmation link is invalid or has expired. Please request a new confirmation email and try again.');
+        } else {
+          const decoded = rawDescription
+            ? decodeURIComponent(rawDescription.replace(/\+/g, ' '))
+            : 'Email verification could not be completed. Please try again.';
+          setMessage(decoded);
         }
         return;
       }
 
-      // 2. If Supabase is configured, check for active session or exchanged token
+      // 2. PKCE code exchange if present
+      if (pkceCode && isSupabaseConfigured && supabase) {
+        try {
+          const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(pkceCode);
+          if (exchangeError) {
+            if (!isSubscribed) return;
+            setStatus('error');
+            setMessage('Your email confirmation link is invalid or has expired. Please request a new confirmation email and try again.');
+            return;
+          }
+
+          if (exchangeData?.user) {
+            if (!isSubscribed) return;
+            setConfirmedEmail(exchangeData.user.email || null);
+            setStatus('success');
+            setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account.');
+
+            // Clean up credentials from URL bar
+            if (window.history && window.history.replaceState) {
+              window.history.replaceState(null, '', window.location.pathname + '#/confirm-email');
+            }
+            return;
+          }
+        } catch {
+          // Continue to fallback
+        }
+      }
+
+      // 3. Inspect active Supabase session or exchanged access token
       if (isSupabaseConfigured && supabase) {
         try {
-          const { data: { session }, error } = await supabase.auth.getSession();
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-          if (error) {
-            if (isSubscribed) {
-              setStatus('error');
-              setMessage(error.message);
-            }
+          if (sessionError) {
+            if (!isSubscribed) return;
+            setStatus('error');
+            setMessage(sessionError.message);
             return;
           }
 
           if (session?.user) {
-            if (isSubscribed) {
-              setConfirmedEmail(session.user.email || null);
-              setStatus('success');
-              setMessage('Your email address has been successfully verified.');
+            if (!isSubscribed) return;
+            setConfirmedEmail(session.user.email || null);
+            setStatus('success');
+            setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account.');
+
+            // Clean up tokens from hash
+            if (window.history && window.history.replaceState) {
+              window.history.replaceState(null, '', window.location.pathname + '#/confirm-email');
             }
             return;
           }
 
-          // Listen for incoming SIGNED_IN or USER_UPDATED event from token in URL
+          // Listen for incoming SIGNED_IN or USER_UPDATED event triggered by detectSessionInUrl
           const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             if (!isSubscribed) return;
             if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
               setConfirmedEmail(session?.user?.email || null);
               setStatus('success');
-              setMessage('Your email address has been successfully verified.');
+              setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account.');
+
+              if (window.history && window.history.replaceState) {
+                window.history.replaceState(null, '', window.location.pathname + '#/confirm-email');
+              }
             }
           });
 
-          // Timeout fallback in case no session event arrives within 4 seconds
-          setTimeout(() => {
+          // Timeout check
+          const timer = setTimeout(() => {
             if (isSubscribed && status === 'verifying') {
               if (user) {
                 setStatus('success');
                 setConfirmedEmail(user.email);
-                setMessage('Your email address has been confirmed.');
+                setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account.');
               } else {
-                // If no session found but no explicit error, still show friendly verification prompt
-                setStatus('success');
-                setMessage('Email confirmation request received. You may now sign in.');
+                // If no tokens were in URL and no session exists, guide user to sign in or resend
+                setStatus('error');
+                setMessage('No active verification credentials found in this link. Please request a new confirmation email or sign in.');
               }
             }
           }, 3500);
 
           return () => {
+            clearTimeout(timer);
             subscription.unsubscribe();
           };
         } catch (err: any) {
@@ -107,13 +181,14 @@ export const ConfirmEmail: React.FC = () => {
           }
         }
       } else {
-        // Fallback demo mode
-        setTimeout(() => {
+        // Offline / demo fallback mode
+        const timer = setTimeout(() => {
           if (isSubscribed) {
             setStatus('success');
-            setMessage('Your email address has been confirmed (Demo Mode).');
+            setMessage('Email confirmed successfully! You can now sign in to your AgriCycle account (Demo Mode).');
           }
-        }, 1200);
+        }, 800);
+        return () => clearTimeout(timer);
       }
     };
 
@@ -123,6 +198,27 @@ export const ConfirmEmail: React.FC = () => {
       isSubscribed = false;
     };
   }, [location, user]);
+
+  const handleResend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResendFeedback(null);
+
+    const emailToSend = resendEmail.trim() || confirmedEmail || user?.email || '';
+    if (!emailToSend || !emailToSend.includes('@')) {
+      setResendFeedback({ type: 'error', text: 'Please enter a valid email address.' });
+      return;
+    }
+
+    setIsResending(true);
+    try {
+      const result = await resendConfirmationEmail(emailToSend);
+      setResendFeedback({ type: 'success', text: result.message });
+    } catch (err: any) {
+      setResendFeedback({ type: 'error', text: err?.message || 'Failed to resend confirmation email.' });
+    } finally {
+      setIsResending(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-agri-cream-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
@@ -175,8 +271,8 @@ export const ConfirmEmail: React.FC = () => {
 
             <CardTitle className="text-xl font-bold text-gray-900">
               {status === 'verifying' && 'Verifying Email Confirmation'}
-              {status === 'success' && 'Email Successfully Verified!'}
-              {status === 'error' && 'Verification Issue'}
+              {status === 'success' && 'Email Confirmed Successfully!'}
+              {status === 'error' && 'Confirmation Link Issue'}
             </CardTitle>
 
             <CardDescription className="text-sm text-gray-600 mt-2">
@@ -191,7 +287,7 @@ export const ConfirmEmail: React.FC = () => {
                   <div className="flex items-center gap-3 p-3.5 bg-agri-green-50 border border-agri-green-200/80 rounded-xl text-sm text-agri-green-900">
                     <MailCheck className="w-5 h-5 text-agri-green-700 flex-shrink-0" />
                     <div className="overflow-hidden">
-                      <p className="text-xs text-agri-green-700 font-medium">Verified Account</p>
+                      <p className="text-xs text-agri-green-700 font-medium">Verified Email Account</p>
                       <p className="font-semibold truncate">{confirmedEmail}</p>
                     </div>
                   </div>
@@ -200,11 +296,11 @@ export const ConfirmEmail: React.FC = () => {
                 <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 text-xs text-gray-600 space-y-2">
                   <div className="flex items-start gap-2">
                     <ShieldCheck className="w-4 h-4 text-agri-green-600 mt-0.5 flex-shrink-0" />
-                    <span>Your account is now authenticated with full AgriCycle access.</span>
+                    <span>Your account credentials are verified and ready for sign-in.</span>
                   </div>
                   <div className="flex items-start gap-2">
                     <Leaf className="w-4 h-4 text-agri-green-600 mt-0.5 flex-shrink-0" />
-                    <span>Explore biomass listings, monitor aggregation hubs, or submit trade inquiries.</span>
+                    <span>Access verified regional biomass listings, aggregation hubs, and buyer inquiries.</span>
                   </div>
                 </div>
 
@@ -219,31 +315,81 @@ export const ConfirmEmail: React.FC = () => {
             )}
 
             {status === 'error' && (
-              <>
-                <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 space-y-2">
-                  <p className="font-semibold">Possible reasons:</p>
-                  <ul className="list-disc list-inside space-y-1 text-red-600">
-                    <li>This confirmation link has expired or has already been used.</li>
-                    <li>The URL was truncated or opened in a different browser session.</li>
-                  </ul>
+              <div className="space-y-5">
+                {/* Dedicated Resend Confirmation Email Form */}
+                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-700">
+                    <RefreshCw size={14} className="text-agri-green-600" />
+                    Request New Confirmation Email
+                  </div>
+                  <p className="text-xs text-gray-600">
+                    Enter the email address you registered with to receive a fresh verification link.
+                  </p>
+
+                  <form onSubmit={handleResend} className="space-y-3">
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                        <Mail size={16} />
+                      </div>
+                      <input
+                        type="email"
+                        value={resendEmail}
+                        onChange={(e) => setResendEmail(e.target.value)}
+                        placeholder="your.email@example.com"
+                        required
+                        className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-agri-green-500 focus:border-agri-green-500"
+                      />
+                    </div>
+
+                    {resendFeedback && (
+                      <div
+                        className={`p-3 rounded-lg text-xs flex items-start gap-2 ${
+                          resendFeedback.type === 'success'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-red-50 text-red-700 border border-red-200'
+                        }`}
+                      >
+                        {resendFeedback.type === 'success' ? (
+                          <CheckCircle2 size={15} className="shrink-0 mt-0.5 text-emerald-600" />
+                        ) : (
+                          <AlertTriangle size={15} className="shrink-0 mt-0.5 text-red-600" />
+                        )}
+                        <span>{resendFeedback.text}</span>
+                      </div>
+                    )}
+
+                    <Button
+                      type="submit"
+                      disabled={isResending}
+                      isLoading={isResending}
+                      className="w-full bg-agri-green-600 hover:bg-agri-green-700 text-white font-medium text-sm py-2 flex items-center justify-center gap-2"
+                    >
+                      <Send size={15} />
+                      <span>{isResending ? 'Sending...' : 'Send New Confirmation Link'}</span>
+                    </Button>
+                  </form>
                 </div>
 
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2 pt-1">
                   <Button
+                    variant="outline"
                     onClick={() => navigate('/login')}
-                    className="w-full bg-agri-green-600 hover:bg-agri-green-700 text-white font-medium"
+                    className="w-full border-gray-300 text-gray-700 hover:bg-gray-50"
                   >
                     Back to Sign In
                   </Button>
                 </div>
-              </>
+              </div>
             )}
 
             {status === 'verifying' && (
-              <div className="text-center py-2">
+              <div className="text-center py-2 space-y-2">
                 <p className="text-xs text-gray-500 animate-pulse">
                   Exchanging secure authentication credentials with Supabase...
                 </p>
+                <div className="w-16 h-1 bg-agri-green-100 rounded-full mx-auto overflow-hidden">
+                  <div className="w-8 h-full bg-agri-green-600 rounded-full animate-indeterminate" />
+                </div>
               </div>
             )}
           </CardContent>
@@ -251,7 +397,7 @@ export const ConfirmEmail: React.FC = () => {
 
         {/* Footer info */}
         <p className="text-center text-xs text-gray-500 mt-6">
-          Need help? Contact AgriCycle administrator support at{' '}
+          Need help? Contact AgriCycle support at{' '}
           <span className="font-medium text-agri-green-700">support@agricycle.org</span>
         </p>
       </div>

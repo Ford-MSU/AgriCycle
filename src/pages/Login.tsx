@@ -125,7 +125,7 @@ export const Login: React.FC = () => {
         const { requiresEmailConfirmation } = await register(name, email, password, targetRole);
         if (requiresEmailConfirmation) {
           setInfoMessage(
-            `Account created for ${getRoleShortName(targetRole)}! Please check your email inbox to confirm your registration before signing in.`
+            `Account created for ${getRoleShortName(targetRole)}! A confirmation link has been sent to ${email}. Please check your inbox and click the confirmation link before signing in.`
           );
           setIsRegisterMode(false);
         } else {
@@ -296,22 +296,38 @@ export const Login: React.FC = () => {
                   required
                 />
 
-                <Button type="submit" className="w-full" size="lg" isLoading={isLoading}>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  size="lg"
+                  isLoading={isLoading}
+                >
                   {isRegisterMode
                     ? `Register as ${getRoleShortName(selectedRole)}`
                     : `Sign In as ${getRoleShortName(selectedRole)}`}
                 </Button>
 
-                <div className="text-center pt-2 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={toggleRegisterMode}
-                    className="text-xs font-medium text-agri-green-700 hover:text-agri-green-800 transition-colors"
-                  >
-                    {isRegisterMode
-                      ? `Already have an account? Sign in as ${getRoleShortName(selectedRole)}`
-                      : `Don't have an account? Register as ${getRoleDisplayName(selectedRole)}`}
-                  </button>
+                <div className="text-center pt-2 border-t border-gray-100 space-y-2">
+                  <div>
+                    <button
+                      type="button"
+                      onClick={toggleRegisterMode}
+                      className="text-xs font-medium text-agri-green-700 hover:text-agri-green-800 transition-colors"
+                    >
+                      {isRegisterMode
+                        ? `Already have an account? Sign in as ${getRoleShortName(selectedRole)}`
+                        : `Don't have an account? Register as ${getRoleDisplayName(selectedRole)}`}
+                    </button>
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/confirm-email')}
+                      className="text-[11px] text-gray-500 hover:text-agri-green-700 transition-colors"
+                    >
+                      Need to confirm your email or link expired? Verify here &rarr;
+                    </button>
+                  </div>
                 </div>
               </form>
             </CardContent>

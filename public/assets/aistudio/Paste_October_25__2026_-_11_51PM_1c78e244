@@ -1,0 +1,665 @@
+# AgriCycle — Reviewer Feedback 6.0
+## Email Confirmation Redirect and Registration Role Assignment
+
+### PROJECT CONTEXT
+
+You are working on the existing **AgriCycle** web application, a community-based e-commerce marketplace for agricultural biomass waste in the circular economy.
+
+The application uses React/TypeScript and Supabase for authentication and database operations. It supports different user roles, including Buyer, LGU users, Cooperative/Hub Coordinators, and System Administrators.
+
+Your task is to resolve the issues described in Reviewer Feedback 6.0. Modify the existing project rather than rebuilding the application.
+
+**IMPORTANT:** Before implementing changes, inspect the current codebase, authentication flow, Supabase configuration, database schema, registration forms, role-management logic, and deployment setup. Reuse existing components, functions, tables, and conventions whenever appropriate.
+
+Do not assume that the current hosting provider, production URL, database schema, role names, or approval workflow are different from what already exists. Determine these from the project configuration and existing implementation.
+
+---
+
+# ISSUE 1: FIX THE EMAIL CONFIRMATION REDIRECT
+
+## 1.1 Current Problem
+
+When a user creates an account, AgriCycle sends an email containing a confirmation link.
+
+However, when the user clicks **Confirm Email Address**, the browser redirects to a URL similar to:
+
+`https://ford-msu.github.io/#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired&sb=`
+
+The browser displays:
+
+**404 — Site Not Found: There isn't a GitHub Pages site here.**
+
+This prevents the user from completing the expected email confirmation flow.
+
+The error contains two potentially related problems:
+
+1. The confirmation link redirects to a GitHub Pages address that does not appear to serve the expected AgriCycle confirmation route.
+2. The authentication response contains `otp_expired`, indicating that the confirmation link was considered invalid or expired.
+
+Do not assume that the hosting redirect is the only cause. Investigate both the redirect configuration and the confirmation-token handling.
+
+## 1.2 Investigate the Existing Authentication Flow
+
+Inspect the following areas before changing the code:
+
+- Registration forms and registration submission handlers.
+- Supabase client initialization and environment configuration.
+- The function that calls `supabase.auth.signUp()`.
+- Any existing `emailRedirectTo` configuration.
+- Supabase email templates, if accessible through the project's available configuration.
+- Supabase Authentication URL Configuration, if available.
+- Existing authentication callback routes or confirmation pages.
+- Existing React Router configuration or other routing mechanisms.
+- GitHub Pages configuration, deployment scripts, repository settings, and base paths, if GitHub Pages is used.
+- Existing login, logout, session initialization, and password recovery logic.
+- Existing error-handling and notification components.
+
+Determine the actual production deployment URL and the correct destination for email confirmation.
+
+If the necessary Supabase dashboard settings are not accessible from the codebase, identify the exact settings that need to be changed manually. Do not pretend that external dashboard settings have been modified when they have not.
+
+## 1.3 Correct the Confirmation Redirect
+
+Configure the registration and confirmation flow so that a newly registered user is redirected to the actual deployed AgriCycle application.
+
+Requirements:
+
+1. Use the application's verified deployment URL.
+2. Ensure the redirect destination is compatible with the current frontend routing structure.
+3. Ensure the redirect URL is permitted in Supabase Authentication's allowed redirect URLs.
+4. Update the registration flow to use the correct confirmation redirect, following the project's existing Supabase client and authentication patterns.
+5. If an authentication callback route is needed, implement it using the existing routing architecture.
+6. Ensure the callback route is available in the deployed application.
+7. If the application uses GitHub Pages, account for its deployment base path and client-side routing requirements. Do not assume that the root URL or a route beginning with `/` will resolve correctly under a repository-based GitHub Pages deployment.
+8. If the project uses another hosting provider, follow that provider's actual routing and deployment requirements.
+9. Preserve the existing authentication session and avoid unnecessary redirects or duplicate confirmation attempts.
+
+**Do not hardcode an invented production URL.** Inspect the project configuration first. If the correct deployment URL cannot be determined, make the redirect configurable through the project's existing environment-variable conventions and clearly identify the value that must be supplied.
+
+Do not expose service-role keys, secret API keys, or other sensitive configuration in frontend code.
+
+## 1.4 Implement the Confirmation Callback Correctly
+
+Review the confirmation mechanism supported by the existing Supabase setup and implement the appropriate callback behavior.
+
+The application must correctly handle the confirmation method currently configured in Supabase. Do not mix incompatible confirmation mechanisms or invent a token format.
+
+Depending on the existing configuration, the callback may need to handle:
+
+- A successful email confirmation.
+- A valid authentication code or token.
+- A confirmation link that has expired.
+- An invalid or already-used confirmation token.
+- A user whose email has already been confirmed.
+- A confirmation attempt that fails because of a network or server error.
+- A user who opens the confirmation link while already signed in.
+
+Requirements:
+
+1. Process confirmation credentials using the appropriate Supabase authentication method.
+2. Avoid processing the same confirmation token repeatedly.
+3. Do not assume that reaching the callback page means the email has been confirmed.
+4. Verify the resulting authentication state before displaying a success message or navigating to a protected area.
+5. Prevent confirmation errors from leaving the application in a broken or indefinite loading state.
+6. Clean up sensitive authentication parameters from the URL when appropriate and safe to do so.
+7. Avoid exposing authentication tokens in application logs, notifications, or unnecessary storage.
+8. Preserve existing session initialization and route protection.
+
+If a valid confirmation succeeds, display a clear message such as:
+
+**Email confirmed successfully! You can now sign in to your AgriCycle account.**
+
+If the existing authentication flow automatically signs users in after confirmation, preserve that behavior only if it is intentional and compatible with the current application design. Otherwise, direct the user to the login page.
+
+Do not automatically grant a role, bypass account approval, or provide access to protected features merely because the confirmation callback was opened.
+
+## 1.5 Handle Expired and Invalid Confirmation Links
+
+The application must provide a helpful recovery path when a confirmation link expires or cannot be used.
+
+Display an understandable message, such as:
+
+**Your email confirmation link is invalid or has expired. Please request a new confirmation email and try again.**
+
+Provide an appropriate action to request a new confirmation email.
+
+Requirements:
+
+- Reuse the existing registration or authentication UI where practical.
+- If necessary, implement a dedicated resend-confirmation action or page.
+- Request a new confirmation email through the appropriate Supabase authentication method.
+- Validate the email input.
+- Display a loading indicator while the request is being processed.
+- Prevent repeated submissions while a request is in progress.
+- Handle Supabase errors and rate limits gracefully.
+- Display a useful response without exposing sensitive account information.
+- Do not claim that a confirmation email was sent if the request failed.
+- Do not repeatedly send confirmation emails automatically in a loop.
+
+Where appropriate, use a generic response to avoid revealing whether an email address belongs to an existing account.
+
+**Security restriction:** Do not solve expired links by disabling email confirmation, automatically confirming every new user, accepting invalid tokens, or weakening authentication checks.
+
+## 1.6 Review the Registration and Login Experience
+
+Verify that the corrected confirmation flow integrates with the existing registration and login pages.
+
+The expected process is:
+
+1. A user opens the appropriate AgriCycle registration form.
+2. The user completes the required fields and submits the form.
+3. The application creates the account using the existing Supabase authentication process.
+4. The selected registration role is preserved according to the secure role-assignment workflow described in Issue 2.
+5. The application displays a message explaining that email confirmation is required.
+6. The user receives a confirmation email.
+7. The user clicks the confirmation link.
+8. The link opens the deployed AgriCycle application instead of a nonexistent page.
+9. The application validates the confirmation and processes the authentication response.
+10. The user receives a clear success message or is directed to the appropriate next step.
+11. The user can sign in and access only the features permitted by their assigned role and account status.
+
+Preserve existing login functionality, session persistence, logout behavior, and password recovery.
+
+Do not introduce a separate authentication system or duplicate the Supabase client.
+
+---
+
+# ISSUE 2: ASSIGN THE ROLE SELECTED DURING REGISTRATION
+
+## 2.1 Current Problem
+
+Currently, a newly registered account receives the Buyer role by default.
+
+The reviewer wants the role selected by the user during registration to determine the user's intended account type.
+
+For example:
+
+- A user registering through the LGU registration option should be associated with the LGU role.
+- A user registering through the Buyer registration option should be associated with the Buyer role.
+- A user registering through the Cooperative/Hub Coordinator registration option should be associated with the corresponding coordinator role.
+- Other existing registration options should follow the same principle, subject to the application's existing authorization and approval requirements.
+
+The role must remain correct after email confirmation, login, logout, page refresh, and session restoration.
+
+**The role must not be changed to Buyer simply because the user has just confirmed their email.**
+
+## 2.2 Inspect the Existing Role System
+
+Before modifying role assignment, inspect:
+
+- All existing registration pages and registration options.
+- The role selected or implied by each registration form.
+- Any registration dropdown, role selector, or role-specific registration route.
+- The function that creates Supabase Auth accounts.
+- Existing database tables that associate users with roles.
+- User profile creation and update logic.
+- Existing role enums, constraints, and database defaults.
+- Database triggers or functions that create user profiles.
+- Authentication state and current-user initialization.
+- Role-based route guards and navigation.
+- Row Level Security (RLS) policies.
+- Existing administrator approval or verification workflows.
+- Existing logic that assigns Buyer as the default role.
+- Existing logic that determines the role after email confirmation or login.
+
+Identify the actual source of the Buyer default. It may be implemented in the frontend, a database default, a database trigger, an account-creation function, or another part of the application.
+
+Fix the underlying cause rather than adding a temporary frontend override.
+
+Do not create a second role system if the project already has one.
+
+## 2.3 Preserve the Selected Registration Role
+
+Update the registration process so that it correctly identifies the role associated with the registration option the user selected.
+
+Examples:
+
+| Registration option | Expected role association |
+|---|---|
+| Buyer registration | Buyer |
+| LGU registration | LGU |
+| Cooperative/Hub Coordinator registration | Existing coordinator role |
+| Other existing registration options | Their corresponding existing roles and approval rules |
+
+These are examples of the intended behavior, not permission to invent new roles. Inspect the actual application and use its existing role names, identifiers, and supported registration options.
+
+Requirements:
+
+1. Determine the intended role from the selected registration option.
+2. Preserve the role throughout the account-creation and email-confirmation process.
+3. Store the role using the existing database structure and conventions.
+4. Ensure that role assignment does not depend solely on temporary React state or browser storage.
+5. Ensure that refreshing the page or opening the confirmation email in another browser does not lose the intended role.
+6. Ensure that the assigned role is retrieved from the authoritative account or profile record after authentication.
+7. Ensure that the user's role remains consistent across the dashboard, navigation, route guards, and database authorization.
+8. Do not overwrite an existing valid role with Buyer during email confirmation, login, or session restoration.
+9. Avoid creating duplicate profile or role records when the confirmation flow is retried.
+10. Preserve existing account information and unrelated user data.
+
+The role association must be persisted at the appropriate point in the registration workflow. Email confirmation should activate or confirm the account according to the existing authentication design; it should not arbitrarily replace the role.
+
+## 2.4 Assign Roles Securely
+
+**This is a security-sensitive change. Do not trust a role value merely because the frontend sends it.**
+
+A user must not be able to become an LGU user, Cooperative/Hub Coordinator, or System Administrator simply by modifying a browser request, changing local storage, or editing the registration form's submitted role value.
+
+Implement role assignment using the existing secure backend and database architecture.
+
+Requirements:
+
+1. Validate registration-role requests against the set of supported roles.
+2. Use the existing Supabase schema and role-management model.
+3. Apply server-side or database-level validation appropriate to the current architecture.
+4. Enforce permissions through Supabase RLS and the existing authorization mechanisms.
+5. Ensure users cannot update their own role to a more privileged role after registration.
+6. Ensure users cannot change another user's role.
+7. Ensure privileged roles cannot be self-assigned through unrestricted public registration.
+8. Preserve the existing administrator account and role-management procedures.
+9. Do not expose a Supabase service-role key or privileged database credentials in the browser.
+10. Do not weaken RLS policies or introduce unrestricted public database writes to make registration work.
+
+### Important distinction: selected role versus approved role
+
+Inspect whether the application currently requires approval for LGU users, Cooperative/Hub Coordinators, or other non-Buyer accounts.
+
+If a role requires approval, preserve that workflow.
+
+For example, the system may need to record the requested or intended role while keeping the account pending until an authorized administrator approves it.
+
+In that situation:
+
+- Preserve the role associated with the registration option.
+- Preserve the existing pending or approval status.
+- Do not automatically grant privileged permissions before approval.
+- Do not silently convert the user to Buyer.
+- Show an appropriate message explaining that the account is awaiting approval, if applicable.
+- Activate the corresponding permissions only when the existing approval requirements have been satisfied.
+
+If the application does not have an approval requirement for a particular role, follow its existing authorized registration process.
+
+Do not invent a new approval workflow unless the current application requires it or the existing workflow is demonstrably incomplete.
+
+## 2.5 Review Supabase Auth Metadata and Profile Storage
+
+Inspect how the current application stores user information.
+
+If the project uses Supabase Auth metadata, user profile records, or a separate role-assignment table, follow the existing architecture.
+
+Do not create unnecessary duplicate role fields across multiple tables.
+
+If the role is stored in a user profile table, ensure that the registration process creates or updates the correct profile record using the intended role.
+
+If the project uses a separate role table or another established authorization structure, preserve that design.
+
+If registration metadata is used to carry the requested role, treat user-provided metadata as an input that must be validated. Do not use freely editable user metadata as the sole source of authorization.
+
+The final authorization decision must come from the application's trusted role-assignment mechanism.
+
+If a database trigger or function currently assigns Buyer to every new account, inspect whether it can be safely updated to preserve the validated intended role. Check its dependencies and existing behavior before modifying it.
+
+Any schema changes must be compatible with existing users and existing database constraints.
+
+## 2.6 Correct Role Retrieval After Email Confirmation
+
+After successful confirmation, the application must retrieve the user's persisted role using the existing authentication and profile-loading process.
+
+The application must not assume that every newly authenticated account is a Buyer.
+
+Requirements:
+
+1. Retrieve the authenticated user's identity from Supabase.
+2. Load the corresponding role or role association from the authoritative source.
+3. Verify that the profile and role information belongs to the authenticated user.
+4. Handle cases where the profile has not yet been created.
+5. Handle missing, invalid, or inconsistent role information safely.
+6. Preserve pending approval states where applicable.
+7. Refresh the appropriate authentication or application state after profile information is loaded.
+8. Prevent a temporary default role from granting access while the actual role is still loading.
+9. Avoid infinite loading loops if profile retrieval fails.
+10. Avoid redirecting users to the wrong dashboard before their role has been determined.
+
+Use the existing role-based routing and dashboard architecture.
+
+If the user is an LGU user, the application should direct them to the existing LGU destination after successful authentication, subject to any required approval.
+
+Apply the corresponding behavior to other supported roles.
+
+Do not create duplicate dashboards or new role-specific pages when suitable pages already exist.
+
+## 2.7 Handle Missing or Invalid Role Records
+
+Implement safe behavior for unusual account states.
+
+Examples include:
+
+- The Auth account exists, but the corresponding profile has not been created.
+- The profile exists, but the role is missing.
+- The stored role does not match any supported role.
+- The user's role is awaiting administrator approval.
+- The profile query fails because of a network or database error.
+- A legacy account has an unexpected role value.
+
+Requirements:
+
+- Do not automatically grant a privileged role.
+- Do not silently overwrite a valid role.
+- Do not grant Buyer permissions as a fallback merely to avoid a loading error.
+- Use a safe fallback or recovery path consistent with the existing application.
+- Display an understandable message when user action is required.
+- Log diagnostic information only through appropriate, privacy-conscious mechanisms.
+- Do not expose internal database details or sensitive authentication information to the user.
+
+For legacy accounts, preserve existing valid roles. Only correct records when the underlying issue is understood and the correction can be made safely.
+
+---
+
+# ISSUE 3: MAINTAIN CONSISTENCY ACROSS REGISTRATION, CONFIRMATION, AND LOGIN
+
+Treat the email confirmation and role-assignment issues as parts of one authentication workflow.
+
+Review the complete flow rather than fixing the registration form alone.
+
+## 3.1 Expected Behavior
+
+The intended workflow is:
+
+1. The user selects the appropriate AgriCycle registration option.
+2. The user enters the required registration information.
+3. The application validates the submitted information.
+4. The application creates the Supabase Auth account.
+5. The intended role is securely associated with the account according to the existing authorization and approval rules.
+6. The application displays the email-confirmation instructions.
+7. The confirmation email contains the correct redirect destination.
+8. The user opens the email and clicks the confirmation link.
+9. The confirmation link opens the actual AgriCycle application.
+10. The application validates and processes the confirmation response.
+11. The application confirms the user's email if the token is valid.
+12. The application preserves the intended role and any existing approval status.
+13. The user signs in or continues through the existing post-confirmation flow.
+14. The application retrieves the user's persisted role and account status.
+15. The application directs the user to the correct existing destination.
+16. The user can access only the functionality authorized for their role and account status.
+
+This sequence must continue to work after refreshing the page or signing out and signing back in.
+
+## 3.2 Prevent Role Changes During Authentication
+
+Review all places where the role may be assigned or overwritten, including:
+
+- Registration submission.
+- Profile creation.
+- Database triggers.
+- Email confirmation callbacks.
+- Login handlers.
+- Authentication state listeners.
+- Session restoration.
+- Protected-route initialization.
+- Dashboard loading.
+- Profile update functions.
+
+Remove or correct any logic that unconditionally changes newly registered users to Buyer when that behavior conflicts with their intended role.
+
+Do not remove legitimate Buyer defaults for the Buyer registration option or unrelated legacy behavior that is still required.
+
+The goal is to eliminate incorrect role assignment without breaking existing account types.
+
+## 3.3 Preserve Existing User Accounts
+
+Implement changes in a backward-compatible manner wherever possible.
+
+Requirements:
+
+- Do not delete existing users.
+- Do not delete user profiles or role associations.
+- Do not reset existing user roles to their registration defaults.
+- Do not force existing users to register again.
+- Do not remove administrator permissions or existing role-management capabilities.
+- Do not invalidate existing sessions unnecessarily.
+- Do not alter unrelated user information.
+- Do not automatically promote or demote existing users.
+- Do not overwrite a valid role when a user logs in.
+- Preserve existing account approval and verification statuses.
+
+If a database migration is necessary, make it safe, minimal, and compatible with existing data.
+
+If existing accounts already have incorrect roles, do not perform a blanket automatic role correction. First determine whether the intended role can be established reliably from trusted records. If not, report the affected case and use the existing authorized administrative correction process.
+
+---
+
+# ISSUE 4: USER-FACING MESSAGES AND ERROR HANDLING
+
+Improve the authentication experience without redesigning the entire application.
+
+Use existing components, styling, and notification patterns.
+
+Provide clear messages for the following situations:
+
+| Situation | Expected behavior |
+|---|---|
+| Registration succeeds and email confirmation is required | Explain that the user must check their email. |
+| Email confirmation succeeds | Confirm success and explain the next step. |
+| Confirmation link is expired | Explain that the link expired and offer a way to request another. |
+| Confirmation link is invalid | Display a helpful error and recovery option. |
+| Confirmation request is already completed | Handle the state gracefully without breaking the application. |
+| Confirmation request encounters a network error | Explain that the request failed and provide an appropriate retry option. |
+| User's profile is still loading | Show a loading state without prematurely granting access. |
+| User's profile or role cannot be retrieved | Display an appropriate recovery message without granting additional permissions. |
+| Account is pending approval | Display the existing pending-approval state, if applicable. |
+| User is authenticated and their role is loaded | Navigate according to the existing role-based routing rules. |
+
+Do not expose raw Supabase errors, database schema details, access tokens, or internal credentials in user-facing messages.
+
+Preserve the application's existing visual design and responsiveness.
+
+---
+
+# ISSUE 5: TESTING AND ACCEPTANCE CRITERIA
+
+After implementing the changes, verify the following scenarios using the existing development and testing setup.
+
+Do not claim that a scenario passed unless it was actually tested.
+
+## Test Group A: Email Confirmation
+
+### Test A1 — New Buyer registration
+- Register a new Buyer account.
+- Confirm that the account is created successfully.
+- Confirm that the email-confirmation instructions are displayed.
+- Open the confirmation email.
+- Click the confirmation link.
+- Verify that it opens the deployed AgriCycle application.
+- Verify that no GitHub Pages 404 error occurs.
+- Confirm that the email is verified and the user can sign in.
+
+### Test A2 — New LGU registration
+- Register through the LGU registration option.
+- Confirm the email.
+- Verify that the confirmation process does not assign the Buyer role by default.
+- Verify that the intended LGU role association remains intact.
+- If administrator approval is required, verify that the account remains subject to that requirement.
+
+### Test A3 — New Cooperative/Hub Coordinator registration
+- Register through the existing coordinator registration option.
+- Confirm the email.
+- Verify that the intended coordinator role association is preserved.
+- Verify that the account receives only the permissions permitted by the existing approval workflow.
+
+### Test A4 — Expired confirmation link
+- Use a genuinely expired or otherwise invalid confirmation link in a controlled test.
+- Verify that the application displays a clear recovery message.
+- Request a new confirmation email.
+- Verify that the resend action reports its actual outcome.
+- Confirm that a valid replacement link works.
+
+Do not intentionally wait for a link to expire if the testing environment offers a safe way to simulate or test this condition.
+
+### Test A5 — Reused or already-consumed link
+- Test a confirmation link that has already been successfully used, where practical.
+- Verify that the application handles the response gracefully.
+- Ensure that duplicate confirmation attempts do not create duplicate profiles or change roles.
+
+### Test A6 — Login and session restoration
+- Sign in after successful confirmation.
+- Refresh the page.
+- Sign out and sign in again.
+- Verify that the correct role and account status are retrieved every time.
+
+## Test Group B: Role Assignment and Security
+
+### Test B1 — Registration role mapping
+Verify that each existing registration option maps to the correct intended role.
+
+At minimum, test the supported Buyer, LGU, and Cooperative/Hub Coordinator registration options.
+
+Test other registration options if they exist in the project.
+
+### Test B2 — Role persistence
+- Register an account.
+- Confirm the email.
+- Sign in.
+- Refresh the page.
+- Sign out.
+- Sign in again.
+- Verify that the intended role remains consistent throughout the process.
+
+### Test B3 — Role tampering
+- Attempt to change the submitted role through browser tools or a modified registration request.
+- Verify that an unauthorized user cannot obtain a privileged role.
+- Attempt to modify a user's stored role through an unauthorized database operation.
+- Verify that RLS and existing authorization controls prevent the modification.
+
+Only perform these tests in an authorized development or test environment.
+
+### Test B4 — Administrator protection
+- Verify that public registration cannot grant System Administrator privileges without the existing authorized process.
+- Verify that existing administrator accounts retain their roles.
+- Verify that the current administrator role-management workflow continues to function.
+
+### Test B5 — Approval workflow
+If any registration type requires administrator approval:
+- Register a user through that option.
+- Confirm the email.
+- Verify that email confirmation does not bypass approval.
+- Verify that the user receives only the access permitted by their current account status.
+- Verify that the existing approval workflow still functions.
+
+### Test B6 — Missing profile or role
+- Test a controlled case where the profile is unavailable or the role cannot be retrieved.
+- Verify that the application does not automatically grant Buyer or privileged access as an unsafe fallback.
+- Verify that the user receives a reasonable recovery path.
+
+## Test Group C: Regression Testing
+
+Verify that the changes do not break:
+
+- Existing Buyer login.
+- Existing LGU login.
+- Existing Cooperative/Hub Coordinator login.
+- Existing System Administrator login.
+- Logout and session restoration.
+- Protected routes.
+- Role-based navigation.
+- User profile retrieval.
+- Existing account approval workflows.
+- Password recovery.
+- Registration validation.
+- Supabase RLS policies.
+- Existing database relationships and constraints.
+
+Test only the features that exist in the current application, and report any feature that could not be verified.
+
+---
+
+# IMPLEMENTATION RULES
+
+Follow these rules throughout the implementation.
+
+### Rule 1 — Inspect before modifying
+Identify the relevant files, functions, database tables, triggers, and configuration before changing anything.
+
+### Rule 2 — Preserve the current architecture
+Use the existing React/TypeScript and Supabase implementation. Do not rebuild the application or introduce a separate authentication system.
+
+### Rule 3 — Fix the root causes
+Correct the redirect configuration, callback handling, and role-assignment logic. Do not hide errors or implement a frontend-only workaround.
+
+### Rule 4 — Protect privileged roles
+Never trust an unvalidated client-supplied role as authorization. Preserve backend validation, RLS, and existing approval requirements.
+
+### Rule 5 — Preserve existing data
+Do not delete, recreate, or indiscriminately update user accounts, profiles, or role associations.
+
+### Rule 6 — Avoid unrelated changes
+Do not redesign unrelated pages, change the application's branding, or modify unrelated AgriCycle features.
+
+### Rule 7 — Keep configuration secure
+Do not place Supabase service-role keys, private credentials, or other secrets in client-side code.
+
+### Rule 8 — Do not invent deployment details
+Use the verified production URL and existing routing setup. If the necessary configuration is unavailable, clearly identify what needs to be configured.
+
+### Rule 9 — Handle database changes carefully
+If schema modifications are necessary, inspect dependencies and existing records first. Use a migration that preserves data and does not weaken constraints or RLS.
+
+### Rule 10 — Report actual results
+Do not claim that the confirmation email, deployment, Supabase dashboard, or production environment has been fixed unless the relevant configuration was actually changed and verified.
+
+---
+
+# REQUIRED FINAL REPORT
+
+After implementation, provide a concise but detailed report containing the following sections.
+
+## 1. Root Causes Identified
+Explain:
+- Why the confirmation link was redirecting to the incorrect or unavailable destination.
+- Whether the expired-token error was caused by the redirect configuration, an expired or reused link, callback handling, or another verified issue.
+- Why Buyer was being assigned by default.
+- Which part of the system was responsible for the incorrect role assignment.
+
+Distinguish verified causes from suspected causes.
+
+## 2. Files Modified
+List each modified file and explain its purpose.
+
+## 3. Database and Supabase Configuration Changes
+Describe:
+- Any database migrations or function changes.
+- Any role-assignment changes.
+- Any RLS or authorization changes.
+- Any Supabase Authentication URL Configuration changes.
+- Any email-template changes.
+- Any deployment or routing configuration changes.
+
+Clearly separate changes completed in code from changes that still require manual configuration in Supabase or the hosting provider.
+
+## 4. Final Authentication Flow
+Explain how registration, email confirmation, role persistence, and login now work together.
+
+## 5. Testing Results
+Report each relevant test as one of the following:
+- **Passed** — executed successfully.
+- **Failed** — executed and did not behave as expected.
+- **Not run** — not executed.
+- **Not verified** — could not be confirmed with the available environment or permissions.
+
+Do not mark a test as passed merely because the code appears correct.
+
+## 6. Remaining Actions
+List any manual steps required before deployment, such as updating allowed redirect URLs, verifying email templates, configuring hosting routes, or setting environment variables.
+
+## 7. Known Limitations
+Identify anything that could not be verified because the required dashboard access, deployment access, email testing, or database permissions were unavailable.
+
+---
+
+# FINAL OBJECTIVE
+
+Successfully resolve both items in Reviewer Feedback 6.0.
+
+**First:** Make the email confirmation link open the correct deployed AgriCycle application, handle valid and expired confirmation links appropriately, and provide a reliable recovery path.
+
+**Second:** Ensure the role selected through the user's registration option is correctly and securely associated with their account, remains intact after email confirmation and login, and follows all existing authorization and approval rules.
+
+The finished implementation must preserve existing user data, protect privileged roles, maintain compatibility with the current AgriCycle architecture, and avoid breaking unrelated functionality.
