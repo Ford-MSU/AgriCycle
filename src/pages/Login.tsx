@@ -16,8 +16,11 @@ import {
   Building,
   ArrowLeft,
   User as UserIcon,
+  Info,
+  CheckCircle2,
+  Sparkles,
 } from 'lucide-react';
-import { Role } from '../types';
+import { Role, EXISTING_TEST_ACCOUNTS } from '../types';
 
 const ROLE_OPTIONS = [
   { id: Role.ADMINISTRATOR, name: 'Administrator', icon: Shield, desc: 'Manage users, roles, settings, data & audit logs' },
@@ -28,6 +31,8 @@ const ROLE_OPTIONS = [
 
 export const Login: React.FC = () => {
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+  const [loginMode, setLoginMode] = useState<'TEST_ACCOUNT' | 'STANDARD_CREDENTIALS'>('TEST_ACCOUNT');
+  const [displayName, setDisplayName] = useState('');
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -35,7 +40,7 @@ export const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
-  const { login, register, isLoading, isSupabaseAuth } = useAuth();
+  const { login, loginWithTestAccount, register, isLoading, isSupabaseAuth } = useAuth();
   const navigate = useNavigate();
 
   const getRoleDisplayName = (role: Role | null) => {
@@ -70,18 +75,22 @@ export const Login: React.FC = () => {
 
   const handleRoleSelect = (role: Role) => {
     setSelectedRole(role);
+    setLoginMode('TEST_ACCOUNT');
     setIsRegisterMode(false);
+    setDisplayName('');
     setError('');
     setInfoMessage('');
+    setEmail('');
+    setPassword('');
+  };
 
-    if (!isSupabaseAuth) {
-      const rolePrefix = role.toLowerCase().replace('_', '');
-      setEmail(`${rolePrefix}@test.com`);
-      setPassword('password');
-    } else {
-      setEmail('');
-      setPassword('');
-    }
+  const handleBackToRoleSelection = () => {
+    setSelectedRole(null);
+    setLoginMode('TEST_ACCOUNT');
+    setIsRegisterMode(false);
+    setDisplayName('');
+    setError('');
+    setInfoMessage('');
   };
 
   const toggleRegisterMode = () => {
@@ -89,19 +98,10 @@ export const Login: React.FC = () => {
     setIsRegisterMode(nextMode);
     setError('');
     setInfoMessage('');
-
-    if (!isSupabaseAuth) {
-      if (nextMode) {
-        // Clear for fresh registration
-        setName('');
-        setEmail('');
-        setPassword('');
-      } else if (selectedRole) {
-        // Restore demo credentials
-        const rolePrefix = selectedRole.toLowerCase().replace('_', '');
-        setEmail(`${rolePrefix}@test.com`);
-        setPassword('password');
-      }
+    if (nextMode) {
+      setName('');
+      setEmail('');
+      setPassword('');
     }
   };
 
@@ -110,6 +110,41 @@ export const Login: React.FC = () => {
     setError('');
     setInfoMessage('');
 
+    if (!selectedRole) {
+      setError('Please select a portal role first.');
+      return;
+    }
+
+    // 1. Primary Testing Login Mode (Role + Custom Display Name -> Existing Test Account)
+    if (loginMode === 'TEST_ACCOUNT') {
+      const trimmed = displayName.trim();
+      if (!trimmed) {
+        setError('Please enter your preferred display name.');
+        return;
+      }
+      if (trimmed.length < 2) {
+        setError('Display name must be at least 2 characters long.');
+        return;
+      }
+      if (trimmed.length > 50) {
+        setError('Display name must be 50 characters or fewer.');
+        return;
+      }
+      if (/[<>{}]/g.test(trimmed)) {
+        setError('Display name cannot contain script or HTML characters.');
+        return;
+      }
+
+      try {
+        await loginWithTestAccount(selectedRole, trimmed);
+        navigate('/');
+      } catch (err: any) {
+        setError(err?.message || 'Failed to authenticate testing session.');
+      }
+      return;
+    }
+
+    // 2. Standard Credentials Login / Registration Mode
     if (!email || !password) {
       setError('Please provide your email and password.');
       return;
@@ -140,7 +175,7 @@ export const Login: React.FC = () => {
       const rawMsg = err?.message || '';
       if (rawMsg.toLowerCase().includes('error sending confirmation email')) {
         setError(
-          'Email delivery failed: Supabase could not dispatch the confirmation email. Please check your Custom SMTP settings (Host, Port, or App Password) in the Supabase Dashboard, or disable "Confirm email" under Auth > Providers > Email for testing.'
+          'Email delivery failed: Supabase could not dispatch the confirmation email. Please check your Custom SMTP settings in the Supabase Dashboard, or disable "Confirm email" under Auth > Providers > Email for testing.'
         );
       } else {
         setError(
@@ -152,6 +187,8 @@ export const Login: React.FC = () => {
       }
     }
   };
+
+  const activeTestAccount = selectedRole ? EXISTING_TEST_ACCOUNTS[selectedRole] : null;
 
   return (
     <div className="min-h-screen bg-agri-green-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
@@ -177,9 +214,7 @@ export const Login: React.FC = () => {
             <CardHeader className="pb-4">
               <CardTitle className="text-xl text-center">Select Your Portal</CardTitle>
               <CardDescription className="text-center">
-                {isSupabaseAuth
-                  ? 'Select a portal to sign in with your registered account (permissions are enforced by your database profile role)'
-                  : 'Choose a persona to explore the prototype'}
+                Choose a persona to sign in with an existing authorized test account using your custom display name
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -207,12 +242,7 @@ export const Login: React.FC = () => {
             <CardHeader>
               <div className="flex items-center justify-between mb-2">
                 <button
-                  onClick={() => {
-                    setSelectedRole(null);
-                    setIsRegisterMode(false);
-                    setError('');
-                    setInfoMessage('');
-                  }}
+                  onClick={handleBackToRoleSelection}
                   className="p-1.5 -ml-1.5 text-agri-earth-500 hover:text-agri-green-600 hover:bg-agri-green-50 rounded-md transition-colors"
                   aria-label="Back to role selection"
                 >
@@ -222,25 +252,26 @@ export const Login: React.FC = () => {
                   {ROLE_OPTIONS.find((r) => r.id === selectedRole)?.name}
                 </div>
               </div>
+
               <CardTitle className="text-xl">
-                {isRegisterMode
+                {loginMode === 'TEST_ACCOUNT'
+                  ? `Sign in as ${getRoleShortName(selectedRole)}`
+                  : isRegisterMode
                   ? `Register as ${getRoleDisplayName(selectedRole)}`
                   : `Sign in as ${getRoleShortName(selectedRole)}`}
               </CardTitle>
+
               <CardDescription className="text-sm mt-1">
-                {isRegisterMode
-                  ? selectedRole === Role.ADMINISTRATOR
-                    ? 'Create an administrator account to oversee users, hubs, and system compliance.'
-                    : selectedRole === Role.COORDINATOR
-                    ? 'Create a coordinator account to manage biomass aggregation and listings.'
-                    : selectedRole === Role.LGU
-                    ? 'Create an institutional validator account to monitor and verify regional biomass records.'
-                    : 'Create a buyer account to browse biomass listings and submit commercial inquiries.'
-                  : isSupabaseAuth
-                  ? `Enter your credentials for ${getRoleShortName(selectedRole)} access.`
-                  : 'Test credentials have been pre-filled for this role.'}
+                {loginMode === 'TEST_ACCOUNT'
+                  ? `Enter your preferred display name to test the ${getRoleShortName(
+                      selectedRole
+                    )} portal using the existing test account.`
+                  : isRegisterMode
+                  ? 'Create an independent account with permanent credentials.'
+                  : `Enter credentials for ${getRoleShortName(selectedRole)} access.`}
               </CardDescription>
             </CardHeader>
+
             <CardContent>
               <form className="space-y-5" onSubmit={handleSubmit}>
                 {error && (
@@ -255,80 +286,164 @@ export const Login: React.FC = () => {
                   </div>
                 )}
 
-                {isRegisterMode && (
-                  <Input
-                    label="Full Name / Organization"
-                    type="text"
-                    placeholder="Enter your name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    icon={<UserIcon size={18} />}
-                    required
-                  />
-                )}
+                {/* Controlled Testing Mode: Enter Custom Display Name */}
+                {loginMode === 'TEST_ACCOUNT' ? (
+                  <>
+                    <div className="rounded-lg bg-agri-cream-100/70 border border-agri-cream-300 p-3 text-xs text-agri-earth-700 space-y-1.5">
+                      <div className="flex items-center gap-1.5 font-semibold text-agri-green-800">
+                        <Sparkles size={14} className="text-agri-green-600" />
+                        Testing Account Mapping
+                      </div>
+                      <div className="flex justify-between items-center text-[11px] pt-0.5">
+                        <span className="text-gray-500">Selected Portal Role:</span>
+                        <span className="font-semibold text-gray-800">
+                          {ROLE_OPTIONS.find((r) => r.id === selectedRole)?.name}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-gray-500">Underlying Account:</span>
+                        <span className="font-mono text-agri-green-700 font-medium">
+                          {activeTestAccount?.email}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-agri-earth-500 pt-1 border-t border-agri-cream-200">
+                        Your entered name is a testing session override displayed across the interface. The existing account's role, permissions, and database records remain unchanged.
+                      </p>
+                    </div>
 
-                <Input
-                  label="Email Address"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  icon={<Mail size={18} />}
-                  required
-                />
+                    <Input
+                      label="Enter Your Display Name"
+                      type="text"
+                      placeholder="Enter your name or preferred username"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      icon={<UserIcon size={18} />}
+                      required
+                      autoFocus
+                    />
 
-                <Input
-                  label="Password"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  icon={<Lock size={18} />}
-                  suffix={
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="hover:text-agri-green-600 focus:outline-none"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    <p className="text-[11px] text-gray-500 -mt-3">
+                      This name will appear on the dashboard welcome message, sidebar, and header.
+                    </p>
+
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      size="lg"
+                      isLoading={isLoading}
                     >
-                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  }
-                  required
-                />
+                      Sign In as {getRoleShortName(selectedRole)}
+                    </Button>
 
-                <Button
-                  type="submit"
-                  className="w-full"
-                  size="lg"
-                  isLoading={isLoading}
-                >
-                  {isRegisterMode
-                    ? `Register as ${getRoleShortName(selectedRole)}`
-                    : `Sign In as ${getRoleShortName(selectedRole)}`}
-                </Button>
+                    <div className="text-center pt-2 border-t border-gray-100 space-y-2">
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLoginMode('STANDARD_CREDENTIALS');
+                            setError('');
+                            setInfoMessage('');
+                          }}
+                          className="text-xs font-medium text-agri-earth-600 hover:text-agri-green-700 transition-colors"
+                        >
+                          Need email/password credentials? Switch to Standard Sign In &rarr;
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* Standard Credentials Login & Registration Mode */
+                  <>
+                    {isRegisterMode && (
+                      <Input
+                        label="Full Name / Organization"
+                        type="text"
+                        placeholder="Enter your name"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        icon={<UserIcon size={18} />}
+                        required
+                      />
+                    )}
 
-                <div className="text-center pt-2 border-t border-gray-100 space-y-2">
-                  <div>
-                    <button
-                      type="button"
-                      onClick={toggleRegisterMode}
-                      className="text-xs font-medium text-agri-green-700 hover:text-agri-green-800 transition-colors"
+                    <Input
+                      label="Email Address"
+                      type="email"
+                      placeholder="Enter your email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      icon={<Mail size={18} />}
+                      required
+                    />
+
+                    <Input
+                      label="Password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      icon={<Lock size={18} />}
+                      suffix={
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="hover:text-agri-green-600 focus:outline-none"
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      }
+                      required
+                    />
+
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      size="lg"
+                      isLoading={isLoading}
                     >
                       {isRegisterMode
-                        ? `Already have an account? Sign in as ${getRoleShortName(selectedRole)}`
-                        : `Don't have an account? Register as ${getRoleDisplayName(selectedRole)}`}
-                    </button>
-                  </div>
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/confirm-email')}
-                      className="text-[11px] text-gray-500 hover:text-agri-green-700 transition-colors"
-                    >
-                      Need to confirm your email or link expired? Verify here &rarr;
-                    </button>
-                  </div>
+                        ? `Register as ${getRoleShortName(selectedRole)}`
+                        : `Sign In with Credentials`}
+                    </Button>
+
+                    <div className="text-center pt-2 border-t border-gray-100 space-y-2">
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLoginMode('TEST_ACCOUNT');
+                            setError('');
+                            setInfoMessage('');
+                          }}
+                          className="text-xs font-semibold text-agri-green-700 hover:text-agri-green-800 transition-colors"
+                        >
+                          &larr; Back to Testing Login with Display Name
+                        </button>
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={toggleRegisterMode}
+                          className="text-xs font-medium text-agri-earth-600 hover:text-agri-green-700 transition-colors"
+                        >
+                          {isRegisterMode
+                            ? `Already have an account? Sign in with email`
+                            : `Don't have an account? Register as ${getRoleDisplayName(selectedRole)}`}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="text-center pt-1 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/confirm-email')}
+                    className="text-[11px] text-gray-500 hover:text-agri-green-700 transition-colors"
+                  >
+                    Need to confirm your email or link expired? Verify here &rarr;
+                  </button>
                 </div>
               </form>
             </CardContent>
