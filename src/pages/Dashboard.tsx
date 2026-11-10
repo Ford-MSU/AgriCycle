@@ -56,6 +56,8 @@ export const Dashboard: React.FC = () => {
         (r) =>
           r.submitterId === user.id ||
           r.submitterId === user.name ||
+          (user.originalName && r.submitterId === user.originalName) ||
+          r.submitterId === 'user-coord' ||
           r.sourceId.includes('src-1') ||
           r.sourceId.includes('src-2') ||
           getSource(r.sourceId)?.cooperativeId === user.organizationId
@@ -69,7 +71,13 @@ export const Dashboard: React.FC = () => {
 
   const accessibleInquiries = useMemo(() => {
     if (user.role === Role.BUYER) {
-      return inquiries.filter((i) => i.buyerUserId === user.id || i.buyerUserId === user.name);
+      return inquiries.filter(
+        (i) =>
+          i.buyerUserId === user.id ||
+          i.buyerUserId === user.name ||
+          (user.originalName && i.buyerUserId === user.originalName) ||
+          i.buyerUserId === 'user-buyer'
+      );
     }
     if (user.role === Role.COORDINATOR) {
       return inquiries.filter((i) => {
@@ -78,7 +86,15 @@ export const Dashboard: React.FC = () => {
           return rec && accessibleRecords.some((ar) => ar.id === rec.id);
         }
         const grp = getAggregationGroup(i.targetId);
-        return grp && (grp.createdBy === user.id || grp.hubId === user.organizationId || grp.hubId === 'org-2');
+        return (
+          grp &&
+          (grp.createdBy === user.id ||
+            grp.createdBy === user.name ||
+            (user.originalName && grp.createdBy === user.originalName) ||
+            grp.createdBy === 'user-coord' ||
+            grp.hubId === user.organizationId ||
+            grp.hubId === 'org-2')
+        );
       });
     }
     return inquiries;
@@ -235,7 +251,13 @@ export const Dashboard: React.FC = () => {
 
   const totalUsers = profiles.length > 0 ? profiles.length : 4;
   const totalSources = new Set(accessibleRecords.map((r) => r.sourceId)).size;
-  const mySubmissions = records.filter((r) => r.submitterId === user.id || r.submitterId === user.name).length;
+  const mySubmissions = records.filter(
+    (r) =>
+      r.submitterId === user.id ||
+      r.submitterId === user.name ||
+      (user.originalName && r.submitterId === user.originalName) ||
+      (user.role === Role.COORDINATOR && r.submitterId === 'user-coord')
+  ).length;
   const pendingValidation = records.filter((r) => r.status === RecordStatus.SUBMITTED).length;
   const validatedRecords = accessibleRecords.filter((r) => r.status === RecordStatus.VALIDATED).length;
 
@@ -253,9 +275,16 @@ export const Dashboard: React.FC = () => {
       const lowerLog = logUserId.toLowerCase();
       const lowerUid = (user.id || '').toLowerCase();
       const lowerName = (user.name || '').toLowerCase();
+      const lowerOrig = (user.originalName || '').toLowerCase();
       const lowerEmail = (user.email || '').toLowerCase();
 
-      if (lowerLog === lowerUid || lowerLog === lowerName || lowerLog === lowerEmail) return true;
+      if (
+        lowerLog === lowerUid ||
+        lowerLog === lowerName ||
+        (lowerOrig && lowerLog === lowerOrig) ||
+        lowerLog === lowerEmail
+      )
+        return true;
       if (lowerLog.includes(lowerUid) || (lowerUid && lowerUid.includes(lowerLog))) return true;
 
       if (user.role === Role.COORDINATOR && (lowerLog.includes('coord') || lowerLog.includes('nitronford') || lowerLog.includes('clara'))) return true;
@@ -346,14 +375,27 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-3">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
-            {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS) ? 'System Overview' : 'My Dashboard'}
+            Welcome, {user.name}!
           </h2>
-          <p className="text-sm text-agri-earth-500 mt-1 capitalize">
-            {user.role.toLowerCase().replace(/_/g, ' ')} Portal &bull; Recorded Biomass Information
-          </p>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <span className="text-sm font-semibold text-agri-green-700 capitalize">
+              {user.role.toLowerCase().replace(/_/g, ' ')} Portal
+            </span>
+            <span className="text-gray-300">&bull;</span>
+            <span className="text-sm text-agri-earth-600">
+              {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS)
+                ? 'System Overview & Central Operations'
+                : 'Recorded Biomass Information'}
+            </span>
+            {user.displayNameOverride && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-agri-cream-200/90 text-agri-earth-800 border border-agri-cream-300">
+                Testing Session ({user.originalName || 'Test Account'})
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
