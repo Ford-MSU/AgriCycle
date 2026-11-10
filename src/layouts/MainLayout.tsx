@@ -180,8 +180,13 @@ export const MainLayout: React.FC = () => {
                 <UserIcon size={16} />
               </div>
               <div className="overflow-hidden">
-                <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
-                <p className="text-xs text-agri-earth-500 capitalize">{user?.role.toLowerCase().replace(/_/g, ' ')}</p>
+                <p className="text-sm font-semibold text-gray-900 truncate">{user?.name}</p>
+                <p className="text-xs text-agri-earth-600 capitalize font-medium">{user?.role.toLowerCase().replace(/_/g, ' ')}</p>
+                {user?.displayNameOverride && (
+                  <p className="text-[10px] text-agri-green-700 truncate font-mono mt-0.5" title={`Testing Session for ${user.originalName || user.email}`}>
+                    Acct: {user.originalName || user.email}
+                  </p>
+                )}
               </div>
             </div>
             <button
@@ -311,8 +316,15 @@ export const MainLayout: React.FC = () => {
             </div>
 
             <div className="hidden sm:flex items-center gap-2 border-l border-agri-green-100 pl-4">
-              <span className="text-sm font-medium text-gray-700">{user?.name}</span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-agri-green-100 text-agri-green-800 capitalize">
+              <div className="text-right">
+                <span className="text-sm font-semibold text-gray-800 block leading-tight">{user?.name}</span>
+                {user?.displayNameOverride && (
+                  <span className="text-[10px] text-agri-earth-500 font-mono block leading-tight">
+                    {user.originalName || user.email}
+                  </span>
+                )}
+              </div>
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-agri-green-100 text-agri-green-800 capitalize">
                 {user?.role.toLowerCase().replace(/_/g, ' ')}
               </span>
             </div>
