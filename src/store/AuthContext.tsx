@@ -1,12 +1,55 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Role } from '../types';
+import { User, Role, EXISTING_TEST_ACCOUNTS } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { fetchUserProfileFromSupabase } from '../services/agriCycleService';
 import { getAuthRedirectUrl } from '../utils/authRedirect';
 
+const SESSION_DISPLAY_OVERRIDE_KEY = 'agricycle_display_name_override';
+
+function getSessionDisplayNameOverride(): string | null {
+  try {
+    return sessionStorage.getItem(SESSION_DISPLAY_OVERRIDE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setSessionDisplayNameOverride(name: string): void {
+  try {
+    sessionStorage.setItem(SESSION_DISPLAY_OVERRIDE_KEY, name);
+  } catch {
+    // Ignore storage quota or security errors
+  }
+}
+
+function clearSessionDisplayNameOverride(): void {
+  try {
+    sessionStorage.removeItem(SESSION_DISPLAY_OVERRIDE_KEY);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function applySessionDisplayName(baseUser: User): User {
+  const override = getSessionDisplayNameOverride();
+  if (override && override.trim()) {
+    return {
+      ...baseUser,
+      originalName: baseUser.originalName || baseUser.name,
+      displayNameOverride: override.trim(),
+      name: override.trim(),
+    };
+  }
+  return {
+    ...baseUser,
+    originalName: baseUser.originalName || baseUser.name,
+  };
+}
+
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string, expectedRole?: Role) => Promise<void>;
+  loginWithTestAccount: (role: Role, customDisplayName: string) => Promise<void>;
   register: (name: string, email: string, password: string, role?: Role) => Promise<{ requiresEmailConfirmation: boolean }>;
   resendConfirmationEmail: (email: string) => Promise<{ success: boolean; message: string }>;
   logout: () => Promise<void>;
@@ -15,6 +58,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -39,14 +83,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             try {
               const profile = await fetchUserProfileFromSupabase(session.user.id, session.user.email);
               if (isMounted) {
-                setUser(
-                  profile || {
-                    id: session.user.id,
-                    name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
-                    email: session.user.email || '',
-                    role: Role.BUYER,
-                  }
-                );
+                const baseUser: User = profile || {
+                  id: session.user.id,
+                  name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
+                  originalName: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
+                  email: session.user.email || '',
+                  role: Role.BUYER,
+                };
+                setUser(applySessionDisplayName(baseUser));
               }
             } catch (profileErr) {
               console.error('Failed to load profile on session restore:', profileErr);
@@ -71,6 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (!isMounted) return;
         if (event === 'SIGNED_OUT' || !session?.user) {
+          clearSessionDisplayNameOverride();
           setUser(null);
           setIsLoading(false);
           return;
@@ -79,7 +124,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             const profile = await fetchUserProfileFromSupabase(session.user.id, session.user.email);
             if (isMounted && profile) {
-              setUser(profile);
+              setUser(applySessionDisplayName(profile));
             }
           } catch (err) {
             console.error('Error refreshing user profile:', err);
@@ -98,7 +143,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const storedUser = localStorage.getItem('agricycle_user');
       if (storedUser) {
         try {
-          setUser(JSON.parse(storedUser));
+          const parsed = JSON.parse(storedUser);
+          setUser(applySessionDisplayName(parsed));
         } catch (e) {
           console.error('Failed to parse user from local storage', e);
         }
@@ -112,6 +158,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string, expectedRole?: Role) => {
     setIsLoading(true);
+    // Standard credential login clears any previous testing display name override
+    clearSessionDisplayNameOverride();
     try {
       if (isSupabaseConfigured && supabase) {
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -129,7 +177,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Authoritative role comes strictly from PostgreSQL profiles table, never client selection
-        setUser(profile);
+        setUser({
+          ...profile,
+          originalName: profile.name,
+        });
         return;
       }
 
@@ -165,9 +216,135 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const fallbackUser: User = {
         id: defaultIdByRole[role] || 'usr_' + Math.random().toString(36).substring(2, 9),
         name: email.split('@')[0],
+        originalName: email.split('@')[0],
         email,
         role,
         organizationId: defaultOrgByRole[role],
+      };
+
+      setUser(fallbackUser);
+      localStorage.setItem('agricycle_user', JSON.stringify(fallbackUser));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * Controlled Testing Login:
+   * 1. Validates that a role is selected and a custom display name is provided.
+   * 2. Identifies the existing provisioned test account for that selected role.
+   * 3. Authenticates using that existing test account.
+   * 4. Applies the entered display name as a session override without altering database profiles or auth identity.
+   */
+  const loginWithTestAccount = async (role: Role, customDisplayName: string) => {
+    setIsLoading(true);
+    try {
+      const trimmedName = customDisplayName.trim();
+      if (!trimmedName) {
+        throw new Error('Please enter a display name for your testing session.');
+      }
+      if (trimmedName.length < 2) {
+        throw new Error('Display name must be at least 2 characters long.');
+      }
+      if (trimmedName.length > 50) {
+        throw new Error('Display name must be 50 characters or fewer.');
+      }
+      if (/[<>{}]/g.test(trimmedName)) {
+        throw new Error('Display name cannot contain script or HTML characters.');
+      }
+
+      const testAccount = EXISTING_TEST_ACCOUNTS[role];
+      if (!testAccount) {
+        throw new Error(`No authorized test account found for role ${role}.`);
+      }
+
+      // Record session-level display name override (cleared on logout)
+      setSessionDisplayNameOverride(trimmedName);
+
+      if (isSupabaseConfigured && supabase) {
+        const password = testAccount.defaultPassword || 'password';
+        let { data, error } = await supabase.auth.signInWithPassword({
+          email: testAccount.email,
+          password,
+        });
+
+        // If the test account row is not yet in Supabase Auth, attempt controlled provisioning
+        if (
+          error &&
+          (error.message.toLowerCase().includes('invalid login credentials') ||
+            error.message.toLowerCase().includes('user not found'))
+        ) {
+          const signUpRes = await supabase.auth.signUp({
+            email: testAccount.email,
+            password,
+            options: {
+              data: {
+                name: testAccount.originalName,
+                role: testAccount.role,
+                requested_role: testAccount.role,
+                organization_id: testAccount.organizationId,
+              },
+            },
+          });
+          if (signUpRes.error) {
+            console.warn('Could not auto-provision Supabase test account:', signUpRes.error.message);
+          } else if (signUpRes.data.user) {
+            const retryRes = await supabase.auth.signInWithPassword({
+              email: testAccount.email,
+              password,
+            });
+            data = retryRes.data;
+            error = retryRes.error;
+          }
+        }
+
+        if (error || !data?.user) {
+          // If remote Supabase credentials failed, establish local test session safely
+          console.warn('Supabase test account sign-in failed, utilizing local test account session:', error?.message);
+          const fallbackUser: User = {
+            id: testAccount.defaultId,
+            name: trimmedName,
+            originalName: testAccount.originalName,
+            displayNameOverride: trimmedName,
+            email: testAccount.email,
+            role: testAccount.role,
+            organizationId: testAccount.organizationId,
+            isTestAccount: true,
+          };
+          setUser(fallbackUser);
+          localStorage.setItem('agricycle_user', JSON.stringify(fallbackUser));
+          return;
+        }
+
+        const profile = await fetchUserProfileFromSupabase(data.user.id, data.user.email);
+        const storedOriginalName = profile?.name || testAccount.originalName;
+
+        const authUser: User = {
+          id: profile?.id || data.user.id,
+          name: trimmedName, // Entered name is displayed in place of test account's original name
+          originalName: storedOriginalName, // Database identity is preserved
+          displayNameOverride: trimmedName,
+          email: profile?.email || data.user.email || testAccount.email,
+          role: profile?.role || testAccount.role, // Authorized role and permissions remain unchanged
+          organizationId: profile?.organizationId || testAccount.organizationId,
+          isTestAccount: true,
+        };
+
+        setUser(authUser);
+        return;
+      }
+
+      // Offline / unconfigured fallback mode
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      const fallbackUser: User = {
+        id: testAccount.defaultId,
+        name: trimmedName,
+        originalName: testAccount.originalName,
+        displayNameOverride: trimmedName,
+        email: testAccount.email,
+        role: testAccount.role,
+        organizationId: testAccount.organizationId,
+        isTestAccount: true,
       };
 
       setUser(fallbackUser);
@@ -184,6 +361,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     role: Role = Role.BUYER
   ): Promise<{ requiresEmailConfirmation: boolean }> => {
     setIsLoading(true);
+    clearSessionDisplayNameOverride();
     try {
       if (isSupabaseConfigured && supabase) {
         const emailRedirectTo = getAuthRedirectUrl('/confirm-email');
@@ -208,7 +386,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (data.session && data.user) {
           const profile = await fetchUserProfileFromSupabase(data.user.id, data.user.email, role);
           if (profile) {
-            setUser(profile);
+            setUser({
+              ...profile,
+              originalName: profile.name,
+            });
           }
           return { requiresEmailConfirmation: false };
         }
@@ -227,6 +408,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const fallbackUser: User = {
         id: defaultIdByRole[role] || 'usr_' + Math.random().toString(36).substring(2, 9),
         name: name.trim() || email.split('@')[0],
+        originalName: name.trim() || email.split('@')[0],
         email: email.trim(),
         role: role,
       };
@@ -280,6 +462,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    clearSessionDisplayNameOverride();
     if (isSupabaseConfigured && supabase) {
       await supabase.auth.signOut();
     }
@@ -292,6 +475,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         login,
+        loginWithTestAccount,
         register,
         resendConfirmationEmail,
         logout,
