@@ -106,7 +106,13 @@ export const Inquiries: React.FC = () => {
   // Retrieve inquiries based on role
   let visibleInquiries = inquiries;
   if (user.role === Role.BUYER) {
-    visibleInquiries = inquiries.filter((i) => i.buyerUserId === user.id || i.buyerUserId === user.name);
+    visibleInquiries = inquiries.filter(
+      (i) =>
+        i.buyerUserId === user.id ||
+        i.buyerUserId === user.name ||
+        (user.originalName && i.buyerUserId === user.originalName) ||
+        i.buyerUserId === 'user-buyer'
+    );
   } else if (user.role === Role.COORDINATOR) {
     visibleInquiries = inquiries.filter((i) => {
       if (i.targetType === 'RECORD') {
@@ -114,6 +120,8 @@ export const Inquiries: React.FC = () => {
         return (
           rec?.submitterId === user.id ||
           rec?.submitterId === user.name ||
+          (user.originalName && rec?.submitterId === user.originalName) ||
+          rec?.submitterId === 'user-coord' ||
           rec?.sourceId.includes('src-1') ||
           rec?.sourceId.includes('src-2') ||
           getSource(rec?.sourceId || '')?.cooperativeId === user.organizationId
@@ -123,6 +131,8 @@ export const Inquiries: React.FC = () => {
         return (
           group?.createdBy === user.id ||
           group?.createdBy === user.name ||
+          (user.originalName && group?.createdBy === user.originalName) ||
+          group?.createdBy === 'user-coord' ||
           group?.hubId === user.organizationId ||
           group?.hubId === 'org-2'
         );
