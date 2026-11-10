@@ -274,7 +274,7 @@ export const UsersPage: React.FC = () => {
                                 {u.name}
                                 {isSelf && (
                                   <span className="text-[10px] bg-agri-cream-100 text-agri-earth-700 px-1.5 py-0.5 rounded font-medium border border-agri-cream-200">
-                                    You
+                                    You {currentUser?.displayNameOverride ? `(Testing as: ${currentUser.displayNameOverride})` : ''}
                                   </span>
                                 )}
                               </div>
