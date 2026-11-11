@@ -12,7 +12,7 @@ import {
   MessageSquare,
   Scale,
   MapPin,
-  Map,
+  Map as MapIcon,
   Building,
   Filter,
   Layers,
