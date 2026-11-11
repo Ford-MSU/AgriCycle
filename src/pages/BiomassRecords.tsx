@@ -97,11 +97,7 @@ export const BiomassRecords: React.FC = () => {
     const recordValidations = validationRecords.filter((v) => v.biomassRecordId === record.id);
 
     // Self-validation check
-    const isSubmitter =
-      record.submitterId === user.id ||
-      record.submitterId === user.name ||
-      (user.originalName && record.submitterId === user.originalName) ||
-      (user.role === Role.COORDINATOR && record.submitterId === 'user-coord');
+    const isSubmitter = record.submitterId === user.id || record.submitterId === user.name;
     const canValidate = hasPermission(user.role, Permission.VALIDATE_BIOMASS_RECORD) || user.role === Role.ADMINISTRATOR;
     const showValidationControls =
       canValidate && (record.status === RecordStatus.SUBMITTED || record.status === RecordStatus.UNDER_REVIEW);
@@ -499,8 +495,6 @@ export const BiomassRecords: React.FC = () => {
       (r) =>
         r.submitterId === user.id ||
         r.submitterId === user.name ||
-        (user.originalName && r.submitterId === user.originalName) ||
-        r.submitterId === 'user-coord' ||
         r.sourceId.includes('src-1') ||
         r.sourceId.includes('src-2') ||
         getSource(r.sourceId)?.cooperativeId === user.organizationId
