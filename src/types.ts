@@ -66,63 +66,10 @@ export enum SystemAction {
 export interface User {
   id: string;
   name: string;
-  originalName?: string;
-  displayNameOverride?: string;
   email: string;
   role: Role;
   organizationId?: string;
-  isTestAccount?: boolean;
 }
-
-export interface TestAccountDefinition {
-  role: Role;
-  email: string;
-  originalName: string;
-  defaultId: string;
-  organizationId?: string;
-  description: string;
-  defaultPassword?: string;
-}
-
-export const EXISTING_TEST_ACCOUNTS: Record<Role, TestAccountDefinition> = {
-  [Role.BUYER]: {
-    role: Role.BUYER,
-    email: 'buyer@test.com',
-    originalName: 'Buyer Test Account',
-    defaultId: 'user-buyer',
-    organizationId: 'org-4',
-    description: 'Commercial buyer account for browsing biomass listings and submitting inquiries.',
-    defaultPassword: 'password',
-  },
-  [Role.LGU]: {
-    role: Role.LGU,
-    email: 'lgu@test.com',
-    originalName: 'LGU Test Account',
-    defaultId: 'user-lgu',
-    organizationId: 'org-3',
-    description: 'Municipal LGU validator account for field reviews, validation queue, and regional monitoring.',
-    defaultPassword: 'password',
-  },
-  [Role.COORDINATOR]: {
-    role: Role.COORDINATOR,
-    email: 'coordinator@test.com',
-    originalName: 'Coordinator Test Account',
-    defaultId: 'user-coord',
-    organizationId: 'org-2',
-    description: 'Cooperative / Hub coordinator account for record encoding, aggregation, and inquiry responses.',
-    defaultPassword: 'password',
-  },
-  [Role.ADMINISTRATOR]: {
-    role: Role.ADMINISTRATOR,
-    email: 'admin@test.com',
-    originalName: 'Administrator Test Account',
-    defaultId: 'user-admin',
-    organizationId: undefined,
-    description: 'System administrator account for user governance, audit trail inspection, and compliance.',
-    defaultPassword: 'password',
-  },
-};
-
 
 export interface Location {
   id: string;
