@@ -278,16 +278,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     details: string;
   }) => {
     const actorId = entry.userId || user?.id || 'System';
-    const logDetails = user?.displayNameOverride
-      ? `${entry.details} [Tester: ${user.displayNameOverride}]`
-      : entry.details;
     const newLog: AuditLog = {
       id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       userId: actorId,
       action: entry.action,
       entityType: entry.entityType,
       entityId: entry.entityId,
-      details: logDetails,
+      details: entry.details,
       timestamp: new Date().toISOString(),
     };
     db.auditLogs.unshift(newLog);
