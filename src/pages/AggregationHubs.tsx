@@ -80,8 +80,6 @@ export const AggregationHubs: React.FC = () => {
       (g) =>
         g.createdBy === user.id ||
         g.createdBy === user.name ||
-        (user.originalName && g.createdBy === user.originalName) ||
-        g.createdBy === 'user-coord' ||
         g.hubId === user.organizationId ||
         g.hubId === 'org-2'
     );
