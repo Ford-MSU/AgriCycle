@@ -81,8 +81,6 @@ export const MapView: React.FC = () => {
         (r) =>
           r.submitterId === user.id ||
           r.submitterId === user.name ||
-          (user.originalName && r.submitterId === user.originalName) ||
-          r.submitterId === 'user-coord' ||
           r.sourceId.includes('src-1') ||
           r.sourceId.includes('src-2') ||
           getSource(r.sourceId)?.cooperativeId === user.organizationId
