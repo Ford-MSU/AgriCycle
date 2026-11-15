@@ -431,7 +431,7 @@ export const ConfirmEmail: React.FC = () => {
                   </div>
                   <div className="flex items-start gap-2">
                     <Leaf className="w-4 h-4 text-agri-green-600 mt-0.5 flex-shrink-0" />
-                    <span>Access verified regional biomass listings, aggregation hubs, and buyer inquiries.</span>
+                    <span>Access verified regional biomass listings, biomass aggregation summaries, and buyer inquiries.</span>
                   </div>
                 </div>
 

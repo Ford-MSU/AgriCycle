@@ -8,6 +8,12 @@ import { Search, Filter, Info, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 
+const formatSafeDate = (iso?: string, fallback = 'Flexible') => {
+  if (!iso) return fallback;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? fallback : format(d, 'MMM d, yyyy');
+};
+
 export const BiomassListings: React.FC = () => {
   const { user } = useAuth();
   const {
@@ -20,7 +26,6 @@ export const BiomassListings: React.FC = () => {
     getRecord,
     getSource,
     getLocation,
-    getOrganization,
     getAggregationMembers,
   } = useData();
   const [searchTerm, setSearchTerm] = useState('');
@@ -28,16 +33,26 @@ export const BiomassListings: React.FC = () => {
 
   if (!user) return null;
 
-  // Identify records that are actively consolidated in an aggregation group
+  const now = new Date();
+
   const activeAggregatedRecordIds = new Set(
     aggregationMembers.filter((m) => m.isActive).map((m) => m.biomassRecordId)
   );
 
-  // Combine Validated UNAGGREGATED Individual Records and Active Groups for the Marketplace Listing
-  // (Aggregated records must not appear as independent products)
-  const unaggregatedValidatedRecords = records.filter(
-    (r) => r.status === RecordStatus.VALIDATED && !activeAggregatedRecordIds.has(r.id)
-  );
+  // Only validated, non-theoretical, externally available, non-expired records with remaining qty > 0
+  const unaggregatedValidatedRecords = records.filter((r) => {
+    const remaining = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity;
+    const notExpired = !r.availabilityPeriodEnd || new Date(r.availabilityPeriodEnd) >= now;
+    return (
+      r.status === RecordStatus.VALIDATED &&
+      !r.isTheoreticalEstimate &&
+      r.externalAvailability !== 'NOT_AVAILABLE' &&
+      remaining > 0 &&
+      notExpired &&
+      !activeAggregatedRecordIds.has(r.id)
+    );
+  });
+
   const activeGroups = aggregationGroups.filter((g) => g.status === AggregationStatus.ACTIVE);
 
   const getGroupTotals = (groupId: string) => {
@@ -77,29 +92,31 @@ export const BiomassListings: React.FC = () => {
         updatedAt: r.lastUpdatedDate,
       };
     }),
-    ...activeGroups.map((g) => {
-      const totals = getGroupTotals(g.id);
-      return {
-        id: g.id,
-        isGroup: true,
-        title: `${referenceData.find((ref) => ref.id === g.biomassTypeId)?.label || 'Unknown'} (Aggregation Group)`,
-        biomassTypeId: g.biomassTypeId,
-        sourceName: getOrganization(g.hubId)?.name,
-        location: 'Multiple / Hub Coordinated',
-        quantity: totals.total,
-        unit: totals.unit,
-        availableFrom: g.createdAt,
-        availableTo: g.updatedAt,
-        updatedAt: g.updatedAt,
-      };
-    }),
+    ...activeGroups
+      .map((g) => {
+        const totals = getGroupTotals(g.id);
+        return {
+          id: g.id,
+          isGroup: true,
+          title: `${referenceData.find((ref) => ref.id === g.biomassTypeId)?.label || 'Unknown'} (${g.name})`,
+          biomassTypeId: g.biomassTypeId,
+          sourceName: 'Information-Based Consolidation',
+          location: 'Multiple Validated Sources',
+          quantity: totals.total,
+          unit: totals.unit,
+          availableFrom: g.createdAt,
+          availableTo: undefined,
+          updatedAt: g.updatedAt,
+        };
+      })
+      .filter((g) => g.quantity > 0),
   ];
 
-  // Filtering
   const filteredListings = allListings.filter((listing) => {
     const matchesSearch =
       listing.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (listing.sourceName && listing.sourceName.toLowerCase().includes(searchTerm.toLowerCase()));
+      (listing.sourceName && listing.sourceName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (listing.location && listing.location.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesType = typeFilter === 'ALL' || listing.biomassTypeId === typeFilter;
     return matchesSearch && matchesType;
   });
@@ -110,7 +127,7 @@ export const BiomassListings: React.FC = () => {
         <div>
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Biomass Listings</h2>
           <p className="text-sm text-agri-earth-500 mt-1">
-            Discover validated and actively grouped biomass information available for inquiry.
+            Discover validated and actively grouped biomass availability for non-binding inquiries.
           </p>
         </div>
       </div>
@@ -119,11 +136,11 @@ export const BiomassListings: React.FC = () => {
         <Info className="shrink-0 mt-0.5 text-blue-500" size={18} />
         <div className="space-y-1">
           <p>
-            <strong>Information Purpose Only:</strong> The quantities shown here are based on reported information and do{' '}
-            <em>not</em> represent a guaranteed supply or completed physical collection.
+            <strong>Information Purpose Only:</strong> The quantities shown here reflect validated reported information and do{' '}
+            <em>not</em> represent guaranteed supply or completed physical collection.
           </p>
           <p>
-            Submitting an inquiry does not constitute a purchase, contract, payment, or delivery agreement.
+            Submitting an inquiry is strictly non-binding and does not constitute a purchase, contract, reservation, payment, or delivery schedule.
           </p>
         </div>
       </div>
@@ -137,7 +154,7 @@ export const BiomassListings: React.FC = () => {
               </div>
               <input
                 type="text"
-                placeholder="Search listings by type or source..."
+                placeholder="Search listings by type, source, or barangay..."
                 className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -212,11 +229,16 @@ export const BiomassListings: React.FC = () => {
                         )}
                       </td>
                       <td className="px-5 py-4 text-agri-earth-600 text-xs">
-                        {format(new Date(listing.availableFrom), 'MMM d, yyyy')} - <br />
-                        {format(new Date(listing.availableTo), 'MMM d, yyyy')}
+                        {listing.availableFrom && listing.availableTo
+                          ? `${formatSafeDate(listing.availableFrom)} – ${formatSafeDate(listing.availableTo)}`
+                          : listing.availableFrom
+                          ? `From ${formatSafeDate(listing.availableFrom)} (Flexible)`
+                          : listing.availableTo
+                          ? `Until ${formatSafeDate(listing.availableTo)}`
+                          : 'Immediate & Flexible'}
                       </td>
                       <td className="px-5 py-4 text-agri-earth-500 text-xs">
-                        {format(new Date(listing.updatedAt), 'MMM d, yyyy')}
+                        {formatSafeDate(listing.updatedAt)}
                       </td>
                       <td className="px-5 py-4 text-right">
                         <Link to={`/listings/${listing.isGroup ? 'group' : 'record'}/${listing.id}`}>

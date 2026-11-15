@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { NavLink, useNavigate, Outlet } from 'react-router-dom';
+import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { InactivityTracker } from '../components/InactivityTracker';
 import { Role } from '../types';
 import { cn } from '../utils/cn';
+import { getRoleDisplayName, getRoleShortName } from '../utils/rbac';
 import { format } from 'date-fns';
 import { 
   Leaf, 
@@ -21,50 +22,96 @@ import {
   X,
   Bell,
   User as UserIcon,
-  Activity,
   ClipboardList,
   AlertTriangle,
   RefreshCw,
   CheckCheck,
   CheckCircle2,
-  Clock
+  ShieldCheck
 } from 'lucide-react';
 
-const getRoleSpecificNavItems = (role: Role | undefined) => {
+interface NavItem {
+  name: string;
+  path: string;
+  icon: React.ComponentType<{ size?: number }>;
+  matchFn?: (pathname: string, search: string) => boolean;
+}
+
+const getRoleSpecificNavItems = (role: Role | undefined): NavItem[] => {
   if (!role) return [];
 
-  const baseItems = [{ name: 'Dashboard', path: '/', icon: LayoutDashboard }];
+  const baseItems: NavItem[] = [
+    {
+      name: 'Dashboard',
+      path: '/',
+      icon: LayoutDashboard,
+      matchFn: (pathname) => pathname === '/',
+    },
+  ];
 
   switch (role) {
     case Role.ADMINISTRATOR:
       return [
         ...baseItems,
         { name: 'Users', path: '/users', icon: Users },
-        { name: 'Reports & Analytics', path: '/reports', icon: BarChart3 },
+        { name: 'Administrative Reports', path: '/reports', icon: BarChart3 },
         { name: 'Audit Logs', path: '/audit-logs', icon: ClipboardList },
       ];
     case Role.COORDINATOR:
       return [
         ...baseItems,
-        { name: 'Sources & Records', path: '/biomass-records', icon: FileText },
-        { name: 'Aggregation Hubs', path: '/aggregation-hubs', icon: Layers },
-        { name: 'Map View', path: '/map', icon: MapIcon },
-        { name: 'Manage Inquiries', path: '/inquiries', icon: MessageSquare },
+        {
+          name: 'Biomass Sources & Records',
+          path: '/biomass-records',
+          icon: FileText,
+          matchFn: (pathname, search) =>
+            pathname === '/biomass-records' && !search.includes('tab=validation'),
+        },
+        {
+          name: 'Biomass Validation',
+          path: '/biomass-records?tab=validation',
+          icon: ShieldCheck,
+          matchFn: (pathname, search) =>
+            pathname === '/biomass-records' && search.includes('tab=validation'),
+        },
+        {
+          name: 'Biomass Aggregation',
+          path: '/aggregation-hubs',
+          icon: Layers,
+          matchFn: (pathname) =>
+            pathname === '/aggregation-hubs' || pathname === '/aggregation',
+        },
+        { name: 'GIS Map', path: '/map', icon: MapIcon },
+        { name: 'Buyer Inquiries', path: '/inquiries', icon: MessageSquare },
         { name: 'Reports & Monitoring', path: '/reports', icon: BarChart3 },
       ];
     case Role.LGU:
       return [
         ...baseItems,
-        { name: 'Biomass Records', path: '/biomass-records', icon: FileText },
-        { name: 'Aggregation Hubs', path: '/aggregation-hubs', icon: Layers },
-        { name: 'Map View', path: '/map', icon: MapIcon },
-        { name: 'Monitor Inquiries', path: '/inquiries', icon: Activity },
-        { name: 'Reports & Analytics', path: '/reports', icon: BarChart3 },
+        {
+          name: 'Validated Biomass Info',
+          path: '/biomass-records',
+          icon: CheckCircle2,
+        },
+        { name: 'GIS Map', path: '/map', icon: MapIcon },
+        {
+          name: 'Availability & Aggregation',
+          path: '/aggregation-hubs',
+          icon: Layers,
+          matchFn: (pathname) =>
+            pathname === '/aggregation-hubs' || pathname === '/aggregation',
+        },
+        { name: 'Planning Reports', path: '/reports', icon: BarChart3 },
       ];
     case Role.BUYER:
       return [
         ...baseItems,
-        { name: 'Biomass Listings', path: '/listings', icon: List },
+        {
+          name: 'Biomass Listings',
+          path: '/listings',
+          icon: List,
+          matchFn: (pathname) => pathname.startsWith('/listings'),
+        },
         { name: 'Map View', path: '/map', icon: MapIcon },
         { name: 'My Inquiries', path: '/inquiries', icon: MessageSquare },
       ];
@@ -85,11 +132,11 @@ export const MainLayout: React.FC = () => {
     markAllNotificationsRead,
   } = useData();
   const navigate = useNavigate();
+  const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close notifications dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -104,9 +151,18 @@ export const MainLayout: React.FC = () => {
     };
   }, [notificationsOpen]);
 
-  const userNotifications = notifications.filter(
-    (n) => !n.recipientRole || n.recipientRole === user?.role || n.recipientUserId === user?.id
-  );
+  // Strict recipient scoping: user-targeted notifications only go to that exact user;
+  // role-targeted notifications only go to matching role.
+  const userNotifications = notifications.filter((n) => {
+    if (!user) return false;
+    if (n.recipientUserId) {
+      return n.recipientUserId === user.id || n.recipientUserId === user.email;
+    }
+    if (n.recipientRole) {
+      return n.recipientRole === user.role;
+    }
+    return false;
+  });
   const unreadCount = userNotifications.filter((n) => !n.isRead).length;
 
   const handleNotificationClick = (n: any) => {
@@ -123,6 +179,13 @@ export const MainLayout: React.FC = () => {
   };
 
   const navItems = getRoleSpecificNavItems(user?.role);
+
+  const isNavItemActive = (item: NavItem) => {
+    if (item.matchFn) {
+      return item.matchFn(location.pathname, location.search);
+    }
+    return location.pathname === item.path.split('?')[0];
+  };
 
   return (
     <div className="flex h-screen bg-agri-cream-50 overflow-hidden">
@@ -154,34 +217,37 @@ export const MainLayout: React.FC = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.name}
-                to={item.path}
-                onClick={() => setMobileMenuOpen(false)}
-                className={({ isActive }) =>
-                  cn(
+            {navItems.map((item) => {
+              const active = isNavItemActive(item);
+              return (
+                <Link
+                  key={item.name}
+                  to={item.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
-                    isActive
+                    active
                       ? "bg-agri-green-50 text-agri-green-700"
                       : "text-agri-earth-600 hover:bg-agri-cream-100 hover:text-agri-green-700"
-                  )
-                }
-              >
-                <item.icon size={18} />
-                {item.name}
-              </NavLink>
-            ))}
+                  )}
+                >
+                  <item.icon size={18} />
+                  <span>{item.name}</span>
+                </Link>
+              );
+            })}
           </div>
 
           <div className="p-4 border-t border-agri-green-100">
             <div className="flex items-center gap-3 mb-4 px-2">
-              <div className="w-8 h-8 rounded-full bg-agri-green-100 flex items-center justify-center text-agri-green-600">
+              <div className="w-8 h-8 rounded-full bg-agri-green-100 flex items-center justify-center text-agri-green-600 shrink-0">
                 <UserIcon size={16} />
               </div>
               <div className="overflow-hidden">
                 <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
-                <p className="text-xs text-agri-earth-500 capitalize">{user?.role.toLowerCase().replace(/_/g, ' ')}</p>
+                <p className="text-xs text-agri-earth-500 truncate" title={getRoleDisplayName(user?.role)}>
+                  {getRoleDisplayName(user?.role)}
+                </p>
               </div>
             </div>
             <button
@@ -206,7 +272,7 @@ export const MainLayout: React.FC = () => {
             >
               <Menu size={24} />
             </button>
-            <h1 className="text-xl font-semibold text-gray-800 capitalize hidden sm:block">
+            <h1 className="text-xl font-semibold text-gray-800 hidden sm:block">
               Platform Dashboard
             </h1>
           </div>
@@ -312,8 +378,11 @@ export const MainLayout: React.FC = () => {
 
             <div className="hidden sm:flex items-center gap-2 border-l border-agri-green-100 pl-4">
               <span className="text-sm font-medium text-gray-700">{user?.name}</span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-agri-green-100 text-agri-green-800 capitalize">
-                {user?.role.toLowerCase().replace(/_/g, ' ')}
+              <span
+                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-agri-green-100 text-agri-green-800"
+                title={getRoleDisplayName(user?.role)}
+              >
+                {getRoleShortName(user?.role)}
               </span>
             </div>
           </div>

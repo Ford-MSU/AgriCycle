@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/Card';
-import { Input } from './ui/Input';
 import { Button } from './ui/Button';
-import { BiomassRecord, RecordStatus, Role } from '../types';
+import { BiomassRecord, RecordStatus } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
-import { ArrowLeft, Save, Plus, MapPin, Search, Check, AlertCircle, Info } from 'lucide-react';
+import { hasPermission, Permission } from '../utils/rbac';
+import { ArrowLeft, Save, MapPin, Check, AlertCircle, Info, Lock } from 'lucide-react';
 
 const BUTUAN_BARANGAYS = [
   'Agusan Pequeño', 'Amparo', 'Ampayon', 'Anticala', 'Antongalon', 'Aupagan',
@@ -62,6 +62,8 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
   const [newSourceName, setNewSourceName] = useState('');
   const [newSourceContact, setNewSourceContact] = useState('');
   const [selectedBarangay, setSelectedBarangay] = useState(initialLocation?.barangay || '');
+  const [newLat, setNewLat] = useState('');
+  const [newLng, setNewLng] = useState('');
   const [barangaySearch, setBarangaySearch] = useState('');
   const [showBarangayDropdown, setShowBarangayDropdown] = useState(false);
   const [accessLocationNotes, setAccessLocationNotes] = useState(initialRecord?.accessLocationNotes || '');
@@ -72,14 +74,16 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
   const [originalUnit, setOriginalUnit] = useState(initialRecord?.originalUnit || 'ref-unit-1');
   const [condition, setCondition] = useState(initialRecord?.condition || 'Dry');
   const [conditionNote, setConditionNote] = useState(initialRecord?.conditionNote || '');
-  const [storage, setStorage] = useState(initialRecord?.storage || 'Covered Warehouse');
-  const [isTheoreticalEstimate, setIsTheoreticalEstimate] = useState(initialRecord?.isTheoreticalEstimate || false);
+  const [storage, setStorage] = useState(initialRecord?.storage || 'Covered Shed (Source Site)');
+  const [isTheoreticalEstimate] = useState(initialRecord?.isTheoreticalEstimate || false);
 
   // Section C: Utilization and Availability State
   const [currentUseQuantity, setCurrentUseQuantity] = useState(
     initialRecord?.currentUseQuantity !== undefined ? String(initialRecord.currentUseQuantity) : '0'
   );
-  const [currentUseDescription, setCurrentUseDescription] = useState(initialRecord?.currentUse || 'Available / not currently used');
+  const [currentUseDescription, setCurrentUseDescription] = useState(
+    initialRecord?.currentUse || 'Available / not currently used'
+  );
   const [reservedQuantity, setReservedQuantity] = useState(
     initialRecord?.reservedQuantity !== undefined ? String(initialRecord.reservedQuantity) : '0'
   );
@@ -96,7 +100,6 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  // Filtered barangays for search
   const filteredBarangays = useMemo(() => {
     if (!barangaySearch) return BUTUAN_BARANGAYS.slice(0, 20);
     return BUTUAN_BARANGAYS.filter((b) =>
@@ -104,23 +107,44 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
     );
   }, [barangaySearch]);
 
-  // Derived calculations: Remaining Available Quantity
+  if (!user || !hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS)) {
+    return (
+      <div className="max-w-2xl mx-auto py-12">
+        <Card className="border-red-200 bg-red-50/40">
+          <CardContent className="p-6 text-center space-y-3">
+            <Lock size={32} className="mx-auto text-red-600" />
+            <h3 className="text-lg font-bold text-gray-900">Access Denied</h3>
+            <p className="text-sm text-gray-600">
+              Only an LGU Biomass Information Coordinator may register biomass sources or create and edit biomass records.
+            </p>
+            <Button variant="outline" onClick={onCancel}>
+              Back
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const numQuantity = Number(quantity) || 0;
   const numCurrentUse = Number(currentUseQuantity) || 0;
   const numReserved = Number(reservedQuantity) || 0;
   const calculatedRemaining = Math.max(0, numQuantity - numCurrentUse - numReserved);
 
-  // Dynamic source name label based on selected source type
   const getSourceNameLabel = (type: string) => {
     switch (type) {
       case 'Farm':
         return 'Farm Name';
       case 'Rice Mill':
         return 'Rice Mill Name';
+      case 'Coconut Processor':
+        return 'Coconut Processing Facility Name';
+      case 'Wood-based Establishment':
+        return 'Wood-Based Establishment Name';
       case 'Agricultural Processor':
-        return 'Processing Facility Name';
+        return 'Agricultural Processing Facility Name';
       default:
-        return 'Farm / Mill / Source Name';
+        return 'Biomass Source Name';
     }
   };
 
@@ -160,7 +184,6 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
       return;
     }
 
-    // Availability dates are completely optional. Validate only if both are provided
     if (availabilityPeriodStart && availabilityPeriodEnd) {
       if (new Date(availabilityPeriodEnd) < new Date(availabilityPeriodStart)) {
         setError('Availability end date cannot be earlier than start date.');
@@ -168,12 +191,32 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
       }
     }
 
+    // Optional coordinate validation when registering a new source location
+    let parsedCoords: { lat: number; lng: number } | undefined = undefined;
+    if (isCreatingSource && (newLat.trim() || newLng.trim())) {
+      const latNum = Number(newLat);
+      const lngNum = Number(newLng);
+      if (
+        !newLat.trim() ||
+        !newLng.trim() ||
+        isNaN(latNum) ||
+        isNaN(lngNum) ||
+        latNum < -90 ||
+        latNum > 90 ||
+        lngNum < -180 ||
+        lngNum > 180
+      ) {
+        setError('Please enter both valid Latitude (-90 to 90) and Longitude (-180 to 180), or leave both blank.');
+        return;
+      }
+      parsedCoords = { lat: latNum, lng: lngNum };
+    }
+
     setIsSubmitting(true);
     try {
       let finalSourceId = sourceId;
       let finalLocationId = initialRecord?.locationId || '';
 
-      // If creating new source inline
       if (isCreatingSource) {
         if (!newSourceName.trim() || !selectedBarangay) {
           setError('Please provide a source name and select a barangay.');
@@ -181,15 +224,15 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
           return;
         }
 
-        // Find or create location record
         let loc = locations.find(
           (l) => l.barangay.toLowerCase() === selectedBarangay.toLowerCase() && l.city === 'Butuan City'
         );
-        if (!loc) {
+        if (!loc || parsedCoords) {
           loc = await addLocation({
             barangay: selectedBarangay,
             city: 'Butuan City',
             province: 'Agusan del Norte',
+            coordinates: parsedCoords,
           });
         }
         finalLocationId = loc.id;
@@ -198,13 +241,12 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
           name: newSourceName.trim(),
           type: sourceType,
           locationId: loc.id,
-          contactPerson: newSourceContact.trim() || user?.name || 'Authorized Contact',
-          cooperativeId: user?.organizationId,
+          contactPerson: newSourceContact.trim() || user?.name || 'Source Contact',
         });
         finalSourceId = newSource.id;
       } else {
         if (!finalSourceId) {
-          setError('Please select an existing biomass source or create a new one.');
+          setError('Please select an existing biomass source or register a new one.');
           setIsSubmitting(false);
           return;
         }
@@ -239,7 +281,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
           remainingQuantity: calculatedRemaining,
           condition: condition.trim() || 'Dry',
           conditionNote: conditionNote.trim(),
-          storage: storage.trim() || 'Covered Warehouse',
+          storage: storage.trim() || 'Covered Shed (Source Site)',
           accessLocationNotes: accessLocationNotes.trim() || 'Accessible location',
         });
         onSuccess(initialRecord.id);
@@ -261,9 +303,9 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
           remainingQuantity: calculatedRemaining,
           condition: condition.trim() || 'Dry',
           conditionNote: conditionNote.trim(),
-          storage: storage.trim() || 'Covered Warehouse',
+          storage: storage.trim() || 'Covered Shed (Source Site)',
           accessLocationNotes: accessLocationNotes.trim() || 'Accessible location',
-          submitterId: user?.id || 'system',
+          submitterId: user.id,
         });
         onSuccess(created.id);
       }
@@ -312,7 +354,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
               Source Information
             </CardTitle>
             <CardDescription className="text-xs text-gray-500">
-              Identify the farm, mill, or agricultural supplier producing this biomass.
+              Identify the farm, rice mill, coconut processor, wood-based establishment, or agricultural processor generating this biomass.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-5 space-y-4">
@@ -374,6 +416,8 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                     >
                       <option value="Farm">Farm</option>
                       <option value="Rice Mill">Rice Mill</option>
+                      <option value="Coconut Processor">Coconut Processor</option>
+                      <option value="Wood-based Establishment">Wood-based Establishment</option>
                       <option value="Agricultural Processor">Agricultural Processor</option>
                       <option value="Other">Other Agricultural Source</option>
                     </select>
@@ -385,7 +429,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                     <input
                       type="text"
                       className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                      placeholder={`e.g. ${sourceType === 'Farm' ? 'Green Valley Farm' : 'Golden Grain Mill'}`}
+                      placeholder={`e.g. ${sourceType === 'Farm' ? 'Green Valley Farm' : 'Libertad Community Mill'}`}
                       value={newSourceName}
                       onChange={(e) => setNewSourceName(e.target.value)}
                     />
@@ -452,6 +496,38 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                     />
                   </div>
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      GPS Latitude <span className="text-xs text-gray-400 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                      placeholder="e.g. 8.9475"
+                      value={newLat}
+                      onChange={(e) => setNewLat(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      GPS Longitude <span className="text-xs text-gray-400 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                      placeholder="e.g. 125.5406"
+                      value={newLng}
+                      onChange={(e) => setNewLng(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  Leave coordinates blank if exact GPS location has not been recorded yet; you can update it later in the GIS Map.
+                </p>
               </div>
             )}
 
@@ -462,7 +538,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
               <input
                 type="text"
                 className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                placeholder="e.g. Near Km 7 highway, accessible by 6-wheeler trucks, gated warehouse"
+                placeholder="e.g. Near Km 7 highway, accessible by 6-wheeler trucks"
                 value={accessLocationNotes}
                 onChange={(e) => setAccessLocationNotes(e.target.value)}
               />
@@ -480,7 +556,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
               Biomass Information
             </CardTitle>
             <CardDescription className="text-xs text-gray-500">
-              Specify biomass category, total quantity produced, and physical conditions.
+              Specify biomass category, reported quantity, and on-site physical conditions.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-5 space-y-4">
@@ -552,14 +628,16 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Storage Setup</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Source Site Storage Condition
+                </label>
                 <select
                   className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
                   value={storage}
                   onChange={(e) => setStorage(e.target.value)}
                 >
-                  <option value="Covered Warehouse">Covered Warehouse</option>
-                  <option value="Open Shed">Open Shed (Roof only)</option>
+                  <option value="Covered Shed (Source Site)">Covered Shed (Source Site)</option>
+                  <option value="Open Shed (Roof only)">Open Shed (Roof only)</option>
                   <option value="Open Field Tarpaulin">Open Field (Tarpaulin covered)</option>
                   <option value="Open Air Pile">Open Air Pile</option>
                 </select>
@@ -571,7 +649,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
               <input
                 type="text"
                 className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                placeholder="e.g. Free of soil debris, stored off-ground on pallets"
+                placeholder="e.g. Free of soil debris, stacked off-ground"
                 value={conditionNote}
                 onChange={(e) => setConditionNote(e.target.value)}
               />
@@ -617,7 +695,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                 <input
                   type="text"
                   className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  placeholder="e.g. Mulching, boiler combustion, cattle bedding, soil conditioning"
+                  placeholder="e.g. Mulching, boiler combustion, cattle bedding"
                   value={currentUseDescription}
                   onChange={(e) => setCurrentUseDescription(e.target.value)}
                 />
@@ -638,7 +716,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                   value={reservedQuantity}
                   onChange={(e) => setReservedQuantity(e.target.value)}
                 />
-                <p className="text-xs text-gray-500 mt-1">Biomass already promised or earmarked.</p>
+                <p className="text-xs text-gray-500 mt-1">Biomass already earmarked internally at the source.</p>
               </div>
 
               <div>
@@ -682,7 +760,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
               </div>
             </div>
             <p className="text-xs text-gray-500 italic">
-              * Note: Availability window dates are optional. If left blank, the biomass is considered immediately and flexibly available.
+              * Availability window dates are optional. If left blank, the biomass is treated as flexibly available.
             </p>
 
             {/* Live Calculation Display */}
@@ -708,7 +786,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
             <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-lg flex items-start gap-2 text-xs text-amber-800">
               <Info size={16} className="shrink-0 mt-0.5 text-amber-700" />
               <span>
-                <strong>Listing Eligibility Notice:</strong> A record will only be discoverable by buyers in the Biomass Listings once it achieves <strong>VALIDATED</strong> review status from the LGU and is marked <strong>Available to Others</strong>.
+                <strong>Listing Eligibility Notice:</strong> A record will only be discoverable by buyers in the Biomass Listings once it achieves <strong>VALIDATED</strong> review status from an <strong>LGU Biomass Information Coordinator</strong> and is marked <strong>Available to Others</strong>.
               </span>
             </div>
           </CardContent>

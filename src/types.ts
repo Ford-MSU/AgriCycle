@@ -1,8 +1,8 @@
 export enum Role {
-  ADMINISTRATOR = 'ADMINISTRATOR',
-  COORDINATOR = 'COORDINATOR', // Cooperative / Hub Coordinator
-  LGU = 'LGU', // LGU / Institutional User
-  BUYER = 'BUYER', // Buyer / Institutional Inquirer
+  ADMINISTRATOR = 'ADMINISTRATOR', // Administrator
+  COORDINATOR = 'COORDINATOR', // LGU Biomass Information Coordinator
+  LGU = 'LGU', // LGU/Institutional Planning User
+  BUYER = 'BUYER', // Buyer/Institutional Inquirer
 }
 
 export enum AggregationStatus {
@@ -69,6 +69,7 @@ export interface User {
   email: string;
   role: Role;
   organizationId?: string;
+  isActive?: boolean;
 }
 
 export interface Location {

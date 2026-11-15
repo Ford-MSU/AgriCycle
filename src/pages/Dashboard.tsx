@@ -1,11 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/StatusBadge';
-import { RecordStatus, Role } from '../types';
+import { RecordStatus, Role, AggregationStatus } from '../types';
 import {
   Tractor,
   FileText,
-  CheckCircle,
   AlertTriangle,
   Users,
   Activity,
@@ -21,15 +20,28 @@ import {
   Send,
   PlusCircle,
   Ban,
-  Clock,
   CheckCircle2,
+  Eye,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
-import { hasPermission, Permission } from '../utils/rbac';
+import {
+  hasPermission,
+  Permission,
+  getRoleDisplayName,
+  canAccessRoute,
+} from '../utils/rbac';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { calculateCoreMetrics, convertToMetricTonnes } from '../utils/analytics';
+
+const safeFormatDate = (value?: string, fmt: string = 'MMM d, yyyy'): string => {
+  if (!value) return 'N/A';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'N/A';
+  return format(parsed, fmt);
+};
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -38,65 +50,82 @@ export const Dashboard: React.FC = () => {
     locations,
     sources,
     inquiries,
+    aggregationGroups,
+    aggregationMembers,
     referenceData,
     auditLogs,
     profiles,
-    getRecord,
     getSource,
-    getAggregationGroup,
   } = useData();
 
   const [selectedBiomassCategory, setSelectedBiomassCategory] = useState<string>('ALL');
 
-  if (!user) return null;
-
   const accessibleRecords = useMemo(() => {
-    if (user.role === Role.COORDINATOR) {
-      return records.filter(
-        (r) =>
-          r.submitterId === user.id ||
-          r.submitterId === user.name ||
-          r.sourceId.includes('src-1') ||
-          r.sourceId.includes('src-2') ||
-          getSource(r.sourceId)?.cooperativeId === user.organizationId
-      );
-    }
-    if (user.role === Role.BUYER) {
+    if (!user) return [];
+    if (user.role === Role.LGU) {
       return records.filter((r) => r.status === RecordStatus.VALIDATED);
     }
+    if (user.role === Role.BUYER) {
+      const nowMs = Date.now();
+      return records.filter(
+        (r) =>
+          r.status === RecordStatus.VALIDATED &&
+          !r.isTheoreticalEstimate &&
+          r.externalAvailability !== 'NOT_AVAILABLE' &&
+          (r.remainingQuantity ?? r.quantity) > 0 &&
+          (!r.availabilityPeriodEnd || new Date(r.availabilityPeriodEnd).getTime() >= nowMs)
+      );
+    }
+    // Coordinator & Administrator see system-wide records for overview metrics
     return records;
-  }, [user, records, getSource]);
+  }, [user, records]);
 
   const accessibleInquiries = useMemo(() => {
+    if (!user) return [];
     if (user.role === Role.BUYER) {
       return inquiries.filter((i) => i.buyerUserId === user.id || i.buyerUserId === user.name);
     }
     if (user.role === Role.COORDINATOR) {
-      return inquiries.filter((i) => {
-        if (i.targetType === 'RECORD') {
-          const rec = getRecord(i.targetId);
-          return rec && accessibleRecords.some((ar) => ar.id === rec.id);
-        }
-        const grp = getAggregationGroup(i.targetId);
-        return grp && (grp.createdBy === user.id || grp.hubId === user.organizationId || grp.hubId === 'org-2');
-      });
+      return inquiries;
     }
-    return inquiries;
-  }, [user, inquiries, accessibleRecords, getRecord, getAggregationGroup]);
+    // LGU Planning User and Administrator do not manage or inspect buyer inquiry queues
+    return [];
+  }, [user, inquiries]);
 
-  // Derived metrics from persisted dataset using shared analytics
   const coreMetrics = useMemo(
     () => calculateCoreMetrics(accessibleRecords, referenceData),
     [accessibleRecords, referenceData]
   );
 
-  // Category Slicer options
   const biomassCategories = useMemo(
     () => referenceData.filter((r) => r.category === 'BIOMASS_TYPE' && r.isActive),
     [referenceData]
   );
 
-  // Detailed breakdown: Available to Others vs Internal Farm/Mill Use
+  const activeAggregationGroups = useMemo(
+    () => aggregationGroups.filter((g) => g.status === AggregationStatus.ACTIVE),
+    [aggregationGroups]
+  );
+
+  const aggregatedTotalTonnes = useMemo(() => {
+    const seenRecordIds = new Set<string>();
+    let total = 0;
+    aggregationMembers.forEach((m) => {
+      if (!m.isActive || seenRecordIds.has(m.biomassRecordId)) return;
+      const group = activeAggregationGroups.find((g) => g.id === m.groupId);
+      if (!group) return;
+      const rec = records.find((r) => r.id === m.biomassRecordId);
+      if (!rec || rec.status !== RecordStatus.VALIDATED) return;
+      seenRecordIds.add(m.biomassRecordId);
+      total += convertToMetricTonnes(
+        rec.remainingQuantity ?? rec.quantity,
+        rec.originalUnit,
+        referenceData
+      );
+    });
+    return Math.round(total * 10) / 10;
+  }, [aggregationMembers, activeAggregationGroups, records, referenceData]);
+
   const utilizationStats = useMemo(() => {
     let availableTonnes = 0;
     let internalTonnes = 0;
@@ -104,9 +133,10 @@ export const Dashboard: React.FC = () => {
 
     accessibleRecords.forEach((r) => {
       const totalT = convertToMetricTonnes(r.quantity, r.originalUnit, referenceData);
-      const reservedT = r.reservedQuantity !== undefined
-        ? convertToMetricTonnes(r.reservedQuantity, r.originalUnit, referenceData)
-        : 0;
+      const reservedT =
+        r.reservedQuantity !== undefined
+          ? convertToMetricTonnes(r.reservedQuantity, r.originalUnit, referenceData)
+          : 0;
 
       let currentUseT = 0;
       if (r.currentUseQuantity !== undefined && r.currentUseQuantity > 0) {
@@ -119,14 +149,17 @@ export const Dashboard: React.FC = () => {
         !r.currentUse.toLowerCase().includes('not currently used') &&
         r.remainingQuantity !== undefined
       ) {
-        currentUseT = Math.max(0, totalT - convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData) - reservedT);
+        currentUseT = Math.max(
+          0,
+          totalT - convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData) - reservedT
+        );
       }
 
-      const remainingT = r.remainingQuantity !== undefined
-        ? convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData)
-        : Math.max(0, totalT - currentUseT - reservedT);
+      const remainingT =
+        r.remainingQuantity !== undefined
+          ? convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData)
+          : Math.max(0, totalT - currentUseT - reservedT);
 
-      // If marked not available to others, the entire volume is considered internal
       if (r.externalAvailability === 'NOT_AVAILABLE') {
         internalTonnes += totalT;
       } else {
@@ -138,25 +171,32 @@ export const Dashboard: React.FC = () => {
       }
     });
 
-    const totalRecordedTonnes = Math.round((availableTonnes + internalTonnes + reservedTonnes) * 10) / 10;
+    const totalRecordedTonnes =
+      Math.round((availableTonnes + internalTonnes + reservedTonnes) * 10) / 10;
     return {
       availableTonnes: Math.round(availableTonnes * 10) / 10,
       internalTonnes: Math.round(internalTonnes * 10) / 10,
       reservedTonnes: Math.round(reservedTonnes * 10) / 10,
       totalRecordedTonnes,
-      availablePercent: totalRecordedTonnes > 0 ? Math.round((availableTonnes / totalRecordedTonnes) * 100) : 0,
-      internalPercent: totalRecordedTonnes > 0 ? Math.round((internalTonnes / totalRecordedTonnes) * 100) : 0,
-      reservedPercent: totalRecordedTonnes > 0 ? Math.round((reservedTonnes / totalRecordedTonnes) * 100) : 0,
+      availablePercent:
+        totalRecordedTonnes > 0 ? Math.round((availableTonnes / totalRecordedTonnes) * 100) : 0,
+      internalPercent:
+        totalRecordedTonnes > 0 ? Math.round((internalTonnes / totalRecordedTonnes) * 100) : 0,
+      reservedPercent:
+        totalRecordedTonnes > 0 ? Math.round((reservedTonnes / totalRecordedTonnes) * 100) : 0,
     };
   }, [accessibleRecords, referenceData]);
 
-  // Barangay Rankings filtered by category slicer
   const filteredBarangayRankings = useMemo(() => {
-    const recordsToCount = selectedBiomassCategory === 'ALL'
-      ? accessibleRecords
-      : accessibleRecords.filter((r) => r.biomassTypeId === selectedBiomassCategory);
+    const recordsToCount =
+      selectedBiomassCategory === 'ALL'
+        ? accessibleRecords
+        : accessibleRecords.filter((r) => r.biomassTypeId === selectedBiomassCategory);
 
-    const map = new Map<string, { barangay: string; totalTonnes: number; availableTonnes: number; internalTonnes: number; count: number }>();
+    const map = new Map<
+      string,
+      { barangay: string; totalTonnes: number; availableTonnes: number; internalTonnes: number; count: number }
+    >();
 
     recordsToCount.forEach((r) => {
       const src = sources.find((s) => s.id === r.sourceId);
@@ -164,9 +204,10 @@ export const Dashboard: React.FC = () => {
       const barangay = loc?.barangay || 'Other / Regional';
 
       const totalT = convertToMetricTonnes(r.quantity, r.originalUnit, referenceData);
-      const availT = r.remainingQuantity !== undefined
-        ? convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData)
-        : totalT;
+      const availT =
+        r.remainingQuantity !== undefined
+          ? convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData)
+          : totalT;
 
       if (!map.has(barangay)) {
         map.set(barangay, {
@@ -188,7 +229,7 @@ export const Dashboard: React.FC = () => {
     });
 
     return Array.from(map.values())
-      .map((b: { barangay: string; totalTonnes: number; availableTonnes: number; internalTonnes: number; count: number }) => ({
+      .map((b) => ({
         ...b,
         totalTonnes: Math.round(b.totalTonnes * 10) / 10,
         availableTonnes: Math.round(b.availableTonnes * 10) / 10,
@@ -197,14 +238,16 @@ export const Dashboard: React.FC = () => {
       .sort((a, b) => b.totalTonnes - a.totalTonnes);
   }, [accessibleRecords, selectedBiomassCategory, locations, sources, referenceData]);
 
-  // Mills, Companies & Farming Groups list
   const topMillsAndFarms = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; type: string; barangay: string; totalTonnes: number; recordCount: number }>();
+    const map = new Map<
+      string,
+      { id: string; name: string; type: string; barangay: string; totalTonnes: number; recordCount: number }
+    >();
 
     accessibleRecords.forEach((r) => {
       const src = sources.find((s) => s.id === r.sourceId);
       const srcId = src?.id || r.sourceId;
-      const srcName = src?.name || 'Local Farm / Mill';
+      const srcName = src?.name || 'Local Farm / Establishment';
       const srcType = src?.type || 'Agricultural';
       const loc = locations.find((l) => l.id === (src?.locationId || r.locationId));
       const barangay = loc?.barangay || 'Butuan City';
@@ -228,26 +271,13 @@ export const Dashboard: React.FC = () => {
     });
 
     return Array.from(map.values())
-      .map((e: { id: string; name: string; type: string; barangay: string; totalTonnes: number; recordCount: number }) => ({ ...e, totalTonnes: Math.round(e.totalTonnes * 10) / 10 }))
+      .map((e) => ({ ...e, totalTonnes: Math.round(e.totalTonnes * 10) / 10 }))
       .sort((a, b) => b.totalTonnes - a.totalTonnes)
       .slice(0, 5);
   }, [accessibleRecords, sources, locations, referenceData]);
 
-  const totalUsers = profiles.length > 0 ? profiles.length : 4;
-  const totalSources = new Set(accessibleRecords.map((r) => r.sourceId)).size;
-  const mySubmissions = records.filter((r) => r.submitterId === user.id || r.submitterId === user.name).length;
-  const pendingValidation = records.filter((r) => r.status === RecordStatus.SUBMITTED).length;
-  const validatedRecords = accessibleRecords.filter((r) => r.status === RecordStatus.VALIDATED).length;
-
-  const recentRecords = [...accessibleRecords]
-    .sort((a, b) => new Date(b.lastUpdatedDate).getTime() - new Date(a.lastUpdatedDate).getTime())
-    .slice(0, 5);
-
-  const recentLogs = [...auditLogs]
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 5);
-
   const myRecentActions = useMemo(() => {
+    if (!user) return [];
     const userMatches = (logUserId?: string) => {
       if (!logUserId) return false;
       const lowerLog = logUserId.toLowerCase();
@@ -255,26 +285,38 @@ export const Dashboard: React.FC = () => {
       const lowerName = (user.name || '').toLowerCase();
       const lowerEmail = (user.email || '').toLowerCase();
 
-      if (lowerLog === lowerUid || lowerLog === lowerName || lowerLog === lowerEmail) return true;
-      if (lowerLog.includes(lowerUid) || (lowerUid && lowerUid.includes(lowerLog))) return true;
-
-      if (user.role === Role.COORDINATOR && (lowerLog.includes('coord') || lowerLog.includes('nitronford') || lowerLog.includes('clara'))) return true;
-      if (user.role === Role.LGU && (lowerLog.includes('lgu') || lowerLog.includes('arvin'))) return true;
-      if (user.role === Role.BUYER && (lowerLog.includes('buyer') || lowerLog.includes('carlos') || lowerLog.includes('roberto'))) return true;
-      if (user.role === Role.ADMINISTRATOR && (lowerLog.includes('admin') || lowerLog.includes('juan'))) return true;
-
-      return false;
+      return (
+        lowerLog === lowerUid ||
+        lowerLog === lowerName ||
+        lowerLog === lowerEmail ||
+        (lowerUid !== '' && lowerLog.includes(lowerUid))
+      );
     };
 
     const userLogs = auditLogs.filter((log) => userMatches(log.userId));
-    return [...userLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 7);
+    return [...userLogs]
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 7);
   }, [auditLogs, user]);
 
-  const getActionMeta = (log: typeof auditLogs[0]) => {
+  if (!user) return null;
+
+  const totalUsers = profiles.length;
+  const activeUsersCount = profiles.filter((p) => p.isActive !== false).length;
+  const totalSources = new Set(accessibleRecords.map((r) => r.sourceId)).size;
+  const pendingValidation = records.filter(
+    (r) => r.status === RecordStatus.SUBMITTED || r.status === RecordStatus.UNDER_REVIEW
+  ).length;
+
+  const recentRecords = [...accessibleRecords]
+    .sort((a, b) => new Date(b.lastUpdatedDate).getTime() - new Date(a.lastUpdatedDate).getTime())
+    .slice(0, 5);
+
+  const getActionMeta = (log: (typeof auditLogs)[0]) => {
     let title = 'System Activity';
     let icon = <Activity size={15} className="text-gray-600" />;
     let badgeColor = 'bg-gray-100 text-gray-700 border-gray-200';
-    let targetLink = '/dashboard';
+    let targetLink = '/';
 
     if (log.entityType === 'Inquiry') {
       targetLink = '/inquiries';
@@ -286,12 +328,15 @@ export const Dashboard: React.FC = () => {
         title = 'Declined Inquiry';
         icon = <Ban size={15} className="text-rose-600" />;
         badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
-      } else if (log.details?.toLowerCase().includes('withdrew') || log.details?.toLowerCase().includes('withdrawn')) {
+      } else if (
+        log.details?.toLowerCase().includes('withdrew') ||
+        log.details?.toLowerCase().includes('withdrawn')
+      ) {
         title = 'Withdrew Inquiry';
         icon = <AlertTriangle size={15} className="text-gray-600" />;
         badgeColor = 'bg-gray-100 text-gray-700 border-gray-200';
       } else if (log.details?.toLowerCase().includes('message')) {
-        title = 'Sent Message';
+        title = 'Added Inquiry Note';
         icon = <Send size={15} className="text-indigo-600" />;
         badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
       } else {
@@ -315,7 +360,7 @@ export const Dashboard: React.FC = () => {
         badgeColor = 'bg-slate-50 text-slate-700 border-slate-200';
       }
     } else if (log.entityType === 'ValidationRecord') {
-      targetLink = '/biomass-records';
+      targetLink = '/biomass-records?tab=validation';
       if (log.details?.toLowerCase().includes('validated') || log.action === 'VALIDATE') {
         title = 'Validated Record';
         icon = <CheckCircle2 size={15} className="text-emerald-600" />;
@@ -330,15 +375,19 @@ export const Dashboard: React.FC = () => {
         badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
       }
     } else if (log.entityType === 'AggregationGroup') {
-      targetLink = '/aggregation';
+      targetLink = '/aggregation-hubs';
       title = 'Aggregation Group';
       icon = <Layers size={15} className="text-purple-600" />;
       badgeColor = 'bg-purple-50 text-purple-700 border-purple-200';
     } else if (log.entityType === 'User') {
-      targetLink = '/admin';
+      targetLink = '/users';
       title = 'User Administration';
       icon = <Users size={15} className="text-blue-600" />;
       badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
+    }
+
+    if (!canAccessRoute(user.role, targetLink)) {
+      targetLink = '/';
     }
 
     return { title, icon, badgeColor, targetLink };
@@ -346,16 +395,61 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
-            {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS) ? 'System Overview' : 'My Dashboard'}
+            {user.role === Role.ADMINISTRATOR
+              ? 'System Governance Overview'
+              : user.role === Role.BUYER
+              ? 'Buyer Availability Dashboard'
+              : 'Biomass Information Overview'}
           </h2>
-          <p className="text-sm text-agri-earth-500 mt-1 capitalize">
-            {user.role.toLowerCase().replace(/_/g, ' ')} Portal &bull; Recorded Biomass Information
+          <p className="text-sm text-agri-earth-500 mt-1">
+            {getRoleDisplayName(user.role)} Portal &bull; Butuan City Community-Based Biomass System
           </p>
         </div>
+
+        {user.role === Role.COORDINATOR && (
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/biomass-records"
+              className="px-3 py-1.5 rounded-lg bg-agri-green-600 text-white text-xs font-semibold hover:bg-agri-green-700 transition-colors"
+            >
+              Manage Sources &amp; Records
+            </Link>
+            <Link
+              to="/biomass-records?tab=validation"
+              className="px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 transition-colors"
+            >
+              Validation Queue ({pendingValidation})
+            </Link>
+          </div>
+        )}
       </div>
+
+      {user.role === Role.LGU && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3 text-sm text-blue-900">
+          <Eye size={18} className="text-blue-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">Strictly View-Only Planning Access</p>
+            <p className="text-xs text-blue-800 mt-0.5">
+              This portal displays validated biomass availability records, GIS coordinates, information-based aggregation summaries, and planning reports. Record intake, validation, aggregation editing, and inquiry handling are restricted to the LGU Biomass Information Coordinator.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {user.role === Role.ADMINISTRATOR && (
+        <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 flex items-start gap-3 text-sm text-purple-900">
+          <ShieldCheck size={18} className="text-purple-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">Administrative Governance Scope</p>
+            <p className="text-xs text-purple-800 mt-0.5">
+              Administrators manage user accounts, role permissions, approved system settings, and tamper-evident audit logs. Biomass record validation and buyer inquiry decisions are separated and handled strictly by LGU Biomass Information Coordinators.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="border-agri-green-200 bg-gradient-to-br from-white to-agri-green-50/20">
@@ -364,9 +458,12 @@ export const Dashboard: React.FC = () => {
               <Scale size={24} />
             </div>
             <div>
-              <p className="text-xs font-semibold text-agri-earth-600 uppercase tracking-wider">Available Biomass Volume</p>
+              <p className="text-xs font-semibold text-agri-earth-600 uppercase tracking-wider">
+                Validated Available Volume
+              </p>
               <p className="text-2xl font-extrabold text-agri-green-800 mt-0.5">
-                {coreMetrics.availableVolumeTonnes.toLocaleString()} <span className="text-sm font-semibold text-agri-green-600">MT</span>
+                {coreMetrics.availableVolumeTonnes.toLocaleString()}{' '}
+                <span className="text-sm font-semibold text-agri-green-600">MT</span>
               </p>
               <p className="text-[11px] text-agri-earth-500 mt-0.5">
                 {coreMetrics.validatedCount} validated records
@@ -375,16 +472,18 @@ export const Dashboard: React.FC = () => {
           </CardContent>
         </Card>
 
-        {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS) ? (
+        {user.role === Role.ADMINISTRATOR ? (
           <Card>
             <CardContent className="p-5 flex items-center">
-              <div className="w-12 h-12 rounded-lg bg-agri-green-100 flex items-center justify-center text-agri-green-600 mr-4">
+              <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600 mr-4">
                 <Users size={24} />
               </div>
               <div>
-                <p className="text-sm font-medium text-agri-earth-500">Registered Profiles</p>
+                <p className="text-sm font-medium text-agri-earth-500">Registered Accounts</p>
                 <p className="text-2xl font-bold text-gray-900">{totalUsers}</p>
-                <p className="text-[11px] text-agri-earth-500 mt-0.5">Active directory</p>
+                <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                  {activeUsersCount} active accounts
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -395,11 +494,16 @@ export const Dashboard: React.FC = () => {
                 <FileText size={24} />
               </div>
               <div>
-                <p className="text-sm font-medium text-agri-earth-500">Total Recorded Volume</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {coreMetrics.totalVolumeTonnes.toLocaleString()} <span className="text-sm font-normal text-gray-500">MT</span>
+                <p className="text-sm font-medium text-agri-earth-500">
+                  {user.role === Role.LGU ? 'Validated Volume' : 'Total Recorded Volume'}
                 </p>
-                <p className="text-[11px] text-agri-earth-500 mt-0.5">{coreMetrics.totalRecordsCount} records</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {coreMetrics.totalVolumeTonnes.toLocaleString()}{' '}
+                  <span className="text-sm font-normal text-gray-500">MT</span>
+                </p>
+                <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                  {coreMetrics.totalRecordsCount} records
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -414,44 +518,104 @@ export const Dashboard: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-agri-earth-500">Pending Validation</p>
                 <p className="text-2xl font-bold text-gray-900">{pendingValidation}</p>
-                <p className="text-[11px] text-agri-earth-500 mt-0.5">Awaiting LGU evaluation</p>
+                <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                  Awaiting Coordinator validation
+                </p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {(user.role === Role.BUYER || user.role === Role.COORDINATOR || user.role === Role.LGU) && (
+        {(user.role === Role.COORDINATOR || user.role === Role.BUYER) && (
           <Card>
             <CardContent className="p-5 flex items-center">
               <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 mr-4">
                 <MessageSquare size={24} />
               </div>
               <div>
-                <p className="text-sm font-medium text-agri-earth-500">Buyer Inquiries</p>
+                <p className="text-sm font-medium text-agri-earth-500">
+                  {user.role === Role.BUYER ? 'My Inquiries' : 'Buyer Inquiries'}
+                </p>
                 <p className="text-2xl font-bold text-gray-900">{accessibleInquiries.length}</p>
-                <p className="text-[11px] text-agri-earth-500 mt-0.5">Active commercial requests</p>
+                <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                  Non-binding market requests
+                </p>
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {user.role === Role.LGU && (
+          <>
+            <Card>
+              <CardContent className="p-5 flex items-center">
+                <div className="w-12 h-12 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 mr-4">
+                  <Layers size={24} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-agri-earth-500">Aggregation Groups</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {activeAggregationGroups.length}
+                  </p>
+                  <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                    {aggregatedTotalTonnes.toLocaleString()} MT consolidated
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5 flex items-center">
+                <div className="w-12 h-12 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600 mr-4">
+                  <Tractor size={24} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-agri-earth-500">Validated Sources</p>
+                  <p className="text-2xl font-bold text-gray-900">{totalSources}</p>
+                  <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                    Farms &amp; Agro-industrial
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </>
         )}
 
         {user.role === Role.ADMINISTRATOR && (
-          <Card>
-            <CardContent className="p-5 flex items-center">
-              <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 mr-4">
-                <Tractor size={24} />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-agri-earth-500">Recorded Sources</p>
-                <p className="text-2xl font-bold text-gray-900">{totalSources}</p>
-                <p className="text-[11px] text-agri-earth-500 mt-0.5">Farms & Agro-industrial</p>
-              </div>
-            </CardContent>
-          </Card>
+          <>
+            <Card>
+              <CardContent className="p-5 flex items-center">
+                <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 mr-4">
+                  <Tractor size={24} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-agri-earth-500">Recorded Sources</p>
+                  <p className="text-2xl font-bold text-gray-900">{totalSources}</p>
+                  <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                    Farms &amp; Agro-industrial
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5 flex items-center">
+                <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-700 mr-4">
+                  <Activity size={24} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-agri-earth-500">Audit Trail Events</p>
+                  <p className="text-2xl font-bold text-gray-900">{auditLogs.length}</p>
+                  <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                    <Link to="/audit-logs" className="text-agri-green-700 hover:underline font-medium">
+                      Inspect audit trail &rarr;
+                    </Link>
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </>
         )}
       </div>
 
-      {/* Biomass Utilization & Availability Classification Visual */}
       {user.role !== Role.BUYER && (
         <Card className="border-agri-green-200">
           <CardHeader className="pb-3 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
@@ -461,23 +625,25 @@ export const Dashboard: React.FC = () => {
                 Biomass Availability vs. Internal Utilization
               </CardTitle>
               <CardDescription>
-                Live comparison of biomass available for external buyer inquiries versus internal farm/mill consumption.
+                Comparison of biomass available for external buyer inquiries versus internal farm or establishment utilization.
               </CardDescription>
             </div>
             <div className="flex items-center gap-3 text-xs flex-wrap">
               <span className="flex items-center gap-1.5 font-medium text-emerald-800">
-                <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block shrink-0" /> Available to Others ({utilizationStats.availablePercent}%)
+                <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block shrink-0" />{' '}
+                Available to Others ({utilizationStats.availablePercent}%)
               </span>
               <span className="flex items-center gap-1.5 font-medium text-amber-800">
-                <span className="w-3 h-3 rounded-full bg-amber-500 inline-block shrink-0" /> Internal Farm Use ({utilizationStats.internalPercent}%)
+                <span className="w-3 h-3 rounded-full bg-amber-500 inline-block shrink-0" />{' '}
+                Internal Use ({utilizationStats.internalPercent}%)
               </span>
               <span className="flex items-center gap-1.5 font-medium text-blue-800">
-                <span className="w-3 h-3 rounded-full bg-blue-600 inline-block shrink-0" /> Reserved / Committed ({utilizationStats.reservedPercent}%)
+                <span className="w-3 h-3 rounded-full bg-blue-600 inline-block shrink-0" />{' '}
+                Reserved / Committed ({utilizationStats.reservedPercent}%)
               </span>
             </div>
           </CardHeader>
           <CardContent className="pt-4 space-y-4">
-            {/* Visual ratio bar */}
             <div className="w-full bg-gray-100 h-4 rounded-full overflow-hidden flex">
               <div
                 style={{ width: `${utilizationStats.availablePercent}%` }}
@@ -487,7 +653,7 @@ export const Dashboard: React.FC = () => {
               <div
                 style={{ width: `${utilizationStats.internalPercent}%` }}
                 className="bg-amber-500 transition-all duration-500 hover:opacity-90"
-                title={`Internal Farm/Mill Use: ${utilizationStats.internalTonnes} MT (${utilizationStats.internalPercent}%)`}
+                title={`Internal Producer Use: ${utilizationStats.internalTonnes} MT (${utilizationStats.internalPercent}%)`}
               />
               <div
                 style={{ width: `${utilizationStats.reservedPercent}%` }}
@@ -499,57 +665,75 @@ export const Dashboard: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
                 <div className="flex justify-between items-center">
-                  <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">Available for Inquiries</p>
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">{utilizationStats.availablePercent}%</span>
+                  <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">
+                    Available for Inquiries
+                  </p>
+                  <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">
+                    {utilizationStats.availablePercent}%
+                  </span>
                 </div>
                 <p className="text-xl font-bold text-emerald-900 mt-1">
-                  {utilizationStats.availableTonnes.toLocaleString()} <span className="text-xs text-emerald-700">MT</span>
+                  {utilizationStats.availableTonnes.toLocaleString()}{' '}
+                  <span className="text-xs text-emerald-700">MT</span>
                 </p>
-                <p className="text-[11px] text-emerald-700 mt-0.5">Validated & listed for potential buyers</p>
+                <p className="text-[11px] text-emerald-700 mt-0.5">
+                  Validated &amp; listed for non-binding inquiries
+                </p>
               </div>
 
               <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
                 <div className="flex justify-between items-center">
-                  <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">Internal Producer Use</p>
-                  <span className="text-xs font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded">{utilizationStats.internalPercent}%</span>
+                  <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">
+                    Internal Producer Use
+                  </p>
+                  <span className="text-xs font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded">
+                    {utilizationStats.internalPercent}%
+                  </span>
                 </div>
                 <p className="text-xl font-bold text-amber-900 mt-1">
-                  {utilizationStats.internalTonnes.toLocaleString()} <span className="text-xs text-amber-700">MT</span>
+                  {utilizationStats.internalTonnes.toLocaleString()}{' '}
+                  <span className="text-xs text-amber-700">MT</span>
                 </p>
-                <p className="text-[11px] text-amber-700 mt-0.5">Retained for boiler combustion, mulch, bedding</p>
+                <p className="text-[11px] text-amber-700 mt-0.5">
+                  Retained for boiler fuel, mulch, or on-site reuse
+                </p>
               </div>
 
               <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                 <div className="flex justify-between items-center">
-                  <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider">Reserved / Committed</p>
-                  <span className="text-xs font-bold text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded">{utilizationStats.reservedPercent}%</span>
+                  <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider">
+                    Reserved / Committed
+                  </p>
+                  <span className="text-xs font-bold text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded">
+                    {utilizationStats.reservedPercent}%
+                  </span>
                 </div>
                 <p className="text-xl font-bold text-blue-900 mt-1">
-                  {utilizationStats.reservedTonnes.toLocaleString()} <span className="text-xs text-blue-700">MT</span>
+                  {utilizationStats.reservedTonnes.toLocaleString()}{' '}
+                  <span className="text-xs text-blue-700">MT</span>
                 </p>
-                <p className="text-[11px] text-blue-700 mt-0.5">Earmarked under agreements</p>
+                <p className="text-[11px] text-blue-700 mt-0.5">
+                  Committed to existing arrangements
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Butuan City Geographic Distribution & Ranking with Category Slicer */}
       {user.role !== Role.BUYER && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Barangay Ranking with Slicer */}
           <Card className="flex flex-col">
             <CardHeader className="pb-3 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <MapPin className="text-agri-green-600" size={18} />
-                  Butuan City Barangay Production Ranking
+                  Butuan City Barangay Distribution
                 </CardTitle>
                 <CardDescription>
-                  Biomass tonnage produced and available per barangay.
+                  Biomass tonnage recorded and available per barangay.
                 </CardDescription>
               </div>
-              {/* Category Slicer */}
               <div className="flex items-center gap-1.5 bg-gray-50 p-1 rounded-lg border border-gray-200 text-xs">
                 <Filter size={13} className="text-gray-500 ml-1" />
                 <select
@@ -604,31 +788,32 @@ export const Dashboard: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Top Producing Mills, Companies & Farms */}
           <Card className="flex flex-col">
             <CardHeader className="pb-3 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Building className="text-agri-green-600" size={18} />
-                  Top Producing Mills & Farming Groups
+                  Top Biomass Sources in Butuan City
                 </CardTitle>
                 <CardDescription>
-                  Key agro-industrial suppliers and agricultural cooperatives in Butuan City.
+                  Key farms, rice mills, coconut processors, and wood-based establishments.
                 </CardDescription>
               </div>
-              <Link
-                to="/map"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-agri-green-50 hover:border-agri-green-300 text-xs font-semibold text-agri-green-700 hover:text-agri-green-800 transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-agri-green-500 focus:ring-offset-1"
-                aria-label="View Map of top producing mills and farming groups"
-              >
-                <MapIcon size={13} className="text-agri-green-600 shrink-0" aria-hidden="true" />
-                <span>View Map</span>
-              </Link>
+              {hasPermission(user.role, Permission.VIEW_GIS_MAP) && (
+                <Link
+                  to="/map"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-agri-green-50 hover:border-agri-green-300 text-xs font-semibold text-agri-green-700 hover:text-agri-green-800 transition-colors shrink-0 focus:outline-none focus:ring-2 focus:ring-agri-green-500 focus:ring-offset-1"
+                  aria-label="View Map of biomass sources"
+                >
+                  <MapIcon size={13} className="text-agri-green-600 shrink-0" aria-hidden="true" />
+                  <span>View Map</span>
+                </Link>
+              )}
             </CardHeader>
             <CardContent className="pt-4 flex-1">
               {topMillsAndFarms.length === 0 ? (
                 <div className="py-8 text-center text-sm text-gray-500">
-                  No producers registered yet.
+                  No biomass sources registered yet.
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -673,12 +858,15 @@ export const Dashboard: React.FC = () => {
           <Card className="lg:col-span-2">
             <CardHeader>
               <CardTitle>
-                {hasPermission(user.role, Permission.VIEW_SYSTEM_WIDE_RECORDS) ||
-                hasPermission(user.role, Permission.VIEW_VALIDATION_QUEUE)
-                  ? 'Recent Community Records'
-                  : 'My Recent Records'}
+                {user.role === Role.LGU
+                  ? 'Recent Validated Biomass Records'
+                  : 'Recent Biomass Records'}
               </CardTitle>
-              <CardDescription>Latest biomass entries and their current statuses.</CardDescription>
+              <CardDescription>
+                {user.role === Role.LGU
+                  ? 'Latest validated biomass information available for institutional planning (read-only).'
+                  : 'Latest biomass entries across community sources and their current statuses.'}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -716,7 +904,7 @@ export const Dashboard: React.FC = () => {
                               <StatusBadge status={record.status} />
                             </td>
                             <td className="px-4 py-3 text-agri-earth-500">
-                              {format(new Date(record.lastUpdatedDate), 'MMM d, yyyy')}
+                              {safeFormatDate(record.lastUpdatedDate)}
                             </td>
                           </tr>
                         );
@@ -725,11 +913,26 @@ export const Dashboard: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-              <div className="mt-4 text-center">
-                <Link to="/biomass-records" className="text-sm font-medium text-agri-green-600 hover:text-agri-green-700">
-                  View All Records &rarr;
-                </Link>
-              </div>
+              {canAccessRoute(user.role, '/biomass-records') && (
+                <div className="mt-4 text-center">
+                  <Link
+                    to="/biomass-records"
+                    className="text-sm font-medium text-agri-green-600 hover:text-agri-green-700"
+                  >
+                    View Biomass Records &rarr;
+                  </Link>
+                </div>
+              )}
+              {user.role === Role.ADMINISTRATOR && (
+                <div className="mt-4 text-center">
+                  <Link
+                    to="/reports"
+                    className="text-sm font-medium text-agri-green-600 hover:text-agri-green-700"
+                  >
+                    Open System Summary Reports &rarr;
+                  </Link>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -758,7 +961,7 @@ export const Dashboard: React.FC = () => {
                 <Activity size={32} className="text-agri-green-200 mb-3" />
                 <p className="text-sm font-medium text-gray-900">No Actions Recorded Yet</p>
                 <p className="text-xs text-agri-earth-500 mt-1 max-w-[220px]">
-                  Your submissions, validations, accepted inquiries, and messages will appear here.
+                  Your logged system interactions will appear here.
                 </p>
               </div>
             ) : (
@@ -777,7 +980,9 @@ export const Dashboard: React.FC = () => {
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs font-bold text-gray-900">{meta.title}</span>
-                            <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${meta.badgeColor}`}>
+                            <span
+                              className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${meta.badgeColor}`}
+                            >
                               {log.entityId}
                             </span>
                           </div>
@@ -785,7 +990,7 @@ export const Dashboard: React.FC = () => {
                             {log.details || `${log.action} on ${log.entityType}`}
                           </p>
                           <p className="text-[11px] text-gray-400 mt-1">
-                            {format(new Date(log.timestamp), 'MMM d, yyyy • h:mm a')}
+                            {safeFormatDate(log.timestamp, 'MMM d, yyyy • h:mm a')}
                           </p>
                         </div>
                       </div>
@@ -802,7 +1007,10 @@ export const Dashboard: React.FC = () => {
             )}
             {hasPermission(user.role, Permission.VIEW_AUDIT_LOGS) && (
               <div className="mt-4 text-center border-t border-gray-100 pt-3">
-                <Link to="/audit-logs" className="text-xs font-semibold text-agri-green-600 hover:text-agri-green-700">
+                <Link
+                  to="/audit-logs"
+                  className="text-xs font-semibold text-agri-green-600 hover:text-agri-green-700"
+                >
                   View Full System Audit Trail &rarr;
                 </Link>
               </div>

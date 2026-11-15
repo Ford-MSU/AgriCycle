@@ -1,24 +1,41 @@
-import { BiomassRecord, RecordStatus, BiomassSource, Location, ReferenceData, AuditLog, SystemAction, ValidationRecord, Organization, AggregationGroup, AggregationMember, AggregationStatus, Inquiry, InquiryStatus, InquiryMessage, Role } from '../types';
+import {
+  BiomassRecord,
+  RecordStatus,
+  BiomassSource,
+  Location,
+  ReferenceData,
+  AuditLog,
+  SystemAction,
+  ValidationRecord,
+  Organization,
+  AggregationGroup,
+  AggregationMember,
+  AggregationStatus,
+  Inquiry,
+  InquiryStatus,
+  InquiryMessage,
+  Role,
+} from '../types';
 
-// Mock Organizations
+// Legacy Organization records preserved for historical reference compatibility
 export const MOCK_ORGANIZATIONS: Organization[] = [
   {
     id: 'org-1',
-    name: 'Butuan Central Hub',
-    type: 'HUB',
+    name: 'Butuan City LGU Biomass Office',
+    type: 'LGU',
     locationId: 'loc-1',
-    officeAddress: 'J.C. Aquino Avenue, Brgy. Lapu-Lapu, Butuan City',
+    officeAddress: 'City Hall Complex, Doongan, Butuan City',
     contactPhone: '+63 (085) 341-2890',
-    contactEmail: 'centralhub@agricycle.ph',
+    contactEmail: 'biomass@butuan.gov.ph',
   },
   {
     id: 'org-2',
-    name: 'Agusan Farmers Cooperative',
+    name: 'Agusan Biomass Producer Association',
     type: 'COOPERATIVE',
     locationId: 'loc-2',
-    officeAddress: 'Coop Headquarters, Km. 3 Baan, Butuan City',
+    officeAddress: 'Km. 3 Baan, Butuan City',
     contactPhone: '+63 (085) 815-4421',
-    contactEmail: 'agusan.farmers@agricycle.ph',
+    contactEmail: 'info@agusanbiomass.ph',
   },
 ];
 
@@ -27,14 +44,15 @@ export const MOCK_LOCATIONS: Location[] = [
   { id: 'loc-1', barangay: 'Lumbocan', city: 'Butuan City', province: 'Agusan del Norte', coordinates: { lat: 8.9715, lng: 125.5097 } },
   { id: 'loc-2', barangay: 'Libertad', city: 'Butuan City', province: 'Agusan del Norte', coordinates: { lat: 8.9328, lng: 125.5342 } },
   { id: 'loc-3', barangay: 'Ampayon', city: 'Butuan City', province: 'Agusan del Norte', coordinates: { lat: 8.9564, lng: 125.5843 } },
-  { id: 'loc-4', barangay: 'Bancasi', city: 'Butuan City', province: 'Agusan del Norte', coordinates: { lat: 8.9482, lng: 125.4746 } },
+  { id: 'loc-4', barangay: 'Bancasi', city: 'Butuan City', province: 'Agusan del Norte' },
 ];
 
-// Mock Sources
+// Mock Sources (Aligned to approved non-cooperative source types)
 export const MOCK_SOURCES: BiomassSource[] = [
-  { id: 'src-1', name: 'Lumbocan Lumber & Sawmill', type: 'Industrial', locationId: 'loc-1', contactPerson: 'Juan Dela Cruz' },
-  { id: 'src-2', name: 'Libertad Rice Farmers Coop', type: 'Agricultural Coop', locationId: 'loc-2', contactPerson: 'Maria Clara', cooperativeId: 'org-2' },
-  { id: 'src-3', name: 'Ampayon Corn Growers', type: 'Agricultural Coop', locationId: 'loc-3', contactPerson: 'Pedro Penduko', cooperativeId: 'org-2' },
+  { id: 'src-1', name: 'Lumbocan Wood Processing Mill', type: 'Wood-based Establishment', locationId: 'loc-1', contactPerson: 'Juan Dela Cruz' },
+  { id: 'src-2', name: 'Libertad Community Rice Mill', type: 'Rice Mill', locationId: 'loc-2', contactPerson: 'Maria Clara' },
+  { id: 'src-3', name: 'Ampayon Corn & Copra Farm', type: 'Farm', locationId: 'loc-3', contactPerson: 'Pedro Penduko' },
+  { id: 'src-4', name: 'Bancasi Coconut Husk Processor', type: 'Coconut Processor', locationId: 'loc-4', contactPerson: 'Elena Reyes' },
 ];
 
 // Mock Reference Data
@@ -46,14 +64,13 @@ export const MOCK_REFERENCE_DATA: ReferenceData[] = [
   { id: 'ref-bio-5', category: 'BIOMASS_TYPE', code: 'COCONUT_SHELL', label: 'Coconut Shell', isActive: true },
   { id: 'ref-bio-6', category: 'BIOMASS_TYPE', code: 'COCONUT_HUSK', label: 'Coconut Husk', isActive: true },
   { id: 'ref-bio-7', category: 'BIOMASS_TYPE', code: 'WOOD_CHIPS', label: 'Wood Chips', isActive: true },
-  
+
   { id: 'ref-unit-1', category: 'UNIT', code: 'KG', label: 'Kilograms (kg)', isActive: true },
   { id: 'ref-unit-2', category: 'UNIT', code: 'MT', label: 'Metric tonnes (t)', isActive: true },
   { id: 'ref-unit-3', category: 'UNIT', code: 'BAGS_50KG', label: 'Bags (50kg) [Legacy]', isActive: false },
   { id: 'ref-unit-4', category: 'UNIT', code: 'TRUCKLOADS', label: 'Truckloads [Legacy Transport]', isActive: false },
 ];
 
-// Generate dates safely
 const today = new Date();
 const daysAgo = (days: number) => {
   const d = new Date(today);
@@ -71,8 +88,8 @@ export const MOCK_RECORDS: BiomassRecord[] = [
     id: 'REC-1001',
     biomassTypeId: 'ref-bio-1', // Rice Husk
     quantity: 500,
-    originalUnit: 'ref-unit-3', // Bags
-    sourceId: 'src-2', // Libertad
+    originalUnit: 'ref-unit-3',
+    sourceId: 'src-2', // Libertad Community Rice Mill
     locationId: 'loc-2',
     status: RecordStatus.VALIDATED,
     isTheoreticalEstimate: false,
@@ -81,21 +98,22 @@ export const MOCK_RECORDS: BiomassRecord[] = [
     currentUse: 'Available / not currently used',
     reservedQuantity: 50,
     remainingQuantity: 450,
+    externalAvailability: 'AVAILABLE_TO_OTHERS',
     condition: 'Dry',
-    conditionNote: 'Stored in covered warehouse.',
-    storage: 'Warehouse',
-    accessLocationNotes: 'Accessible by 6-wheeler truck',
+    conditionNote: 'Stored in covered on-site shed at rice mill.',
+    storage: 'Covered Shed (Source Site)',
+    accessLocationNotes: 'Accessible by 6-wheeler truck along Libertad feeder road',
     submitterId: 'user-coord',
     createdAt: daysAgo(10),
     lastUpdatedDate: daysAgo(8),
-    validationDate: daysAgo(8)
+    validationDate: daysAgo(8),
   },
   {
     id: 'REC-1002',
     biomassTypeId: 'ref-bio-7', // Wood Chips
     quantity: 8000,
-    originalUnit: 'ref-unit-1', // KG
-    sourceId: 'src-1', // Lumbocan
+    originalUnit: 'ref-unit-1',
+    sourceId: 'src-1', // Lumbocan Wood Processing Mill
     locationId: 'loc-1',
     status: RecordStatus.VALIDATED,
     isTheoreticalEstimate: false,
@@ -112,16 +130,16 @@ export const MOCK_RECORDS: BiomassRecord[] = [
     submitterId: 'user-coord',
     createdAt: daysAgo(15),
     lastUpdatedDate: daysAgo(2),
-    validationDate: daysAgo(10)
+    validationDate: daysAgo(10),
   },
   {
     id: 'REC-1003',
     biomassTypeId: 'ref-bio-4', // Corn Stalk
     quantity: 12,
-    originalUnit: 'ref-unit-4', // Truckloads
+    originalUnit: 'ref-unit-4',
     sourceId: 'src-3', // Ampayon
     locationId: 'loc-3',
-    status: RecordStatus.SUBMITTED, // Needs validation
+    status: RecordStatus.SUBMITTED,
     isTheoreticalEstimate: false,
     availabilityPeriodStart: daysAgo(1),
     availabilityPeriodEnd: daysFromNow(14),
@@ -131,21 +149,21 @@ export const MOCK_RECORDS: BiomassRecord[] = [
     remainingQuantity: 12,
     externalAvailability: 'AVAILABLE_TO_OTHERS',
     condition: 'Fresh/Wet',
-    conditionNote: 'Needs harvesting assistance',
-    storage: 'Field',
-    accessLocationNotes: 'Muddy access, needs tractor',
+    conditionNote: 'Awaiting Coordinator validation check',
+    storage: 'Open Field Pile',
+    accessLocationNotes: 'Unpaved farm road, dry weather access recommended',
     submitterId: 'user-coord-2',
     createdAt: daysAgo(2),
-    lastUpdatedDate: daysAgo(1)
+    lastUpdatedDate: daysAgo(1),
   },
   {
     id: 'REC-1004',
     biomassTypeId: 'ref-bio-6', // Coconut husk
     quantity: 2000,
-    originalUnit: 'ref-unit-1', // KG
-    sourceId: 'src-2', // Libertad
-    locationId: 'loc-2',
-    status: RecordStatus.UNDER_REVIEW, // Under review
+    originalUnit: 'ref-unit-1',
+    sourceId: 'src-4', // Bancasi Coconut Husk Processor (missing coords example)
+    locationId: 'loc-4',
+    status: RecordStatus.UNDER_REVIEW,
     isTheoreticalEstimate: false,
     availabilityPeriodStart: daysAgo(0),
     availabilityPeriodEnd: daysFromNow(30),
@@ -155,174 +173,122 @@ export const MOCK_RECORDS: BiomassRecord[] = [
     remainingQuantity: 1400,
     externalAvailability: 'AVAILABLE_TO_OTHERS',
     condition: 'Dry',
-    storage: 'Covered Shed',
-    accessLocationNotes: 'Easy access',
+    storage: 'Covered Shed (Source Site)',
+    accessLocationNotes: 'Located near Bancasi highway junction',
     submitterId: 'user-coord',
     createdAt: daysAgo(1),
-    lastUpdatedDate: daysAgo(1)
-  }
+    lastUpdatedDate: daysAgo(1),
+  },
 ];
 
+// Coordinator (user-coord-2) performed validation on records submitted by user-coord (preserving self-validation guard)
 export const MOCK_VALIDATION_RECORDS: ValidationRecord[] = [
   {
     id: 'val-1',
     biomassRecordId: 'REC-1001',
-    validatorId: 'user-lgu',
+    validatorId: 'user-coord-2',
     decision: RecordStatus.VALIDATED,
     validationBasis: 'Field Inspection',
-    validationNotes: 'Confirmed bags in warehouse match reported count.',
-    validationDate: daysAgo(8)
+    validationNotes: 'Confirmed reported quantity and dry condition at Libertad Community Rice Mill.',
+    validationDate: daysAgo(8),
   },
   {
     id: 'val-2',
     biomassRecordId: 'REC-1002',
-    validatorId: 'user-lgu',
+    validatorId: 'user-coord-2',
     decision: RecordStatus.VALIDATED,
     validationBasis: 'Phone Verification',
-    validationNotes: 'Spoke with Juan Dela Cruz, confirmed availability.',
-    validationDate: daysAgo(62)
-  }
+    validationNotes: 'Verified surplus wood chips availability with Juan Dela Cruz at Lumbocan Mill.',
+    validationDate: daysAgo(10),
+  },
 ];
 
 export const MOCK_AUDIT_LOGS: AuditLog[] = [
-  // Coordinator Actions (Nitronford Beatingo)
   {
     id: 'log-coord-1',
-    userId: 'user-coord',
-    action: SystemAction.UPDATE_STATUS,
-    entityType: 'Inquiry',
-    entityId: 'INQ-1001',
-    details: 'Accepted inquiry INQ-1001 for Rice Husk discussion',
-    timestamp: daysAgo(1),
-  },
-  {
-    id: 'log-coord-2',
     userId: 'user-coord',
     action: SystemAction.CREATE_GROUP,
     entityType: 'AggregationGroup',
     entityId: 'AG-001',
-    details: 'Created aggregation group "Rice Husk - Batch 1 (Libertad)"',
+    details: 'Created information-based aggregation group "Rice Husk - Libertad Information Group"',
     timestamp: daysAgo(3),
   },
   {
-    id: 'log-coord-3',
+    id: 'log-coord-2',
     userId: 'user-coord',
     action: SystemAction.SUBMIT,
     entityType: 'BiomassRecord',
     entityId: 'REC-1001',
-    details: 'Submitted biomass record REC-1001 (Rice Husk, 20 MT) for validation',
-    timestamp: daysAgo(5),
+    details: 'Submitted biomass record REC-1001 (Rice Husk) for Coordinator validation',
+    timestamp: daysAgo(9),
   },
   {
-    id: 'log-coord-4',
+    id: 'log-coord-3',
     userId: 'user-coord',
     action: SystemAction.CREATE,
     entityType: 'BiomassRecord',
     entityId: 'REC-1002',
-    details: 'Created biomass record REC-1002 (Coconut Shell, 15 MT)',
-    timestamp: daysAgo(7),
+    details: 'Created biomass record REC-1002 (Wood Chips, 8,000 kg)',
+    timestamp: daysAgo(15),
   },
-
-  // LGU Actions (Engr. Arvin Jimenez)
   {
-    id: 'log-lgu-1',
-    userId: 'user-lgu',
+    id: 'log-coord-4',
+    userId: 'user-coord-2',
     action: SystemAction.VALIDATE,
     entityType: 'ValidationRecord',
     entityId: 'REC-1001',
-    details: 'Validated biomass record REC-1001 via on-site field inspection',
-    timestamp: daysAgo(2),
+    details: 'Validated biomass record REC-1001 via Field Inspection',
+    timestamp: daysAgo(8),
   },
   {
-    id: 'log-lgu-2',
-    userId: 'user-lgu',
+    id: 'log-coord-5',
+    userId: 'user-coord-2',
     action: SystemAction.VALIDATE,
     entityType: 'ValidationRecord',
     entityId: 'REC-1002',
-    details: 'Validated biomass record REC-1002 via phone verification with producer',
-    timestamp: daysAgo(4),
+    details: 'Validated biomass record REC-1002 via Phone Verification',
+    timestamp: daysAgo(10),
   },
-  {
-    id: 'log-lgu-3',
-    userId: 'user-lgu',
-    action: SystemAction.RETURN,
-    entityType: 'ValidationRecord',
-    entityId: 'REC-1003',
-    details: 'Returned record REC-1003 requesting updated moisture content specifications',
-    timestamp: daysAgo(6),
-  },
-
-  // Buyer Actions (Carlos Santos)
   {
     id: 'log-buyer-1',
     userId: 'user-buyer',
     action: SystemAction.INQUIRE,
     entityType: 'Inquiry',
     entityId: 'INQ-1001',
-    details: 'Submitted commercial inquiry INQ-1001 for 100 Bags Rice Husk',
+    details: 'Submitted non-binding market inquiry INQ-1001 for 100 Bags Rice Husk',
     timestamp: daysAgo(2),
   },
-  {
-    id: 'log-buyer-2',
-    userId: 'user-buyer',
-    action: SystemAction.UPDATE,
-    entityType: 'Inquiry',
-    entityId: 'INQ-1001',
-    details: 'Sent message inquiring about weighbridge ticket and pickup schedule',
-    timestamp: daysAgo(1),
-  },
-  {
-    id: 'log-buyer-3',
-    userId: 'user-buyer',
-    action: SystemAction.UPDATE_STATUS,
-    entityType: 'Inquiry',
-    entityId: 'INQ-1005',
-    details: 'Withdrew inquiry INQ-1005 for Sugarcane Bagasse',
-    timestamp: daysAgo(8),
-  },
-
-  // Administrator Actions (Juan Dela Cruz)
   {
     id: 'log-admin-1',
     userId: 'user-admin',
     action: SystemAction.UPDATE,
     entityType: 'User',
     entityId: 'user-lgu',
-    details: 'Assigned LGU Reviewer credentials to Engr. Arvin Jimenez',
+    details: 'Assigned LGU/Institutional Planning User read-only access to Engr. Arvin Jimenez',
     timestamp: daysAgo(1),
   },
   {
     id: 'log-admin-2',
     userId: 'user-admin',
-    action: SystemAction.CREATE,
-    entityType: 'BiomassRecord',
-    entityId: 'REC-1008',
-    details: 'Registered institutional biomass batch in Butuan City Agro-Hub',
-    timestamp: daysAgo(3),
-  },
-  {
-    id: 'log-admin-3',
-    userId: 'user-admin',
     action: SystemAction.UPDATE,
-    entityType: 'BiomassRecord',
-    entityId: 'REC-1001',
-    details: 'Verified database integrity across 86 Butuan City barangay zones',
-    timestamp: daysAgo(5),
+    entityType: 'User',
+    entityId: 'user-coord',
+    details: 'Assigned LGU Biomass Information Coordinator role to Nitronford Beatingo',
+    timestamp: daysAgo(4),
   },
 ];
 
 export const MOCK_AGGREGATION_GROUPS: AggregationGroup[] = [
   {
     id: 'AG-001',
-    name: 'Rice Husk - Batch 1 (Libertad)',
+    name: 'Rice Husk - Libertad Information Group',
     biomassTypeId: 'ref-bio-1',
-    hubId: 'org-1',
     status: AggregationStatus.ACTIVE,
-    notes: 'Information-level grouping of available rice husk.',
+    notes: 'Information-level grouping of validated rice husk records in Libertad.',
     createdBy: 'user-coord',
     createdAt: daysAgo(5),
-    updatedAt: daysAgo(2)
-  }
+    updatedAt: daysAgo(2),
+  },
 ];
 
 export const MOCK_AGGREGATION_MEMBERS: AggregationMember[] = [
@@ -332,8 +298,8 @@ export const MOCK_AGGREGATION_MEMBERS: AggregationMember[] = [
     biomassRecordId: 'REC-1001',
     addedBy: 'user-coord',
     addedAt: daysAgo(5),
-    isActive: true
-  }
+    isActive: true,
+  },
 ];
 
 export const MOCK_INQUIRIES: Inquiry[] = [
@@ -341,15 +307,15 @@ export const MOCK_INQUIRIES: Inquiry[] = [
     id: 'INQ-1001',
     buyerUserId: 'user-buyer',
     targetType: 'RECORD',
-    targetId: 'REC-1001', // Active Validated Rice Husk record
-    biomassTypeId: 'ref-bio-1', // Rice Husk
+    targetId: 'REC-1001',
+    biomassTypeId: 'ref-bio-1',
     requestedQuantity: 100,
-    requestedUnit: 'ref-unit-3', // Bags 50kg
+    requestedUnit: 'ref-unit-3',
     intendedUse: 'Mushroom Cultivation & Soil Conditioner',
-    preferredAvailabilityPeriod: 'Immediate delivery',
-    status: InquiryStatus.UNDER_REVIEW,
+    preferredAvailabilityPeriod: 'Q4 2026 availability window',
+    status: InquiryStatus.SUBMITTED,
     submittedAt: daysAgo(2),
-    updatedAt: daysAgo(1),
+    updatedAt: daysAgo(2),
     history: [
       {
         id: 'inqh-1',
@@ -357,19 +323,10 @@ export const MOCK_INQUIRIES: Inquiry[] = [
         newStatus: InquiryStatus.SUBMITTED,
         changedBy: 'user-buyer',
         changedAt: daysAgo(2),
-        notes: 'Initial inquiry submitted for active Rice Husk'
+        notes: 'Initial non-binding inquiry submitted for Rice Husk availability',
       },
-      {
-        id: 'inqh-2',
-        inquiryId: 'INQ-1001',
-        previousStatus: InquiryStatus.SUBMITTED,
-        newStatus: InquiryStatus.UNDER_REVIEW,
-        changedBy: 'user-coord',
-        changedAt: daysAgo(1),
-        notes: 'Checking exact warehouse pickup schedule with the cooperative.'
-      }
-    ]
-  }
+    ],
+  },
 ];
 
 export const MOCK_INQUIRY_MESSAGES: InquiryMessage[] = [
@@ -377,23 +334,22 @@ export const MOCK_INQUIRY_MESSAGES: InquiryMessage[] = [
     id: 'msg-1',
     inquiryId: 'INQ-1001',
     senderId: 'user-buyer',
-    senderName: 'BioEnergy Solutions (Buyer)',
+    senderName: 'Carlos Santos (BioEnergy Solutions)',
     senderRole: Role.BUYER,
-    message: 'Hello! We are looking to secure 100 bags (approx 5 MT) of rice husk for next week pickup. Is the covered warehouse accessible for a 6-wheeler truck?',
+    message: 'Hello, we are interested in the availability of 100 bags of rice husk in Libertad for substrate use. Can you confirm road access notes?',
     createdAt: daysAgo(2),
   },
   {
     id: 'msg-2',
     inquiryId: 'INQ-1001',
     senderId: 'user-coord',
-    senderName: 'Maria Coordinator (Agusan Farmers Coop)',
+    senderName: 'Nitronford Beatingo (LGU Biomass Information Coordinator)',
     senderRole: Role.COORDINATOR,
-    message: 'Hi! Yes, the warehouse in Libertad has direct concrete road access suitable for 6-wheeler and 10-wheeler trucks. Moisture level is under 12%.',
+    message: 'Noted. The source site in Libertad has paved road access suitable for 6-wheeler vehicles. Please await formal acceptance status update.',
     createdAt: daysAgo(1),
   },
 ];
 
-// Simple in-memory "database" singleton for the prototype
 class MockDatabase {
   records: BiomassRecord[] = [...MOCK_RECORDS];
   locations: Location[] = [...MOCK_LOCATIONS];
@@ -432,39 +388,38 @@ class MockDatabase {
   }
 
   getBiomassTypes() {
-    return this.referenceData.filter(r => r.category === 'BIOMASS_TYPE' && r.isActive);
+    return this.referenceData.filter((r) => r.category === 'BIOMASS_TYPE' && r.isActive);
   }
 
   getUnits() {
-    return this.referenceData.filter(r => r.category === 'UNIT' && r.isActive);
+    return this.referenceData.filter((r) => r.category === 'UNIT' && r.isActive);
   }
 
   getRecord(id: string) {
-    return this.records.find(r => r.id === id);
+    return this.records.find((r) => r.id === id);
   }
-  
+
   getSource(id: string) {
-    return this.sources.find(s => s.id === id);
+    return this.sources.find((s) => s.id === id);
   }
 
   getLocation(id: string) {
-    return this.locations.find(l => l.id === id);
+    return this.locations.find((l) => l.id === id);
   }
 
   getOrganization(id: string) {
-    return this.organizations.find(o => o.id === id);
+    return this.organizations.find((o) => o.id === id);
   }
 
   getAggregationGroup(id: string) {
-    return this.aggregationGroups.find(g => g.id === id);
+    return this.aggregationGroups.find((g) => g.id === id);
   }
 
   getAggregationMembers(groupId: string) {
-    return this.aggregationMembers.filter(m => m.groupId === groupId && m.isActive);
+    return this.aggregationMembers.filter((m) => m.groupId === groupId && m.isActive);
   }
 
   addAggregationGroup(group: AggregationGroup, memberRecordIds: string[], userId: string) {
-    // Enforce that none of the member records are already in an active group
     const activeMemberIds = new Set(
       this.aggregationMembers.filter((m) => m.isActive).map((m) => m.biomassRecordId)
     );
@@ -475,15 +430,15 @@ class MockDatabase {
     }
 
     this.aggregationGroups.push(group);
-    
-    memberRecordIds.forEach(recordId => {
+
+    memberRecordIds.forEach((recordId) => {
       this.aggregationMembers.push({
         id: `agm-${Date.now()}-${Math.random()}`,
         groupId: group.id,
         biomassRecordId: recordId,
         addedBy: userId,
         addedAt: new Date().toISOString(),
-        isActive: true
+        isActive: true,
       });
     });
 
@@ -493,11 +448,10 @@ class MockDatabase {
       action: SystemAction.CREATE_GROUP,
       entityType: 'AggregationGroup',
       entityId: group.id,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 
-  // Inquiries
   addInquiry(inquiry: Inquiry, userId: string) {
     if (inquiry.targetType === 'RECORD') {
       const activeMember = this.aggregationMembers.find(
@@ -511,28 +465,33 @@ class MockDatabase {
     }
 
     this.inquiries.push(inquiry);
-    
-    // Add to history already handled during creation, just log to audit
+
     this.auditLogs.push({
       id: `log-${Date.now()}`,
       userId,
-      action: SystemAction.UPDATE_STATUS, // Reuse or create a new action if needed
+      action: SystemAction.INQUIRE,
       entityType: 'Inquiry',
       entityId: inquiry.id,
       timestamp: new Date().toISOString(),
-      details: 'Inquiry submitted'
+      details: 'Non-binding buyer inquiry submitted',
     });
   }
 
   updateInquiryStatus(inquiryId: string, newStatus: InquiryStatus, userId: string, notes?: string) {
-    const inquiry = this.inquiries.find(i => i.id === inquiryId);
+    const inquiry = this.inquiries.find((i) => i.id === inquiryId);
     if (!inquiry) return;
 
     const previousStatus = inquiry.status;
     inquiry.status = newStatus;
     inquiry.updatedAt = new Date().toISOString();
-    
-    if (newStatus === InquiryStatus.CLOSED || newStatus === InquiryStatus.WITHDRAWN || newStatus === InquiryStatus.EXPIRED || newStatus === InquiryStatus.NO_LONGER_AVAILABLE) {
+
+    if (
+      newStatus === InquiryStatus.DECLINED ||
+      newStatus === InquiryStatus.CLOSED ||
+      newStatus === InquiryStatus.WITHDRAWN ||
+      newStatus === InquiryStatus.EXPIRED ||
+      newStatus === InquiryStatus.NO_LONGER_AVAILABLE
+    ) {
       inquiry.closedAt = new Date().toISOString();
     }
 
@@ -543,7 +502,7 @@ class MockDatabase {
       newStatus,
       changedBy: userId,
       changedAt: new Date().toISOString(),
-      notes
+      notes,
     });
 
     this.auditLogs.push({
@@ -553,7 +512,7 @@ class MockDatabase {
       entityType: 'Inquiry',
       entityId: inquiry.id,
       timestamp: new Date().toISOString(),
-      details: `Status changed to ${newStatus}`
+      details: `Inquiry status changed to ${newStatus}`,
     });
   }
 
@@ -566,32 +525,32 @@ class MockDatabase {
   }
 
   addLocation(location: Location) {
-    if (!location.coordinates) {
-      let hash = 0;
-      const bStr = location.barangay || 'Butuan';
-      for (let i = 0; i < bStr.length; i++) {
-        hash = (hash << 5) - hash + bStr.charCodeAt(i);
-        hash |= 0;
-      }
-      const latOffset = (((Math.abs(hash) % 80) - 40) * 0.0006);
-      const lngOffset = ((((Math.abs(hash) >> 2) % 80) - 40) * 0.0006);
-      location.coordinates = {
-        lat: Number((8.9475 + latOffset).toFixed(4)),
-        lng: Number((125.5406 + lngOffset).toFixed(4)),
-      };
-    }
+    // Preserve exact provided coordinates; never fabricate fake coordinates when missing.
     this.locations.push(location);
+  }
+
+  updateLocationCoordinates(locationId: string, lat: number | undefined, lng: number | undefined) {
+    const loc = this.locations.find((l) => l.id === locationId);
+    if (loc) {
+      loc.coordinates = lat !== undefined && lng !== undefined ? { lat, lng } : undefined;
+    }
   }
 
   addSource(source: BiomassSource) {
     this.sources.push(source);
   }
 
+  updateSource(id: string, updates: Partial<BiomassSource>) {
+    const idx = this.sources.findIndex((s) => s.id === id);
+    if (idx !== -1) {
+      this.sources[idx] = { ...this.sources[idx], ...updates };
+    }
+  }
+
   addOrganization(org: Organization) {
     this.organizations.push(org);
   }
 
-  // Adding a new record
   addRecord(record: BiomassRecord, userId: string) {
     this.records.push(record);
     this.auditLogs.push({
@@ -600,16 +559,21 @@ class MockDatabase {
       action: SystemAction.CREATE,
       entityType: 'BiomassRecord',
       entityId: record.id,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 
-  updateRecord(id: string, updates: Partial<BiomassRecord>, userId: string, action: SystemAction = SystemAction.UPDATE) {
-    const idx = this.records.findIndex(r => r.id === id);
+  updateRecord(
+    id: string,
+    updates: Partial<BiomassRecord>,
+    userId: string,
+    action: SystemAction = SystemAction.UPDATE
+  ) {
+    const idx = this.records.findIndex((r) => r.id === id);
     if (idx !== -1) {
       const old = { ...this.records[idx] };
       this.records[idx] = { ...this.records[idx], ...updates, lastUpdatedDate: new Date().toISOString() };
-      
+
       this.auditLogs.push({
         id: `log-${Date.now()}`,
         userId,
@@ -618,25 +582,35 @@ class MockDatabase {
         entityId: id,
         previousState: { status: old.status },
         newState: { status: this.records[idx].status },
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
     }
   }
 
   addValidation(validation: ValidationRecord, userId: string) {
     this.validationRecords.push(validation);
-    this.updateRecord(validation.biomassRecordId, { 
-      status: validation.decision, 
-      validationDate: validation.validationDate 
-    }, userId, SystemAction.VALIDATE);
-    
+    this.updateRecord(
+      validation.biomassRecordId,
+      {
+        status: validation.decision,
+        validationDate: validation.validationDate,
+      },
+      userId,
+      SystemAction.VALIDATE
+    );
+
     this.auditLogs.push({
       id: `log-${Date.now()}`,
       userId,
-      action: validation.decision === RecordStatus.VALIDATED ? SystemAction.VALIDATE : SystemAction.REJECT,
+      action:
+        validation.decision === RecordStatus.VALIDATED
+          ? SystemAction.VALIDATE
+          : validation.decision === RecordStatus.RETURNED
+          ? SystemAction.RETURN
+          : SystemAction.REJECT,
       entityType: 'ValidationRecord',
       entityId: validation.id,
-      timestamp: validation.validationDate
+      timestamp: validation.validationDate,
     });
   }
 }

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Role, InquiryStatus, Inquiry, InquiryMessage } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
+import { getRoleShortName, hasPermission, Permission } from '../utils/rbac';
 import {
   MessageSquare,
   Clock,
@@ -13,13 +14,10 @@ import {
   MapPin,
   CheckCircle2,
   User as UserIcon,
-  Phone,
-  Mail,
-  ShieldCheck,
-  XCircle,
   Ban,
   AlertCircle,
   X,
+  Info,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -44,10 +42,10 @@ const StatusBadgeInquiry: React.FC<{ status: InquiryStatus }> = ({ status }) => 
     status === InquiryStatus.RESPONDED ||
     status === InquiryStatus.FOLLOW_UP
   ) {
-    label = 'In Discussion';
+    label = 'Accepted (Legacy)';
     styles = 'bg-emerald-50 text-emerald-800 border border-emerald-200';
   } else if (status === InquiryStatus.CLOSED) {
-    label = 'Closed';
+    label = 'Closed (Legacy)';
     styles = 'bg-gray-100 text-gray-600 border border-gray-200';
   } else if (status === InquiryStatus.WITHDRAWN) {
     label = 'Withdrawn';
@@ -72,12 +70,10 @@ export const Inquiries: React.FC = () => {
   const {
     inquiries,
     referenceData,
-    profiles,
     isLoading,
     getRecord,
     getSource,
     getLocation,
-    getOrganization,
     getAggregationGroup,
     updateInquiryStatus,
     getInquiryMessages,
@@ -87,13 +83,10 @@ export const Inquiries: React.FC = () => {
   const [selectedInquiryId, setSelectedInquiryId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [isSendingMessage, setIsSendingMessage] = useState(false);
-  const [newStatus, setNewStatus] = useState<InquiryStatus | ''>('');
-  const [statusNote, setStatusNote] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [actionError, setActionError] = useState('');
   const [activeTab, setActiveTab] = useState<'CHAT' | 'DETAILS'>('CHAT');
 
-  // Modals for Buyer Withdrawal & Coordinator Decline
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [isDeclineModalOpen, setIsDeclineModalOpen] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
@@ -101,36 +94,18 @@ export const Inquiries: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
 
-  if (!user) return null;
+  // Scope visible inquiries: Buyers see own inquiries only; Coordinators see all relevant inquiries.
+  const visibleInquiries = useMemo(() => {
+    if (!user) return [];
+    if (user.role === Role.BUYER) {
+      return inquiries.filter((i) => i.buyerUserId === user.id || i.buyerUserId === user.name);
+    }
+    if (user.role === Role.COORDINATOR) {
+      return inquiries;
+    }
+    return [];
+  }, [user, inquiries]);
 
-  // Retrieve inquiries based on role
-  let visibleInquiries = inquiries;
-  if (user.role === Role.BUYER) {
-    visibleInquiries = inquiries.filter((i) => i.buyerUserId === user.id || i.buyerUserId === user.name);
-  } else if (user.role === Role.COORDINATOR) {
-    visibleInquiries = inquiries.filter((i) => {
-      if (i.targetType === 'RECORD') {
-        const rec = getRecord(i.targetId);
-        return (
-          rec?.submitterId === user.id ||
-          rec?.submitterId === user.name ||
-          rec?.sourceId.includes('src-1') ||
-          rec?.sourceId.includes('src-2') ||
-          getSource(rec?.sourceId || '')?.cooperativeId === user.organizationId
-        );
-      } else {
-        const group = getAggregationGroup(i.targetId);
-        return (
-          group?.createdBy === user.id ||
-          group?.createdBy === user.name ||
-          group?.hubId === user.organizationId ||
-          group?.hubId === 'org-2'
-        );
-      }
-    });
-  }
-
-  // Set default selection if none selected
   useEffect(() => {
     if (!selectedInquiryId && visibleInquiries.length > 0) {
       setSelectedInquiryId(visibleInquiries[0].id);
@@ -148,14 +123,20 @@ export const Inquiries: React.FC = () => {
     setActionError('');
   }, [selectedInquiryId]);
 
-  // Auto scroll chat to bottom when new messages arrive
   useEffect(() => {
     if (activeTab === 'CHAT') {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [currentMessages.length, selectedInquiryId, activeTab]);
 
-  // Check if chat is enabled: strictly restricted until Coordinator accepts!
+  if (!user) return null;
+
+  const canRespondToInquiries = hasPermission(user.role, Permission.RESPOND_TO_INQUIRIES);
+  const isOwnerBuyer =
+    user.role === Role.BUYER &&
+    selectedInquiry &&
+    (selectedInquiry.buyerUserId === user.id || selectedInquiry.buyerUserId === user.name);
+
   const isChatEnabled =
     selectedInquiry?.status === InquiryStatus.ACCEPTED ||
     selectedInquiry?.status === InquiryStatus.IN_DISCUSSION ||
@@ -173,24 +154,22 @@ export const Inquiries: React.FC = () => {
       await addInquiryMessage(selectedInquiry.id, chatInput.trim());
       setChatInput('');
     } catch (err: any) {
-      setActionError(err?.message || 'Failed to send message.');
+      setActionError(err?.message || 'Failed to send note.');
     } finally {
       setIsSendingMessage(false);
     }
   };
 
-  // Coordinator: Accept Inquiry
   const handleAcceptInquiry = async () => {
-    if (!selectedInquiry) return;
+    if (!selectedInquiry || !canRespondToInquiries) return;
     setIsUpdatingStatus(true);
     setActionError('');
     try {
       await updateInquiryStatus(
         selectedInquiry.id,
         InquiryStatus.ACCEPTED,
-        `Inquiry accepted by ${user.name} (${user.role}). Direct conversation is now open.`
+        `Non-binding inquiry accepted by ${user.name} (${getRoleShortName(user.role)}).`
       );
-      // Directly navigate to chat and focus input
       setActiveTab('CHAT');
       setTimeout(() => {
         chatInputRef.current?.focus();
@@ -203,16 +182,15 @@ export const Inquiries: React.FC = () => {
     }
   };
 
-  // Coordinator: Decline Inquiry
   const handleDeclineConfirm = async () => {
-    if (!selectedInquiry) return;
+    if (!selectedInquiry || !canRespondToInquiries) return;
     setIsUpdatingStatus(true);
     setActionError('');
     try {
       await updateInquiryStatus(
         selectedInquiry.id,
         InquiryStatus.DECLINED,
-        declineReason.trim() || 'Inquiry declined by coordinator.'
+        declineReason.trim() || 'Inquiry declined by LGU Biomass Information Coordinator.'
       );
       setIsDeclineModalOpen(false);
       setDeclineReason('');
@@ -223,9 +201,8 @@ export const Inquiries: React.FC = () => {
     }
   };
 
-  // Buyer: Withdraw Inquiry Confirmation
   const handleWithdrawConfirm = async () => {
-    if (!selectedInquiry) return;
+    if (!selectedInquiry || !isOwnerBuyer) return;
     setIsUpdatingStatus(true);
     setActionError('');
     try {
@@ -237,21 +214,6 @@ export const Inquiries: React.FC = () => {
       setIsWithdrawModalOpen(false);
     } catch (err: any) {
       setActionError(err?.message || 'Failed to withdraw inquiry.');
-    } finally {
-      setIsUpdatingStatus(false);
-    }
-  };
-
-  const handleStatusChange = async (statusToApply: InquiryStatus, notesToApply?: string) => {
-    if (!selectedInquiry) return;
-    setActionError('');
-    setIsUpdatingStatus(true);
-    try {
-      await updateInquiryStatus(selectedInquiry.id, statusToApply, notesToApply);
-      setStatusNote('');
-      setNewStatus('');
-    } catch (err: any) {
-      setActionError(err?.message || 'Failed to update inquiry status.');
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -269,20 +231,15 @@ export const Inquiries: React.FC = () => {
     }
   };
 
-  // Helper info for selected inquiry
-  const targetRecord = selectedInquiry && selectedInquiry.targetType === 'RECORD'
-    ? getRecord(selectedInquiry.targetId)
-    : undefined;
+  const targetRecord =
+    selectedInquiry && selectedInquiry.targetType === 'RECORD'
+      ? getRecord(selectedInquiry.targetId)
+      : undefined;
   const targetSource = targetRecord ? getSource(targetRecord.sourceId) : undefined;
   const sourceLocation = targetSource
     ? getLocation(targetSource.locationId)
     : targetRecord
     ? getLocation(targetRecord.locationId)
-    : undefined;
-  const targetCoop = targetSource?.cooperativeId ? getOrganization(targetSource.cooperativeId) : undefined;
-
-  const buyerProfile = selectedInquiry
-    ? profiles.find((p) => p.id === selectedInquiry.buyerUserId || p.email === selectedInquiry.buyerUserId)
     : undefined;
 
   const isTerminalStatus =
@@ -292,21 +249,36 @@ export const Inquiries: React.FC = () => {
     selectedInquiry?.status === InquiryStatus.NO_LONGER_AVAILABLE ||
     selectedInquiry?.status === InquiryStatus.EXPIRED;
 
+  const canCoordinatorAct =
+    canRespondToInquiries &&
+    selectedInquiry &&
+    (selectedInquiry.status === InquiryStatus.SUBMITTED ||
+      selectedInquiry.status === InquiryStatus.UNDER_REVIEW);
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
-            {user.role === Role.BUYER ? 'My Inquiries & Conversations' : 'Buyer Inquiries & Communication'}
+            {user.role === Role.BUYER ? 'My Inquiries' : 'Buyer Inquiries'}
           </h2>
           <p className="text-sm text-agri-earth-500 mt-1">
-            Direct communication, coordinator acceptance/decline workflow, and logistics coordination.
+            {user.role === Role.BUYER
+              ? 'Track non-binding biomass inquiries and withdraw pending requests.'
+              : 'Review incoming buyer inquiries and accept or decline information linkage.'}
           </p>
         </div>
       </div>
 
+      <div className="bg-blue-50 border border-blue-100 rounded-lg p-3.5 flex gap-3 text-blue-800 text-xs">
+        <Info className="shrink-0 mt-0.5 text-blue-500" size={16} />
+        <p>
+          <strong>Non-Binding Coordination Only:</strong> Accepting an inquiry enables information coordination between the buyer and source contact. It does <em>not</em> deduct biomass quantities, reserve supply, schedule physical collection, or establish a commercial contract.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Inquiry List (4 cols) */}
+        {/* Left: Inquiry List */}
         <div className="lg:col-span-4 border border-gray-200 bg-white rounded-xl overflow-hidden h-[680px] flex flex-col shadow-sm">
           <div className="p-4 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between">
             <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
@@ -343,7 +315,10 @@ export const Inquiries: React.FC = () => {
                     <p className="font-semibold text-sm text-gray-900 line-clamp-1">{getTargetTitle(inq)}</p>
                     <div className="flex items-center justify-between mt-2 text-xs text-gray-600">
                       <span>
-                        Req: <strong>{inq.requestedQuantity.toLocaleString()} {unitLabel}</strong>
+                        Req:{' '}
+                        <strong>
+                          {inq.requestedQuantity.toLocaleString()} {unitLabel}
+                        </strong>
                       </span>
                       <span className="text-[11px] text-gray-400 flex items-center gap-1">
                         <Clock size={11} /> {format(new Date(inq.updatedAt), 'MMM d')}
@@ -356,14 +331,16 @@ export const Inquiries: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Active Inquiry Workspace (8 cols) */}
+        {/* Right: Active Inquiry Workspace */}
         <div className="lg:col-span-8">
           {!selectedInquiry ? (
             <Card className="h-[680px] flex items-center justify-center bg-gray-50/50 border-dashed">
               <div className="text-center p-6">
                 <MessageSquare className="mx-auto h-12 w-12 text-gray-300 mb-3" />
                 <h3 className="text-lg font-medium text-gray-900">Select an Inquiry</h3>
-                <p className="text-sm text-gray-500 mt-1">Choose an inquiry to open direct messaging and review details.</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Choose an inquiry to review details, status history, and coordination notes.
+                </p>
               </div>
             </Card>
           ) : (
@@ -389,32 +366,31 @@ export const Inquiries: React.FC = () => {
                   <div className="flex items-center gap-2 flex-wrap">
                     <StatusBadgeInquiry status={selectedInquiry.status} />
 
-                    {/* Coordinator Accept / Decline Workflow */}
-                    {(user.role === Role.COORDINATOR || user.role === Role.ADMINISTRATOR) &&
-                      selectedInquiry.status === InquiryStatus.SUBMITTED && (
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            onClick={handleAcceptInquiry}
-                            isLoading={isUpdatingStatus}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs flex items-center gap-1.5 shadow-sm"
-                          >
-                            <CheckCircle2 size={14} /> Accept Inquiry
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setIsDeclineModalOpen(true)}
-                            disabled={isUpdatingStatus}
-                            className="border-rose-200 text-rose-700 hover:bg-rose-50 text-xs flex items-center gap-1.5"
-                          >
-                            <Ban size={14} /> Decline
-                          </Button>
-                        </div>
-                      )}
+                    {/* Coordinator Accept / Decline ONLY */}
+                    {canCoordinatorAct && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          onClick={handleAcceptInquiry}
+                          isLoading={isUpdatingStatus}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs flex items-center gap-1.5 shadow-sm"
+                        >
+                          <CheckCircle2 size={14} /> Accept Inquiry
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setIsDeclineModalOpen(true)}
+                          disabled={isUpdatingStatus}
+                          className="border-rose-200 text-rose-700 hover:bg-rose-50 text-xs flex items-center gap-1.5"
+                        >
+                          <Ban size={14} /> Decline
+                        </Button>
+                      </div>
+                    )}
 
-                    {/* Buyer Withdrawal Button in Header */}
-                    {user.role === Role.BUYER && !isTerminalStatus && (
+                    {/* Buyer Withdrawal Button */}
+                    {isOwnerBuyer && !isTerminalStatus && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -428,7 +404,7 @@ export const Inquiries: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Sub-tabs: Chat vs Detailed Information */}
+                {/* Sub-tabs */}
                 <div className="flex items-center gap-2 mt-4 border-b border-gray-100 pb-1">
                   <button
                     onClick={() => setActiveTab('CHAT')}
@@ -439,7 +415,7 @@ export const Inquiries: React.FC = () => {
                     }`}
                   >
                     <MessageSquare size={13} />
-                    Conversation ({currentMessages.length})
+                    Coordination Notes ({currentMessages.length})
                   </button>
                   <button
                     onClick={() => setActiveTab('DETAILS')}
@@ -450,7 +426,7 @@ export const Inquiries: React.FC = () => {
                     }`}
                   >
                     <Building2 size={13} />
-                    Inquiry Details & Locations
+                    Inquiry Details & Source Info
                   </button>
                 </div>
 
@@ -462,22 +438,21 @@ export const Inquiries: React.FC = () => {
                 )}
               </div>
 
-              {/* TAB 1: CHAT / CONVERSATION PANEL */}
+              {/* TAB 1: COORDINATION NOTES */}
               {activeTab === 'CHAT' && (
                 <div className="flex-1 flex flex-col min-h-0 bg-gray-50/50">
-                  {/* Messages Area */}
                   <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {/* Status Notice if Chat is NOT enabled */}
                     {!isChatEnabled && (
                       <div className="h-full flex flex-col items-center justify-center text-center p-6">
-                        {selectedInquiry.status === InquiryStatus.SUBMITTED ? (
+                        {selectedInquiry.status === InquiryStatus.SUBMITTED ||
+                        selectedInquiry.status === InquiryStatus.UNDER_REVIEW ? (
                           <div className="max-w-md bg-white border border-blue-200 rounded-xl p-6 shadow-sm flex flex-col items-center">
                             <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
                               <Clock size={24} />
                             </div>
-                            <h4 className="text-sm font-bold text-gray-900">Awaiting Coordinator Acceptance</h4>
+                            <h4 className="text-sm font-bold text-gray-900">Awaiting Coordinator Decision</h4>
                             <p className="text-xs text-blue-800 bg-blue-50/80 px-3 py-2 rounded-lg border border-blue-200 mt-3 font-medium">
-                              Direct conversation will be enabled once the Coordinator accepts the inquiry.
+                              Direct coordination notes open once the LGU Biomass Information Coordinator accepts the inquiry.
                             </p>
                             <p className="text-[11px] text-gray-400 mt-2">
                               Submitted {format(new Date(selectedInquiry.submittedAt), 'MMMM d, yyyy h:mm a')}
@@ -490,7 +465,7 @@ export const Inquiries: React.FC = () => {
                             </div>
                             <h4 className="text-sm font-bold text-gray-900">Inquiry Declined</h4>
                             <p className="text-xs text-rose-700 bg-rose-50 px-3 py-2 rounded-lg border border-rose-200 mt-3">
-                              This inquiry was declined by the coordinator. Direct messaging is disabled.
+                              This inquiry was declined by the LGU Biomass Information Coordinator.
                             </p>
                           </div>
                         ) : selectedInquiry.status === InquiryStatus.WITHDRAWN ? (
@@ -510,20 +485,19 @@ export const Inquiries: React.FC = () => {
                             </div>
                             <h4 className="text-sm font-bold text-gray-900">Inquiry Closed</h4>
                             <p className="text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 mt-3">
-                              This inquiry has been closed and archived.
+                              This inquiry has been closed.
                             </p>
                           </div>
                         )}
                       </div>
                     )}
 
-                    {/* Messages list when enabled or historical messages */}
                     {isChatEnabled && currentMessages.length === 0 && (
                       <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-400">
                         <MessageSquare className="h-10 w-10 mb-2 opacity-40 text-agri-green-600" />
-                        <p className="text-sm font-medium text-gray-700">Inquiry accepted for direct discussion</p>
+                        <p className="text-sm font-medium text-gray-700">Inquiry accepted for information linkage</p>
                         <p className="text-xs text-gray-500 mt-1 max-w-sm">
-                          Send a message to coordinate availability, delivery timing, scale weighing, or price terms.
+                          Share information notes regarding biomass availability, condition, or source contact details.
                         </p>
                       </div>
                     )}
@@ -531,20 +505,17 @@ export const Inquiries: React.FC = () => {
                     {currentMessages.map((msg) => {
                       const isSelf = msg.senderId === user.id || msg.senderRole === user.role;
                       return (
-                        <div
-                          key={msg.id}
-                          className={`flex flex-col ${isSelf ? 'items-end' : 'items-start'}`}
-                        >
+                        <div key={msg.id} className={`flex flex-col ${isSelf ? 'items-end' : 'items-start'}`}>
                           <div className="flex items-center gap-1.5 mb-1 text-[11px] text-gray-500">
                             <span className="font-semibold text-gray-700">{msg.senderName}</span>
-                            <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                              msg.senderRole === Role.BUYER
-                                ? 'bg-blue-100 text-blue-800'
-                                : msg.senderRole === Role.COORDINATOR
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-purple-100 text-purple-800'
-                            }`}>
-                              {msg.senderRole}
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                msg.senderRole === Role.BUYER
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {getRoleShortName(msg.senderRole)}
                             </span>
                             <span>&bull;</span>
                             <span>{format(new Date(msg.createdAt), 'MMM d, h:mm a')}</span>
@@ -565,7 +536,6 @@ export const Inquiries: React.FC = () => {
                     <div ref={messagesEndRef} />
                   </div>
 
-                  {/* Chat Input Bar - strictly visible and active ONLY when chat is enabled */}
                   {isChatEnabled ? (
                     <form
                       onSubmit={handleSendMessage}
@@ -575,7 +545,7 @@ export const Inquiries: React.FC = () => {
                         ref={chatInputRef}
                         type="text"
                         className="flex-1 px-3.5 py-2.5 text-sm border border-gray-200 rounded-lg focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
-                        placeholder="Type a message to coordinate availability, pickup, or terms..."
+                        placeholder="Type an information coordination note..."
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
                         disabled={isSendingMessage}
@@ -591,18 +561,18 @@ export const Inquiries: React.FC = () => {
                     </form>
                   ) : (
                     <div className="p-3 border-t border-gray-200 bg-gray-100 text-center text-xs text-gray-500">
-                      {selectedInquiry.status === InquiryStatus.SUBMITTED
-                        ? 'Direct conversation will be enabled once the Coordinator accepts the inquiry.'
-                        : 'Direct conversation is disabled for this inquiry status.'}
+                      {selectedInquiry.status === InquiryStatus.SUBMITTED ||
+                      selectedInquiry.status === InquiryStatus.UNDER_REVIEW
+                        ? 'Coordination notes open once the LGU Biomass Information Coordinator accepts the inquiry.'
+                        : 'Coordination notes are closed for this inquiry status.'}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* TAB 2: DETAILED INQUIRY & LOCATION AUDIT */}
+              {/* TAB 2: DETAILS */}
               {activeTab === 'DETAILS' && (
                 <div className="flex-1 overflow-y-auto p-5 space-y-6 bg-white">
-                  {/* Biomass Request Summary */}
                   <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
                     <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
                       Requested Biomass Parameters
@@ -627,19 +597,11 @@ export const Inquiries: React.FC = () => {
                           {selectedInquiry.status.replace(/_/g, ' ')}
                         </span>
                       </div>
-                      {selectedInquiry.preferredCollectionDate && (
+                      {selectedInquiry.preferredAvailabilityPeriod && (
                         <div>
-                          <span className="text-xs text-gray-500 block">Preferred Collection Date</span>
+                          <span className="text-xs text-gray-500 block">Preferred Period</span>
                           <span className="font-medium text-gray-800">
-                            {selectedInquiry.preferredCollectionDate}
-                          </span>
-                        </div>
-                      )}
-                      {selectedInquiry.preferredPickupTime && (
-                        <div>
-                          <span className="text-xs text-gray-500 block">Preferred Pickup Time</span>
-                          <span className="font-medium text-gray-800">
-                            {selectedInquiry.preferredPickupTime}
+                            {selectedInquiry.preferredAvailabilityPeriod}
                           </span>
                         </div>
                       )}
@@ -653,7 +615,7 @@ export const Inquiries: React.FC = () => {
 
                     {selectedInquiry.additionalRequirements && (
                       <div className="mt-3 pt-3 border-t border-gray-200">
-                        <span className="text-xs text-gray-500 block">Buyer Requirements & Notes</span>
+                        <span className="text-xs text-gray-500 block">Buyer Notes</span>
                         <p className="text-xs text-gray-700 mt-1 whitespace-pre-wrap">
                           {selectedInquiry.additionalRequirements}
                         </p>
@@ -661,20 +623,20 @@ export const Inquiries: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Distinct Locations Comparison: Source vs Coordinator Office */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Source Physical Location */}
                     <div className="border border-agri-green-200 bg-agri-green-50/40 rounded-xl p-4">
                       <div className="flex items-center gap-2 text-agri-green-800 font-semibold text-sm mb-2">
                         <MapPin size={16} className="text-agri-green-700" />
-                        Biomass Source Location (Farm / Mill)
+                        Biomass Source Location
                       </div>
                       <p className="text-sm font-bold text-gray-900">
-                        {targetSource?.name || 'Local Farm/Mill'}
+                        {targetSource?.name || 'Consolidated Source Group'}
                       </p>
-                      <p className="text-xs text-gray-600 mt-0.5">
-                        {sourceLocation?.barangay}, {sourceLocation?.city}, {sourceLocation?.province}
-                      </p>
+                      {sourceLocation && (
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          {sourceLocation.barangay}, {sourceLocation.city}, {sourceLocation.province}
+                        </p>
+                      )}
                       {targetSource?.contactPerson && (
                         <p className="text-xs text-gray-600 mt-2 flex items-center gap-1">
                           <UserIcon size={12} className="text-gray-400" /> Contact: {targetSource.contactPerson}
@@ -687,37 +649,24 @@ export const Inquiries: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Coordinator Office Location */}
                     <div className="border border-blue-200 bg-blue-50/40 rounded-xl p-4">
                       <div className="flex items-center gap-2 text-blue-800 font-semibold text-sm mb-2">
                         <Building2 size={16} className="text-blue-700" />
-                        Coordinator / Cooperative Office
+                        LGU Biomass Information Coordination
                       </div>
-                      <p className="text-sm font-bold text-gray-900">
-                        {targetCoop?.name || 'Agusan Biomass Coordination Hub'}
-                      </p>
+                      <p className="text-sm font-bold text-gray-900">LGU Biomass Information Office</p>
                       <p className="text-xs text-gray-600 mt-0.5">
-                        {targetCoop?.officeAddress || 'Km. 3 Baan Highway, Butuan City'}
+                        Butuan City Information Linkage Desk
                       </p>
-                      <div className="mt-2 space-y-1 text-xs text-gray-600">
-                        {targetCoop?.contactPhone && (
-                          <p className="flex items-center gap-1">
-                            <Phone size={12} className="text-gray-400" /> Phone: {targetCoop.contactPhone}
-                          </p>
-                        )}
-                        {targetCoop?.contactEmail && (
-                          <p className="flex items-center gap-1">
-                            <Mail size={12} className="text-gray-400" /> Email: {targetCoop.contactEmail}
-                          </p>
-                        )}
-                      </div>
+                      <p className="text-xs text-blue-800 mt-2">
+                        Coordinator role is limited to reviewing, accepting, or declining non-binding market inquiries.
+                      </p>
                     </div>
                   </div>
 
-                  {/* Status Timeline */}
                   <div>
                     <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
-                      Lifecycle Audit History
+                      Inquiry Status History
                     </h4>
                     <div className="space-y-3">
                       {selectedInquiry.history.map((hist) => (
@@ -736,45 +685,7 @@ export const Inquiries: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Coordinator Status Transitions */}
-                  {(user.role === Role.COORDINATOR || user.role === Role.ADMINISTRATOR) && (
-                    <div className="pt-4 border-t border-gray-100">
-                      <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
-                        Update Inquiry Status
-                      </h4>
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <select
-                          className="p-2 border border-gray-200 rounded-lg text-xs bg-white focus:ring-agri-green-500 focus:border-agri-green-500 flex-1"
-                          value={newStatus}
-                          onChange={(e) => setNewStatus(e.target.value as InquiryStatus)}
-                        >
-                          <option value="">Choose new status...</option>
-                          <option value={InquiryStatus.ACCEPTED}>Accepted</option>
-                          <option value={InquiryStatus.IN_DISCUSSION}>In Discussion</option>
-                          <option value={InquiryStatus.DECLINED}>Declined</option>
-                          <option value={InquiryStatus.CLOSED}>Closed</option>
-                        </select>
-                        <input
-                          type="text"
-                          placeholder="Optional note for status change..."
-                          value={statusNote}
-                          onChange={(e) => setStatusNote(e.target.value)}
-                          className="p-2 border border-gray-200 rounded-lg text-xs flex-1 focus:ring-agri-green-500 focus:border-agri-green-500"
-                        />
-                        <Button
-                          size="sm"
-                          disabled={!newStatus || isUpdatingStatus}
-                          isLoading={isUpdatingStatus}
-                          onClick={() => newStatus && handleStatusChange(newStatus, statusNote)}
-                        >
-                          Update Status
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Buyer Withdrawal in Details Tab */}
-                  {user.role === Role.BUYER && !isTerminalStatus && (
+                  {isOwnerBuyer && !isTerminalStatus && (
                     <div className="pt-4 border-t border-gray-100 flex justify-end">
                       <Button
                         variant="outline"
@@ -794,7 +705,7 @@ export const Inquiries: React.FC = () => {
         </div>
       </div>
 
-      {/* MODAL 1: BUYER WITHDRAW CONFIRMATION MODAL */}
+      {/* Buyer Withdraw Confirmation Modal */}
       {isWithdrawModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-gray-100">
@@ -808,13 +719,11 @@ export const Inquiries: React.FC = () => {
               </div>
             </div>
 
-            {/* Exact Required Message */}
             <p className="text-sm text-gray-700 py-2 font-medium">
               Are you sure to withdraw this inquiry?
             </p>
 
             <div className="mt-6 flex flex-col-reverse sm:flex-row justify-end gap-2.5">
-              {/* Exact Required Cancel Button */}
               <Button
                 variant="outline"
                 size="sm"
@@ -824,8 +733,6 @@ export const Inquiries: React.FC = () => {
               >
                 No, I want to keep the inquiry.
               </Button>
-
-              {/* Exact Required Confirm Button */}
               <Button
                 size="sm"
                 onClick={handleWithdrawConfirm}
@@ -839,7 +746,7 @@ export const Inquiries: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 2: COORDINATOR DECLINE CONFIRMATION MODAL */}
+      {/* Coordinator Decline Modal */}
       {isDeclineModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-gray-100">
@@ -853,10 +760,7 @@ export const Inquiries: React.FC = () => {
                   <p className="text-xs text-gray-500">Inquiry {selectedInquiry?.id}</p>
                 </div>
               </div>
-              <button
-                onClick={() => setIsDeclineModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
+              <button onClick={() => setIsDeclineModalOpen(false)} className="text-gray-400 hover:text-gray-600">
                 <X size={18} />
               </button>
             </div>
@@ -871,14 +775,14 @@ export const Inquiries: React.FC = () => {
                 rows={3}
                 value={declineReason}
                 onChange={(e) => setDeclineReason(e.target.value)}
-                placeholder="e.g. Currently committed to internal farm boiler use / Insufficient volume..."
+                placeholder="e.g. Currently committed to internal farm use / Insufficient reported remaining quantity..."
                 className="w-full text-xs p-2.5 border border-gray-200 rounded-lg focus:ring-agri-green-500 focus:border-agri-green-500"
               />
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {[
-                  'Volume committed to internal farm use',
-                  'Insufficient remaining stock',
-                  'Logistics cannot be arranged for requested date',
+                  'Volume committed to internal source use',
+                  'Insufficient remaining reported quantity',
+                  'Biomass no longer externally available',
                 ].map((reason) => (
                   <button
                     key={reason}

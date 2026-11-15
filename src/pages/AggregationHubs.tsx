@@ -1,20 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { RecordStatus, Role, AggregationGroup, AggregationStatus } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
-import { Plus, Info, MapPin, ArrowLeft, AlertTriangle, Lock } from 'lucide-react';
+import { hasPermission, Permission } from '../utils/rbac';
+import { Plus, Info, MapPin, ArrowLeft, AlertTriangle, Lock, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
+
+const formatSafeShortDate = (iso?: string, fallback = 'Flexible') => {
+  if (!iso) return fallback;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? fallback : format(d, 'MMM d');
+};
 
 export const AggregationHubs: React.FC = () => {
   const { user } = useAuth();
   const {
     records,
     referenceData,
-    organizations,
     aggregationGroups,
     aggregationMembers,
     isLoading,
@@ -26,7 +32,6 @@ export const AggregationHubs: React.FC = () => {
     getAggregationGroup,
     getAggregationMembers,
     addAggregationGroup,
-    addOrganization,
   } = useData();
 
   const [view, setView] = useState<'LIST' | 'CREATE' | 'DETAIL'>('LIST');
@@ -34,60 +39,23 @@ export const AggregationHubs: React.FC = () => {
 
   // Form State
   const [formBiomassType, setFormBiomassType] = useState('');
-  const [formHub, setFormHub] = useState('');
   const [formName, setFormName] = useState('');
   const [formNotes, setFormNotes] = useState('');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Add new Hub / Coop state
-  const [isAddHubOpen, setIsAddHubOpen] = useState(false);
-  const [newHubName, setNewHubName] = useState('');
-  const [newHubType, setNewHubType] = useState<'HUB' | 'COOPERATIVE'>('COOPERATIVE');
-
-  // Pre-fill coordinator's hub if available and not yet selected
-  useEffect(() => {
-    if (user?.organizationId && !formHub) {
-      const userOrg = organizations.find((o) => o.id === user.organizationId);
-      if (userOrg && (userOrg.type === 'HUB' || userOrg.type === 'COOPERATIVE')) {
-        setFormHub(userOrg.id);
-      }
-    }
-  }, [user, organizations, formHub]);
-
-  const handleAddNewHub = async () => {
-    if (!newHubName.trim()) return;
-    try {
-      const created = await addOrganization({
-        name: newHubName.trim(),
-        type: newHubType,
-      });
-      setFormHub(created.id);
-      setNewHubName('');
-      setIsAddHubOpen(false);
-    } catch (err: any) {
-      setFormError(err?.message || 'Failed to register new hub organization.');
-    }
-  };
-
   if (!user) return null;
 
-  // Retrieve groups based on role
+  const canCreateGroup = hasPermission(user.role, Permission.CREATE_AGGREGATION_GROUP);
+  const isPlanningReadOnly = user.role === Role.LGU;
+
+  // Coordinators and Planning Users view all information-based aggregation groups; Buyers only active ones.
   let visibleGroups = aggregationGroups;
-  if (user.role === Role.COORDINATOR) {
-    visibleGroups = visibleGroups.filter(
-      (g) =>
-        g.createdBy === user.id ||
-        g.createdBy === user.name ||
-        g.hubId === user.organizationId ||
-        g.hubId === 'org-2'
-    );
-  } else if (user.role === Role.BUYER) {
+  if (user.role === Role.BUYER) {
     visibleGroups = visibleGroups.filter((g) => g.status === AggregationStatus.ACTIVE);
   }
 
-  // Calculate dynamic totals for a group
   const getGroupTotals = (groupId: string) => {
     const members = getAggregationMembers(groupId);
     let total = 0;
@@ -97,7 +65,6 @@ export const AggregationHubs: React.FC = () => {
 
     members.forEach((m) => {
       const record = getRecord(m.biomassRecordId);
-      // ONLY count Validated records in the current eligible total
       if (record && record.status === RecordStatus.VALIDATED) {
         validCount++;
         const recordUnit = referenceData.find((r) => r.id === record.originalUnit)?.label || '';
@@ -121,12 +88,16 @@ export const AggregationHubs: React.FC = () => {
 
   const handleCreateSubmit = async () => {
     setFormError('');
+    if (!canCreateGroup) {
+      setFormError('Unauthorized: Only LGU Biomass Information Coordinators may create aggregation groups.');
+      return;
+    }
+
     if (!formBiomassType || !formName.trim() || selectedMembers.length === 0) {
       setFormError('Please complete Group Name, Biomass Type, and select at least one eligible member record.');
       return;
     }
 
-    // Check for mixed units
     let unit = '';
     let isMixed = false;
     selectedMembers.forEach((id) => {
@@ -147,13 +118,12 @@ export const AggregationHubs: React.FC = () => {
       await addAggregationGroup(
         formName.trim(),
         formBiomassType,
-        formHub?.trim() ? formHub.trim() : undefined,
+        undefined,
         selectedMembers,
         formNotes.trim() || undefined
       );
       setView('LIST');
       setFormBiomassType('');
-      setFormHub('');
       setFormName('');
       setFormNotes('');
       setSelectedMembers([]);
@@ -168,24 +138,35 @@ export const AggregationHubs: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Aggregation & Hub Coordination</h2>
+          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
+            {isPlanningReadOnly ? 'Biomass Availability & Aggregation Summaries' : 'Biomass Aggregation'}
+          </h2>
           <p className="text-sm text-agri-earth-500 mt-1">
-            Information-level coordination of compatible biomass records.
+            Information-based coordination of compatible validated biomass records across sources.
           </p>
         </div>
-        {(user.role === Role.COORDINATOR || user.role === Role.ADMINISTRATOR) && (
+        {canCreateGroup && (
           <Button icon={<Plus size={18} />} onClick={() => setView('CREATE')}>
             Create Aggregation Group
           </Button>
         )}
       </div>
 
+      {isPlanningReadOnly && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3.5 flex gap-3 text-blue-900 text-sm">
+          <Eye className="shrink-0 mt-0.5 text-blue-700" size={18} />
+          <p>
+            <strong>Read-Only Planning View:</strong> Aggregation group creation and editing are managed exclusively by LGU Biomass Information Coordinators.
+          </p>
+        </div>
+      )}
+
       <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex gap-3 text-blue-800 text-sm">
         <Info className="shrink-0 mt-0.5 text-blue-500" size={18} />
         <p>
-          <strong>Information-Level Aggregation:</strong> Totals shown are based on reported quantities from current
-          eligible member records. This does <em>not</em> represent physically collected, transported, or stored biomass
-          inventory.
+          <strong>Information-Level Aggregation:</strong> Totals shown are aggregated from current eligible member
+          records without double counting. This does <em>not</em> represent physically collected, transported, or
+          warehoused biomass inventory.
         </p>
       </div>
 
@@ -201,7 +182,7 @@ export const AggregationHubs: React.FC = () => {
         ) : (
           visibleGroups.map((group) => {
             const biomassType = referenceData.find((r) => r.id === group.biomassTypeId)?.label;
-            const hub = getOrganization(group.hubId)?.name;
+            const legacyHub = group.hubId ? getOrganization(group.hubId)?.name : undefined;
             const totals = getGroupTotals(group.id);
 
             return (
@@ -228,7 +209,7 @@ export const AggregationHubs: React.FC = () => {
 
                   <h3 className="font-bold text-gray-900 text-lg mb-1">{group.name}</h3>
                   <p className="text-sm text-agri-earth-600 mb-4">
-                    {biomassType} &bull; {hub}
+                    {biomassType} &bull; {legacyHub || 'Information-Based Consolidation'}
                   </p>
 
                   <div className="bg-gray-50 rounded-md p-3 mb-4 space-y-2">
@@ -275,7 +256,10 @@ export const AggregationHubs: React.FC = () => {
   );
 
   const renderCreate = () => {
-    // Map active aggregated memberships: biomassRecordId -> { groupId, addedAt }
+    if (!canCreateGroup) {
+      return renderList();
+    }
+
     const activeMemberMap = new Map<string, { groupId: string; addedAt: string }>();
     aggregationMembers
       .filter((m) => m.isActive)
@@ -283,7 +267,6 @@ export const AggregationHubs: React.FC = () => {
         activeMemberMap.set(m.biomassRecordId, { groupId: m.groupId, addedAt: m.addedAt });
       });
 
-    // Eligible records: VALIDATED, matching biomass type, NOT in any active group
     const eligibleRecords = records.filter(
       (r) =>
         r.status === RecordStatus.VALIDATED &&
@@ -291,11 +274,8 @@ export const AggregationHubs: React.FC = () => {
         !activeMemberMap.has(r.id)
     );
 
-    // Already-aggregated records matching biomass type (or all if none selected yet)
     const aggregatedRecords = records.filter(
-      (r) =>
-        (!formBiomassType || r.biomassTypeId === formBiomassType) &&
-        activeMemberMap.has(r.id)
+      (r) => (!formBiomassType || r.biomassTypeId === formBiomassType) && activeMemberMap.has(r.id)
     );
 
     return (
@@ -311,8 +291,10 @@ export const AggregationHubs: React.FC = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Create Aggregation Group</h2>
-            <p className="text-sm text-agri-earth-500 mt-1">Group compatible records for coordination.</p>
+            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Create Information Aggregation Group</h2>
+            <p className="text-sm text-agri-earth-500 mt-1">
+              Consolidate compatible validated records into an information-based group without physical warehousing.
+            </p>
           </div>
         </div>
 
@@ -333,104 +315,17 @@ export const AggregationHubs: React.FC = () => {
                 <input
                   type="text"
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  placeholder="e.g. Butuan Hub Rice Husk Batch A"
+                  placeholder="e.g. Butuan Rice Husk Consolidation Batch A"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
                 />
               </div>
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-sm font-medium text-gray-700">Hub / Cooperative <span className="text-xs text-gray-400 font-normal">(Optional)</span></label>
-                  <button
-                    type="button"
-                    onClick={() => setIsAddHubOpen(!isAddHubOpen)}
-                    className="text-xs text-agri-green-600 hover:text-agri-green-700 font-semibold flex items-center gap-1"
-                  >
-                    <Plus size={13} /> Add New Hub / Coop
-                  </button>
-                </div>
-                <select
-                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
-                  value={formHub}
-                  onChange={(e) => setFormHub(e.target.value)}
-                >
-                  <option value="">Select Hub or Cooperative...</option>
-                  {organizations
-                    .filter((o) => o.type === 'HUB' || o.type === 'COOPERATIVE')
-                    .map((org) => (
-                      <option key={org.id} value={org.id}>
-                        {org.name} ({org.type === 'COOPERATIVE' ? 'Cooperative' : 'Aggregation Hub'})
-                      </option>
-                    ))}
-                </select>
-
-                {isAddHubOpen && (
-                  <div className="mt-3 p-3.5 bg-agri-green-50/70 border border-agri-green-200 rounded-lg space-y-3 animate-in fade-in duration-150">
-                    <p className="text-xs font-bold text-agri-green-900 uppercase tracking-wide">
-                      Register New Hub or Cooperative
-                    </p>
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        placeholder="Organization Name (e.g. Caraga Agro-Biomass Cooperative)"
-                        value={newHubName}
-                        onChange={(e) => setNewHubName(e.target.value)}
-                        className="w-full p-2 border border-gray-200 rounded-lg text-xs bg-white focus:ring-agri-green-500 focus:border-agri-green-500"
-                      />
-                      <div className="flex items-center gap-4 text-xs text-gray-700">
-                        <label className="flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="newHubType"
-                            checked={newHubType === 'COOPERATIVE'}
-                            onChange={() => setNewHubType('COOPERATIVE')}
-                            className="text-agri-green-600 focus:ring-agri-green-500"
-                          />
-                          Agricultural Cooperative
-                        </label>
-                        <label className="flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="newHubType"
-                            checked={newHubType === 'HUB'}
-                            onChange={() => setNewHubType('HUB')}
-                            className="text-agri-green-600 focus:ring-agri-green-500"
-                          />
-                          Central Aggregation Hub
-                        </label>
-                      </div>
-                    </div>
-                    <div className="flex justify-end gap-2 pt-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setIsAddHubOpen(false);
-                          setNewHubName('');
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="primary"
-                        onClick={handleAddNewHub}
-                        disabled={!newHubName.trim()}
-                      >
-                        Save & Select
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Biomass Type (Filters eligible records) *
                 </label>
                 <select
-                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
+                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
                   value={formBiomassType}
                   onChange={(e) => {
                     setFormBiomassType(e.target.value);
@@ -477,7 +372,9 @@ export const AggregationHubs: React.FC = () => {
             {!formBiomassType ? (
               <p className="text-sm text-gray-500 py-4 text-center">Please select a Biomass Type above.</p>
             ) : eligibleRecords.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4 text-center">No unaggregated validated records found for this type.</p>
+              <p className="text-sm text-gray-500 py-4 text-center">
+                No unaggregated validated records found for this type.
+              </p>
             ) : (
               <div className="space-y-2">
                 {eligibleRecords.map((record) => {
@@ -514,9 +411,9 @@ export const AggregationHubs: React.FC = () => {
                         <p className="text-xs text-gray-500 mt-1">
                           {location?.barangay} &bull; Avail:{' '}
                           {record.availabilityPeriodStart && record.availabilityPeriodEnd
-                            ? `${format(new Date(record.availabilityPeriodStart), 'MMM d')} - ${format(new Date(record.availabilityPeriodEnd), 'MMM d')}`
+                            ? `${formatSafeShortDate(record.availabilityPeriodStart)} - ${formatSafeShortDate(record.availabilityPeriodEnd)}`
                             : record.availabilityPeriodStart
-                            ? `From ${format(new Date(record.availabilityPeriodStart), 'MMM d')}`
+                            ? `From ${formatSafeShortDate(record.availabilityPeriodStart)}`
                             : 'Flexible'}
                         </p>
                       </div>
@@ -528,7 +425,6 @@ export const AggregationHubs: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* Section 3: Already Aggregated Records (placed below eligible records as requested) */}
         <Card className="border-gray-200 bg-gray-50/60">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -548,9 +444,13 @@ export const AggregationHubs: React.FC = () => {
           </CardHeader>
           <CardContent>
             {!formBiomassType ? (
-              <p className="text-sm text-gray-400 py-3 text-center">Select a Biomass Type above to view already-aggregated records.</p>
+              <p className="text-sm text-gray-400 py-3 text-center">
+                Select a Biomass Type above to view already-aggregated records.
+              </p>
             ) : aggregatedRecords.length === 0 ? (
-              <p className="text-sm text-gray-500 py-3 text-center">No biomass records of this type are currently aggregated.</p>
+              <p className="text-sm text-gray-500 py-3 text-center">
+                No biomass records of this type are currently aggregated.
+              </p>
             ) : (
               <div className="space-y-2">
                 {aggregatedRecords.map((record) => {
@@ -566,7 +466,10 @@ export const AggregationHubs: React.FC = () => {
                       key={record.id}
                       className="flex items-start gap-3 p-3 border border-gray-200 bg-white/90 rounded-lg select-none"
                     >
-                      <div className="mt-1 shrink-0 p-1 bg-gray-100 rounded text-gray-400" title="Locked: already member of an active group">
+                      <div
+                        className="mt-1 shrink-0 p-1 bg-gray-100 rounded text-gray-400"
+                        title="Locked: already member of an active group"
+                      >
                         <Lock size={14} />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -616,7 +519,7 @@ export const AggregationHubs: React.FC = () => {
   const renderDetail = () => {
     if (!selectedGroup) return null;
     const totals = getGroupTotals(selectedGroup.id);
-    const hub = getOrganization(selectedGroup.hubId);
+    const legacyHub = selectedGroup.hubId ? getOrganization(selectedGroup.hubId) : undefined;
     const type = referenceData.find((r) => r.id === selectedGroup.biomassTypeId);
     const members = getAggregationMembers(selectedGroup.id);
 
@@ -641,7 +544,7 @@ export const AggregationHubs: React.FC = () => {
                 </span>
               </div>
               <p className="text-sm text-agri-earth-500 mt-1">
-                {selectedGroup.id} &bull; {hub?.name}
+                {selectedGroup.id} &bull; {legacyHub?.name || 'Information-Based Consolidation'}
               </p>
             </div>
           </div>
@@ -656,7 +559,7 @@ export const AggregationHubs: React.FC = () => {
           <Info className="shrink-0 mt-0.5 text-yellow-600" size={18} />
           <p>
             <strong>Disclaimer:</strong> This group total is derived dynamically from current eligible member records.
-            It does not represent physically collected or stored biomass.
+            It does not represent physically collected or stored biomass inventory.
           </p>
         </div>
 
@@ -694,7 +597,7 @@ export const AggregationHubs: React.FC = () => {
           <Card className="md:col-span-2">
             <CardHeader>
               <CardTitle>Member Records</CardTitle>
-              <CardDescription>Original quantities and statuses are preserved.</CardDescription>
+              <CardDescription>Original source quantities and validation statuses are preserved.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -729,8 +632,11 @@ export const AggregationHubs: React.FC = () => {
                             <span className="text-xs text-gray-500 ml-1">{unit}</span>
                           </td>
                           <td className="py-3 text-xs text-gray-600">
-                            {format(new Date(record.availabilityPeriodStart), 'MMM d')} -{' '}
-                            {format(new Date(record.availabilityPeriodEnd), 'MMM d')}
+                            {record.availabilityPeriodStart && record.availabilityPeriodEnd
+                              ? `${formatSafeShortDate(record.availabilityPeriodStart)} - ${formatSafeShortDate(record.availabilityPeriodEnd)}`
+                              : record.availabilityPeriodStart
+                              ? `From ${formatSafeShortDate(record.availabilityPeriodStart)}`
+                              : 'Flexible'}
                           </td>
                           <td className="py-3">
                             <StatusBadge status={record.status} />

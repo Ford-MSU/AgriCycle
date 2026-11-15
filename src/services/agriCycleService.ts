@@ -18,6 +18,7 @@ import {
   User,
   Role,
 } from '../types';
+import { hasPermission, Permission } from '../utils/rbac';
 
 // ============================================================================
 // Database Row Mappers (PostgreSQL snake_case -> TypeScript camelCase)
@@ -52,6 +53,7 @@ export function mapProfileRow(row: any): User {
     email: row.email,
     role: row.role as Role,
     organizationId: row.organization_id || undefined,
+    isActive: row.is_active !== false,
   };
 }
 
@@ -120,7 +122,7 @@ export function mapValidationRecordRow(row: any): ValidationRecord {
   return {
     id: row.id,
     biomassRecordId: row.biomass_record_id,
-    validatorId: row.validator_id || row.validator_label || 'LGU Validator',
+    validatorId: row.validator_id || row.validator_label || 'LGU Biomass Information Coordinator',
     decision: row.decision as RecordStatus,
     validationBasis: row.validation_basis,
     validationNotes: row.validation_notes,
@@ -133,10 +135,10 @@ export function mapAggregationGroupRow(row: any): AggregationGroup {
     id: row.id,
     name: row.name,
     biomassTypeId: row.biomass_type_id,
-    hubId: row.hub_id,
+    hubId: row.hub_id || undefined,
     status: row.status as AggregationStatus,
     notes: row.notes || undefined,
-    createdBy: row.created_by || row.created_by_label || 'Coordinator',
+    createdBy: row.created_by || row.created_by_label || 'LGU Biomass Information Coordinator',
     createdAt: row.created_at,
     updatedAt: row.updated_at || row.created_at,
   };
@@ -147,7 +149,7 @@ export function mapAggregationMemberRow(row: any): AggregationMember {
     id: row.id,
     groupId: row.group_id,
     biomassRecordId: row.biomass_record_id,
-    addedBy: row.added_by || row.added_by_label || 'Coordinator',
+    addedBy: row.added_by || row.added_by_label || 'LGU Biomass Information Coordinator',
     addedAt: row.added_at,
     isActive: Boolean(row.is_active),
   };
@@ -293,8 +295,7 @@ export async function fetchAllDataFromSupabase(): Promise<AgriCycleDataset> {
 
 export async function fetchUserProfileFromSupabase(
   userId: string,
-  email?: string,
-  fallbackRole?: Role
+  email?: string
 ): Promise<User | null> {
   if (!isSupabaseConfigured || !supabase) return null;
 
@@ -313,26 +314,8 @@ export async function fetchUserProfileFromSupabase(
     return mapProfileRow(data);
   }
 
-  // If profile trigger hasn't completed or row needs to be initialized,
-  // resolve the intended role from Auth metadata (never force BUYER if user registered as LGU or COORDINATOR)
+  // If the auth trigger hasn't inserted the row yet, client fallback may ONLY initialize a BUYER profile.
   if (email) {
-    let resolvedRole: Role = fallbackRole || Role.BUYER;
-
-    try {
-      const { data: authData } = await supabase.auth.getUser();
-      const metaRole = authData?.user?.user_metadata?.role || authData?.user?.user_metadata?.requested_role;
-      if (
-        metaRole === Role.ADMINISTRATOR ||
-        metaRole === Role.COORDINATOR ||
-        metaRole === Role.LGU ||
-        metaRole === Role.BUYER
-      ) {
-        resolvedRole = metaRole as Role;
-      }
-    } catch {
-      // Fallback
-    }
-
     const defaultName = email.split('@')[0];
     const { data: inserted, error: insertError } = await supabase
       .from('profiles')
@@ -340,13 +323,12 @@ export async function fetchUserProfileFromSupabase(
         id: userId,
         name: defaultName,
         email,
-        role: resolvedRole,
+        role: Role.BUYER,
       })
       .select('*')
       .single();
 
     if (insertError) {
-      // If the database trigger inserted the row concurrently, re-fetch
       const { data: recheckData } = await supabase
         .from('profiles')
         .select('*')
@@ -365,8 +347,17 @@ export async function fetchUserProfileFromSupabase(
 }
 
 export async function createLocationInSupabase(
-  location: Omit<Location, 'id'> & { id?: string }
+  location: Omit<Location, 'id'> & { id?: string },
+  user?: User
 ): Promise<Location> {
+  if (
+    user &&
+    !hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS) &&
+    !hasPermission(user.role, Permission.MANAGE_MAP_INFO)
+  ) {
+    throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may register source locations.');
+  }
+
   const client = getSupabaseClient();
   const payload: Record<string, any> = {
     barangay: location.barangay,
@@ -382,10 +373,36 @@ export async function createLocationInSupabase(
   return mapLocationRow(data);
 }
 
+export async function updateLocationCoordinatesInSupabase(
+  locationId: string,
+  lat: number | null,
+  lng: number | null,
+  user: User
+): Promise<Location> {
+  if (!hasPermission(user.role, Permission.MANAGE_MAP_INFO)) {
+    throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may update GIS source coordinates.');
+  }
+
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from('locations')
+    .update({ latitude: lat, longitude: lng })
+    .eq('id', locationId)
+    .select('*')
+    .single();
+
+  if (error) throw new Error(`Failed to update location coordinates: ${error.message}`);
+  return mapLocationRow(data);
+}
+
 export async function createOrganizationInSupabase(
   org: Omit<Organization, 'id'> & { id?: string },
   user?: User
 ): Promise<Organization> {
+  if (user && !hasPermission(user.role, Permission.MANAGE_SYSTEM_SETTINGS)) {
+    throw new Error('Unauthorized: Only Administrators may manage organization settings.');
+  }
+
   const client = getSupabaseClient();
   const payload: Record<string, any> = {
     name: org.name,
@@ -403,13 +420,17 @@ export async function createSourceInSupabase(
   source: Omit<BiomassSource, 'id'> & { id?: string },
   user: User
 ): Promise<BiomassSource> {
+  if (!hasPermission(user.role, Permission.REGISTER_BIOMASS_SOURCE)) {
+    throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may register biomass sources.');
+  }
+
   const client = getSupabaseClient();
   const payload: Record<string, any> = {
     name: source.name,
     type: source.type,
     location_id: source.locationId,
     contact_person: source.contactPerson,
-    cooperative_id: source.cooperativeId || user.organizationId || null,
+    cooperative_id: source.cooperativeId || null,
     created_by: isValidUuid(user.id) ? user.id : null,
   };
   if (source.id) payload.id = source.id;
@@ -419,10 +440,41 @@ export async function createSourceInSupabase(
   return mapBiomassSourceRow(data);
 }
 
+export async function updateSourceInSupabase(
+  id: string,
+  updates: Partial<BiomassSource>,
+  user: User
+): Promise<BiomassSource> {
+  if (!hasPermission(user.role, Permission.REGISTER_BIOMASS_SOURCE)) {
+    throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may update biomass sources.');
+  }
+
+  const client = getSupabaseClient();
+  const dbUpdates: Record<string, any> = {};
+  if (updates.name !== undefined) dbUpdates.name = updates.name;
+  if (updates.type !== undefined) dbUpdates.type = updates.type;
+  if (updates.locationId !== undefined) dbUpdates.location_id = updates.locationId;
+  if (updates.contactPerson !== undefined) dbUpdates.contact_person = updates.contactPerson;
+
+  const { data, error } = await client
+    .from('biomass_sources')
+    .update(dbUpdates)
+    .eq('id', id)
+    .select('*')
+    .single();
+
+  if (error) throw new Error(`Failed to update biomass source: ${error.message}`);
+  return mapBiomassSourceRow(data);
+}
+
 export async function createBiomassRecordInSupabase(
   record: Omit<BiomassRecord, 'id' | 'createdAt' | 'lastUpdatedDate'> & { id?: string },
   user: User
 ): Promise<BiomassRecord> {
+  if (!hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS)) {
+    throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may create biomass records.');
+  }
+
   const client = getSupabaseClient();
   const reserved = record.reservedQuantity ?? 0;
   const remaining =
@@ -434,8 +486,8 @@ export async function createBiomassRecordInSupabase(
     original_unit: record.originalUnit,
     source_id: record.sourceId,
     location_id: record.locationId,
-    status: record.status,
-    is_theoretical_estimate: record.isTheoreticalEstimate,
+    status: record.status === RecordStatus.DRAFT ? RecordStatus.DRAFT : RecordStatus.SUBMITTED,
+    is_theoretical_estimate: Boolean(record.isTheoreticalEstimate),
     availability_period_start: record.availabilityPeriodStart || null,
     availability_period_end: record.availabilityPeriodEnd || null,
     current_use: record.currentUse,
@@ -454,34 +506,19 @@ export async function createBiomassRecordInSupabase(
   const { data, error } = await client.from('biomass_records').insert(payload).select('*').single();
   if (error) throw new Error(`Failed to create biomass record: ${error.message}`);
 
-  const created = mapBiomassRecordRow(data);
-
-  // Record audit log entry (gracefully handled if direct inserts are restricted to administrators)
-  if (isValidUuid(user.id)) {
-    try {
-      await client.from('audit_logs').insert({
-        user_id: user.id,
-        user_label: user.name || user.email,
-        action: SystemAction.CREATE,
-        entity_type: 'BiomassRecord',
-        entity_id: created.id,
-        new_state: { status: created.status, quantity: created.quantity },
-        details: `Created biomass record ${created.id}`,
-      });
-    } catch {
-      // Direct audit logging restricted to admin/server RPCs; client continues gracefully
-    }
-  }
-
-  return created;
+  return mapBiomassRecordRow(data);
 }
 
 export async function updateBiomassRecordInSupabase(
   id: string,
   updates: Partial<BiomassRecord>,
   user: User,
-  action: SystemAction = SystemAction.UPDATE
+  _action: SystemAction = SystemAction.UPDATE
 ): Promise<BiomassRecord> {
+  if (!hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS)) {
+    throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may edit biomass records.');
+  }
+
   const client = getSupabaseClient();
 
   const dbUpdates: Record<string, any> = {
@@ -512,26 +549,7 @@ export async function updateBiomassRecordInSupabase(
     .single();
 
   if (error) throw new Error(`Failed to update biomass record: ${error.message}`);
-
-  const updated = mapBiomassRecordRow(data);
-
-  if (isValidUuid(user.id)) {
-    try {
-      await client.from('audit_logs').insert({
-        user_id: user.id,
-        user_label: user.name || user.email,
-        action,
-        entity_type: 'BiomassRecord',
-        entity_id: id,
-        new_state: { status: updated.status },
-        details: `Updated record ${id} via ${action}`,
-      });
-    } catch {
-      // Direct audit logging restricted to admin/server RPCs; client continues gracefully
-    }
-  }
-
-  return updated;
+  return mapBiomassRecordRow(data);
 }
 
 export async function submitValidationInSupabase(
@@ -541,9 +559,12 @@ export async function submitValidationInSupabase(
   validationNotes: string,
   user: User
 ): Promise<ValidationRecord> {
+  if (!hasPermission(user.role, Permission.VALIDATE_BIOMASS_RECORD)) {
+    throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may validate biomass records.');
+  }
+
   const client = getSupabaseClient();
 
-  // Prefer atomic PostgreSQL RPC function defined in migration 002
   const { data, error } = await client.rpc('submit_validation_decision', {
     p_record_id: recordId,
     p_decision: decision,
@@ -566,6 +587,10 @@ export async function createAggregationGroupInSupabase(
   user: User,
   notes?: string
 ): Promise<AggregationGroup> {
+  if (!hasPermission(user.role, Permission.CREATE_AGGREGATION_GROUP)) {
+    throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may create aggregation groups.');
+  }
+
   const client = getSupabaseClient();
   const sanitizedHubId = hubId && hubId.trim().length > 0 && isValidUuid(hubId.trim()) ? hubId.trim() : null;
 
@@ -597,6 +622,10 @@ export async function submitInquiryInSupabase(
   },
   user: User
 ): Promise<Inquiry> {
+  if (!hasPermission(user.role, Permission.SUBMIT_INQUIRY)) {
+    throw new Error('Unauthorized: Only Buyer/Institutional Inquirer accounts may submit inquiries.');
+  }
+
   const client = getSupabaseClient();
 
   const { data, error } = await client.rpc('submit_buyer_inquiry', {
@@ -632,68 +661,41 @@ export async function updateInquiryStatusInSupabase(
   user: User,
   notes?: string
 ): Promise<void> {
+  if (newStatus === InquiryStatus.WITHDRAWN) {
+    if (!hasPermission(user.role, Permission.VIEW_OWN_INQUIRIES)) {
+      throw new Error('Unauthorized: Only the inquiring Buyer may withdraw an inquiry.');
+    }
+  } else if (newStatus === InquiryStatus.ACCEPTED || newStatus === InquiryStatus.DECLINED) {
+    if (!hasPermission(user.role, Permission.RESPOND_TO_INQUIRIES)) {
+      throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may accept or decline buyer inquiries.');
+    }
+  } else {
+    throw new Error(`Unsupported inquiry status transition: ${newStatus}`);
+  }
+
   const client = getSupabaseClient();
 
-  // Primary attempt: direct transition to requested status
   const { error } = await client.rpc('update_inquiry_status_tx', {
     p_inquiry_id: inquiryId,
     p_new_status: newStatus,
     p_notes: notes || null,
   });
 
-  if (!error) return;
-
-  console.warn('Direct update_inquiry_status_tx failed, attempting compatible fallback:', error.message);
-
-  // Fallback 1: For ACCEPTED/IN_DISCUSSION on legacy remote schemas where SUBMITTED must transition via UNDER_REVIEW
-  if (
-    newStatus === InquiryStatus.ACCEPTED ||
-    (newStatus as any) === 'ACCEPTED' ||
-    newStatus === InquiryStatus.IN_DISCUSSION ||
-    newStatus === InquiryStatus.ACKNOWLEDGED
-  ) {
-    // Step 1: Hop through UNDER_REVIEW (permitted from SUBMITTED on all schemas)
-    const { error: hop1Error } = await client.rpc('update_inquiry_status_tx', {
-      p_inquiry_id: inquiryId,
-      p_new_status: 'UNDER_REVIEW',
-      p_notes: 'Under review prior to direct discussion',
-    });
-
-    if (!hop1Error) {
-      // Step 2: Attempt ACCEPTED from UNDER_REVIEW
-      const { error: hop2Error } = await client.rpc('update_inquiry_status_tx', {
-        p_inquiry_id: inquiryId,
-        p_new_status: 'ACCEPTED',
-        p_notes: notes || 'Inquiry accepted by coordinator',
-      });
-      if (!hop2Error) return;
-
-      // Step 3: If ACCEPTED enum value is absent on remote Postgres, use standard RESPONDED
-      const { error: hop3Error } = await client.rpc('update_inquiry_status_tx', {
-        p_inquiry_id: inquiryId,
-        p_new_status: 'RESPONDED',
-        p_notes: notes ? `${notes} (Marked: ACCEPTED)` : 'Inquiry marked as ACCEPTED',
-      });
-      if (!hop3Error) return;
-    }
-  } else if (newStatus === InquiryStatus.DECLINED || (newStatus as any) === 'DECLINED') {
-    // Fallback for DECLINED on legacy schemas: close inquiry with reason
-    const { error: declineError } = await client.rpc('update_inquiry_status_tx', {
-      p_inquiry_id: inquiryId,
-      p_new_status: 'CLOSED',
-      p_notes: notes ? `${notes} (Declined by coordinator)` : 'Inquiry declined by coordinator',
-    });
-    if (!declineError) return;
+  if (error) {
+    throw new Error(error.message || 'Failed to update inquiry status.');
   }
-
-  throw new Error(error.message || 'Failed to update inquiry status.');
 }
 
 export async function updateUserRoleInSupabase(
   email: string,
   newRole: Role,
-  organizationId?: string
+  organizationId?: string,
+  actor?: User
 ): Promise<User> {
+  if (actor && !hasPermission(actor.role, Permission.MANAGE_USERS)) {
+    throw new Error('Unauthorized: Only Administrators may assign user roles.');
+  }
+
   const client = getSupabaseClient();
 
   const { data, error } = await client.rpc('admin_assign_user_role', {
@@ -704,6 +706,29 @@ export async function updateUserRoleInSupabase(
 
   if (error) {
     throw new Error(error.message || 'Failed to update user role.');
+  }
+
+  return mapProfileRow(data);
+}
+
+export async function setUserActiveStatusInSupabase(
+  email: string,
+  isActive: boolean,
+  actor?: User
+): Promise<User> {
+  if (actor && !hasPermission(actor.role, Permission.MANAGE_USERS)) {
+    throw new Error('Unauthorized: Only Administrators may activate or deactivate user accounts.');
+  }
+
+  const client = getSupabaseClient();
+
+  const { data, error } = await client.rpc('admin_set_user_active_status', {
+    p_email: email,
+    p_is_active: isActive,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to update account status.');
   }
 
   return mapProfileRow(data);

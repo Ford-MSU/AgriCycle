@@ -24,7 +24,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let isMounted = true;
 
     if (isSupabaseConfigured && supabase) {
-      // 1. Restore active Supabase session and fetch trusted profile from PostgreSQL
       supabase.auth
         .getSession()
         .then(async ({ data: { session }, error }) => {
@@ -38,6 +37,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (session?.user) {
             try {
               const profile = await fetchUserProfileFromSupabase(session.user.id, session.user.email);
+              if (profile && profile.isActive === false) {
+                await supabase.auth.signOut();
+                if (isMounted) setUser(null);
+                return;
+              }
               if (isMounted) {
                 setUser(
                   profile || {
@@ -45,6 +49,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
                     email: session.user.email || '',
                     role: Role.BUYER,
+                    isActive: true,
                   }
                 );
               }
@@ -65,7 +70,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         });
 
-      // 2. Listen for auth state changes (sign in, sign out, token refresh, expired session)
       const {
         data: { subscription },
       } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -78,6 +82,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
           try {
             const profile = await fetchUserProfileFromSupabase(session.user.id, session.user.email);
+            if (profile && profile.isActive === false) {
+              await supabase.auth.signOut();
+              if (isMounted) setUser(null);
+              return;
+            }
             if (isMounted && profile) {
               setUser(profile);
             }
@@ -94,7 +103,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         subscription.unsubscribe();
       };
     } else {
-      // Offline / unconfigured fallback mode for local preview when VITE_SUPABASE_URL is not set
       const storedUser = localStorage.getItem('agricycle_user');
       if (storedUser) {
         try {
@@ -128,6 +136,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           throw new Error('Authenticated user profile could not be loaded from database.');
         }
 
+        if (profile.isActive === false) {
+          await supabase.auth.signOut();
+          throw new Error('Your account has been deactivated by an Administrator.');
+        }
+
         // Authoritative role comes strictly from PostgreSQL profiles table, never client selection
         setUser(profile);
         return;
@@ -155,19 +168,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         [Role.BUYER]: 'user-buyer',
       };
 
-      const defaultOrgByRole: Record<Role, string | undefined> = {
-        [Role.ADMINISTRATOR]: undefined,
-        [Role.COORDINATOR]: 'org-2',
-        [Role.LGU]: 'org-3',
-        [Role.BUYER]: 'org-4',
-      };
-
       const fallbackUser: User = {
         id: defaultIdByRole[role] || 'usr_' + Math.random().toString(36).substring(2, 9),
         name: email.split('@')[0],
         email,
         role,
-        organizationId: defaultOrgByRole[role],
+        isActive: true,
       };
 
       setUser(fallbackUser);
@@ -181,10 +187,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     name: string,
     email: string,
     password: string,
-    role: Role = Role.BUYER
+    _requestedRole: Role = Role.BUYER
   ): Promise<{ requiresEmailConfirmation: boolean }> => {
     setIsLoading(true);
     try {
+      // Public self-registration is strictly restricted to BUYER across both live Supabase and demo mode.
+      const enforcedRole = Role.BUYER;
+
       if (isSupabaseConfigured && supabase) {
         const emailRedirectTo = getAuthRedirectUrl('/confirm-email');
 
@@ -195,8 +204,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             emailRedirectTo,
             data: {
               name: name.trim(),
-              role: role,
-              requested_role: role,
+              role: enforcedRole,
+              requested_role: enforcedRole,
             },
           },
         });
@@ -206,7 +215,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         if (data.session && data.user) {
-          const profile = await fetchUserProfileFromSupabase(data.user.id, data.user.email, role);
+          const profile = await fetchUserProfileFromSupabase(data.user.id, data.user.email);
           if (profile) {
             setUser(profile);
           }
@@ -216,19 +225,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { requiresEmailConfirmation: true };
       }
 
-      // Offline demo mode fallback registration
       await new Promise((resolve) => setTimeout(resolve, 350));
-      const defaultIdByRole: Record<Role, string> = {
-        [Role.ADMINISTRATOR]: 'user-admin',
-        [Role.COORDINATOR]: 'user-coord',
-        [Role.LGU]: 'user-lgu',
-        [Role.BUYER]: 'user-buyer',
-      };
       const fallbackUser: User = {
-        id: defaultIdByRole[role] || 'usr_' + Math.random().toString(36).substring(2, 9),
+        id: 'user-buyer',
         name: name.trim() || email.split('@')[0],
         email: email.trim(),
-        role: role,
+        role: enforcedRole,
+        isActive: true,
       };
       setUser(fallbackUser);
       localStorage.setItem('agricycle_user', JSON.stringify(fallbackUser));
@@ -271,7 +274,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
-    // Demo mode fallback
     await new Promise((resolve) => setTimeout(resolve, 600));
     return {
       success: true,

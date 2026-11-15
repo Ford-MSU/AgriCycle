@@ -22,17 +22,22 @@ import {
 import { db } from './mockDb';
 import { useAuth } from './AuthContext';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { hasPermission, Permission } from '../utils/rbac';
 import {
   fetchAllDataFromSupabase,
   createLocationInSupabase,
+  updateLocationCoordinatesInSupabase,
   createOrganizationInSupabase,
   createSourceInSupabase,
+  updateSourceInSupabase,
   createBiomassRecordInSupabase,
   updateBiomassRecordInSupabase,
   submitValidationInSupabase,
   createAggregationGroupInSupabase,
   submitInquiryInSupabase,
   updateInquiryStatusInSupabase,
+  updateUserRoleInSupabase,
+  setUserActiveStatusInSupabase,
 } from '../services/agriCycleService';
 
 interface DataContextType {
@@ -72,9 +77,17 @@ interface DataContextType {
 
   // Async Mutations (PostgreSQL backed when Supabase is configured)
   addLocation: (location: Omit<Location, 'id'> & { id?: string }) => Promise<Location>;
+  updateLocationCoordinates: (locationId: string, lat?: number, lng?: number) => Promise<void>;
   addSource: (source: Omit<BiomassSource, 'id'> & { id?: string }) => Promise<BiomassSource>;
-  addOrganization: (orgInput: { name: string; type: 'COOPERATIVE' | 'HUB' | 'LGU' | 'BUYER' | 'ADMIN'; locationId?: string }) => Promise<Organization>;
-  addRecord: (record: Omit<BiomassRecord, 'id' | 'createdAt' | 'lastUpdatedDate'> & { id?: string }) => Promise<BiomassRecord>;
+  updateSource: (id: string, updates: Partial<BiomassSource>) => Promise<void>;
+  addOrganization: (orgInput: {
+    name: string;
+    type: 'COOPERATIVE' | 'HUB' | 'LGU' | 'BUYER' | 'ADMIN';
+    locationId?: string;
+  }) => Promise<Organization>;
+  addRecord: (
+    record: Omit<BiomassRecord, 'id' | 'createdAt' | 'lastUpdatedDate'> & { id?: string }
+  ) => Promise<BiomassRecord>;
   updateRecord: (id: string, updates: Partial<BiomassRecord>, action?: SystemAction) => Promise<void>;
   addValidation: (
     recordId: string,
@@ -103,6 +116,8 @@ interface DataContextType {
   }) => Promise<Inquiry>;
   updateInquiryStatus: (inquiryId: string, newStatus: InquiryStatus, notes?: string) => Promise<void>;
   addInquiryMessage: (inquiryId: string, message: string) => Promise<InquiryMessage>;
+  updateUserRole: (email: string, newRole: Role, organizationId?: string) => Promise<User>;
+  toggleUserActiveStatus: (email: string, isActive: boolean) => Promise<User>;
   recordUserAction: (entry: {
     userId?: string;
     action: SystemAction;
@@ -118,50 +133,52 @@ const DEFAULT_PROFILES: User[] = [
     name: 'Juan Dela Cruz',
     email: 'admin@agricycle.ph',
     role: Role.ADMINISTRATOR,
+    isActive: true,
   },
   {
     id: 'user-coord',
     name: 'Nitronford Beatingo',
     email: 'nitronford.beatingo@g.msuiit.edu.ph',
     role: Role.COORDINATOR,
-    organizationId: 'org-2',
+    isActive: true,
   },
   {
     id: 'user-lgu',
     name: 'Engr. Arvin Jimenez',
     email: 'arvin.jimenez@g.msuiit.edu.ph',
     role: Role.LGU,
-    organizationId: 'org-1',
+    isActive: true,
   },
   {
     id: 'user-buyer',
     name: 'Carlos Santos',
     email: 'buyer@biopower.ph',
     role: Role.BUYER,
-    organizationId: 'org-1',
+    isActive: true,
   },
   {
     id: 'user-coord-2',
     name: 'Maria Clara',
-    email: 'maria.clara@agusanfarmers.org',
+    email: 'maria.clara@butuan.gov.ph',
     role: Role.COORDINATOR,
-    organizationId: 'org-2',
+    isActive: true,
   },
   {
     id: 'user-buyer-2',
     name: 'Roberto Tan',
     email: 'roberto@greenfuel.ph',
     role: Role.BUYER,
+    isActive: true,
   },
 ];
 
 const INITIAL_NOTIFICATIONS: SystemNotification[] = [
   {
     id: 'notif-1',
-    recipientRole: Role.LGU,
-    title: 'New Biomass Record Awaiting Review',
-    message: 'REC-1002 from Libertad Rice Farmers Coop submitted for LGU validation.',
-    link: '/biomass-records',
+    recipientRole: Role.COORDINATOR,
+    title: 'New Biomass Record Awaiting Validation',
+    message: 'REC-1003 from Ampayon Corn & Copra Farm is queued for Coordinator validation.',
+    link: '/biomass-records?tab=validation',
     isRead: false,
     createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
     type: 'RECORD_SUBMITTED',
@@ -169,8 +186,8 @@ const INITIAL_NOTIFICATIONS: SystemNotification[] = [
   {
     id: 'notif-2',
     recipientRole: Role.COORDINATOR,
-    title: 'Inquiry Received from BioPower Mindanao',
-    message: 'New inquiry for 50 Metric Tons of Rice Husk in Butuan City.',
+    title: 'Buyer Inquiry Received',
+    message: 'New non-binding inquiry INQ-1001 submitted for Rice Husk availability in Libertad.',
     link: '/inquiries',
     isRead: false,
     createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
@@ -178,19 +195,9 @@ const INITIAL_NOTIFICATIONS: SystemNotification[] = [
   },
   {
     id: 'notif-3',
-    recipientRole: Role.COORDINATOR,
-    title: 'Biomass Record Returned for Correction',
-    message: 'REC-1003 requires updated moisture content details before approval.',
-    link: '/biomass-records',
-    isRead: false,
-    createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-    type: 'RECORD_RETURNED',
-  },
-  {
-    id: 'notif-4',
     recipientRole: Role.ADMINISTRATOR,
     title: 'System Audit Check Completed',
-    message: 'Automated integrity validation passed across 86 Butuan City barangay zones.',
+    message: 'Automated integrity validation passed across Butuan City barangay records.',
     link: '/audit-logs',
     isRead: true,
     createdAt: new Date(Date.now() - 3600000 * 48).toISOString(),
@@ -237,7 +244,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profiles, setProfiles] = useState<User[]>(DEFAULT_PROFILES);
   const [notifications, setNotifications] = useState<SystemNotification[]>(() => {
     try {
-      const saved = localStorage.getItem('agricycle_notifications');
+      const saved = localStorage.getItem('agricycle_notifications_v2');
       return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
     } catch {
       return INITIAL_NOTIFICATIONS;
@@ -264,47 +271,51 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     try {
-      localStorage.setItem('agricycle_notifications', JSON.stringify(notifications));
+      localStorage.setItem('agricycle_notifications_v2', JSON.stringify(notifications));
     } catch (e) {
       console.error('Failed to save notifications to localStorage', e);
     }
   }, [notifications]);
 
-  const recordUserAction = useCallback((entry: {
-    userId?: string;
-    action: SystemAction;
-    entityType: 'BiomassRecord' | 'User' | 'Inquiry' | 'Listing' | 'AggregationGroup' | 'ValidationRecord';
-    entityId: string;
-    details: string;
-  }) => {
-    const actorId = entry.userId || user?.id || 'System';
-    const newLog: AuditLog = {
-      id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      userId: actorId,
-      action: entry.action,
-      entityType: entry.entityType,
-      entityId: entry.entityId,
-      details: entry.details,
-      timestamp: new Date().toISOString(),
-    };
-    db.auditLogs.unshift(newLog);
-    setAuditLogs((prev) => [newLog, ...prev.filter((l) => l.id !== newLog.id)]);
-  }, [user]);
+  const recordUserAction = useCallback(
+    (entry: {
+      userId?: string;
+      action: SystemAction;
+      entityType: 'BiomassRecord' | 'User' | 'Inquiry' | 'Listing' | 'AggregationGroup' | 'ValidationRecord';
+      entityId: string;
+      details: string;
+    }) => {
+      const actorId = entry.userId || user?.id || 'System';
+      const newLog: AuditLog = {
+        id: `log-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        userId: actorId,
+        action: entry.action,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        details: entry.details,
+        timestamp: new Date().toISOString(),
+      };
+      db.auditLogs.unshift(newLog);
+      setAuditLogs((prev) => [newLog, ...prev.filter((l) => l.id !== newLog.id)]);
+    },
+    [user]
+  );
 
-  const addNotification = useCallback((notif: Omit<SystemNotification, 'id' | 'createdAt' | 'isRead'>) => {
-    const newNotif: SystemNotification = {
-      ...notif,
-      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      createdAt: new Date().toISOString(),
-      isRead: false,
-    };
-    setNotifications((prev) => [newNotif, ...prev]);
-  }, []);
+  const addNotification = useCallback(
+    (notif: Omit<SystemNotification, 'id' | 'createdAt' | 'isRead'>) => {
+      const newNotif: SystemNotification = {
+        ...notif,
+        id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        createdAt: new Date().toISOString(),
+        isRead: false,
+      };
+      setNotifications((prev) => [newNotif, ...prev]);
+    },
+    []
+  );
 
   const markNotificationRead = useCallback((id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-    );
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
   }, []);
 
   const markAllNotificationsRead = useCallback(() => {
@@ -389,8 +400,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const addLocation = async (locationInput: Omit<Location, 'id'> & { id?: string }): Promise<Location> => {
-    if (isSupabaseConfigured && user) {
-      const created = await createLocationInSupabase(locationInput);
+    if (!user) throw new Error('You must be signed in to add a location.');
+    if (
+      !hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS) &&
+      !hasPermission(user.role, Permission.MANAGE_MAP_INFO)
+    ) {
+      throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may register source locations.');
+    }
+
+    if (isSupabaseConfigured) {
+      const created = await createLocationInSupabase(locationInput, user);
       await refreshData();
       return created;
     }
@@ -404,8 +423,41 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return newLoc;
   };
 
+  const updateLocationCoordinates = async (
+    locationId: string,
+    lat?: number,
+    lng?: number
+  ): Promise<void> => {
+    if (!user) throw new Error('You must be signed in to update coordinates.');
+    if (!hasPermission(user.role, Permission.MANAGE_MAP_INFO)) {
+      throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may update GIS source coordinates.');
+    }
+
+    if (isSupabaseConfigured) {
+      await updateLocationCoordinatesInSupabase(locationId, lat ?? null, lng ?? null, user);
+      await refreshData();
+    } else {
+      db.updateLocationCoordinates(locationId, lat, lng);
+      syncLocalStateFromMock();
+    }
+
+    recordUserAction({
+      userId: user.id,
+      action: SystemAction.UPDATE,
+      entityType: 'BiomassRecord',
+      entityId: locationId,
+      details:
+        lat !== undefined && lng !== undefined
+          ? `Updated GIS coordinates for location ${locationId} (${lat}, ${lng})`
+          : `Cleared GIS coordinates for location ${locationId}`,
+    });
+  };
+
   const addSource = async (sourceInput: Omit<BiomassSource, 'id'> & { id?: string }): Promise<BiomassSource> => {
     if (!user) throw new Error('You must be signed in to register a source.');
+    if (!hasPermission(user.role, Permission.REGISTER_BIOMASS_SOURCE)) {
+      throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may register biomass sources.');
+    }
 
     if (isSupabaseConfigured) {
       const created = await createSourceInSupabase(sourceInput, user);
@@ -416,10 +468,34 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const newSource: BiomassSource = {
       id: sourceInput.id || `src-${Date.now()}`,
       ...sourceInput,
+      cooperativeId: undefined,
     };
     db.addSource(newSource);
     syncLocalStateFromMock();
     return newSource;
+  };
+
+  const updateSource = async (id: string, updates: Partial<BiomassSource>): Promise<void> => {
+    if (!user) throw new Error('You must be signed in to update a source.');
+    if (!hasPermission(user.role, Permission.REGISTER_BIOMASS_SOURCE)) {
+      throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may update biomass sources.');
+    }
+
+    if (isSupabaseConfigured) {
+      await updateSourceInSupabase(id, updates, user);
+      await refreshData();
+    } else {
+      db.updateSource(id, updates);
+      syncLocalStateFromMock();
+    }
+
+    recordUserAction({
+      userId: user.id,
+      action: SystemAction.UPDATE,
+      entityType: 'BiomassRecord',
+      entityId: id,
+      details: `Updated biomass source details for ${updates.name || id}`,
+    });
   };
 
   const addOrganization = async (orgInput: {
@@ -427,8 +503,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     type: 'COOPERATIVE' | 'HUB' | 'LGU' | 'BUYER' | 'ADMIN';
     locationId?: string;
   }): Promise<Organization> => {
+    if (!user || !hasPermission(user.role, Permission.MANAGE_SYSTEM_SETTINGS)) {
+      throw new Error('Unauthorized: Only Administrators may manage organizations.');
+    }
+
     if (isSupabaseConfigured) {
-      const created = await createOrganizationInSupabase(orgInput, user || undefined);
+      const created = await createOrganizationInSupabase(orgInput, user);
       await refreshData();
       return created;
     }
@@ -446,14 +526,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     recordInput: Omit<BiomassRecord, 'id' | 'createdAt' | 'lastUpdatedDate'> & { id?: string }
   ): Promise<BiomassRecord> => {
     if (!user) throw new Error('You must be signed in to create a biomass record.');
+    if (!hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS)) {
+      throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may create biomass records.');
+    }
+
+    const sanitizedStatus =
+      recordInput.status === RecordStatus.DRAFT ? RecordStatus.DRAFT : RecordStatus.SUBMITTED;
 
     let createdRecord: BiomassRecord;
     if (isSupabaseConfigured) {
-      createdRecord = await createBiomassRecordInSupabase(recordInput, user);
+      createdRecord = await createBiomassRecordInSupabase({ ...recordInput, status: sanitizedStatus }, user);
       await refreshData();
     } else {
       const newRecord: BiomassRecord = {
         ...recordInput,
+        status: sanitizedStatus,
         id: recordInput.id || `REC-${Math.floor(1000 + Math.random() * 9000)}`,
         createdAt: new Date().toISOString(),
         lastUpdatedDate: new Date().toISOString(),
@@ -463,14 +550,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createdRecord = newRecord;
     }
 
-    // Dispatch notification to LGU officers for review
-    addNotification({
-      recipientRole: Role.LGU,
-      title: 'New Biomass Record Awaiting Validation',
-      message: `Record ${createdRecord.id} was submitted by ${user.name} and requires validation.`,
-      link: '/biomass-records',
-      type: 'RECORD_SUBMITTED',
-    });
+    if (sanitizedStatus === RecordStatus.SUBMITTED) {
+      addNotification({
+        recipientRole: Role.COORDINATOR,
+        title: 'New Biomass Record Awaiting Validation',
+        message: `Record ${createdRecord.id} was submitted by ${user.name} for Coordinator validation.`,
+        link: '/biomass-records?tab=validation',
+        type: 'RECORD_SUBMITTED',
+      });
+    }
 
     recordUserAction({
       userId: user.id,
@@ -479,13 +567,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       entityId: createdRecord.id,
       details: `Created biomass record ${createdRecord.id}`,
     });
-    recordUserAction({
-      userId: user.id,
-      action: SystemAction.SUBMIT,
-      entityType: 'BiomassRecord',
-      entityId: createdRecord.id,
-      details: `Submitted record ${createdRecord.id} for validation`,
-    });
+
+    if (sanitizedStatus === RecordStatus.SUBMITTED) {
+      recordUserAction({
+        userId: user.id,
+        action: SystemAction.SUBMIT,
+        entityType: 'BiomassRecord',
+        entityId: createdRecord.id,
+        details: `Submitted record ${createdRecord.id} for validation`,
+      });
+    }
 
     return createdRecord;
   };
@@ -496,6 +587,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     action: SystemAction = SystemAction.UPDATE
   ): Promise<void> => {
     if (!user) throw new Error('You must be signed in to update a record.');
+    if (!hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS)) {
+      throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may edit biomass records.');
+    }
+
+    if (
+      updates.status &&
+      [RecordStatus.VALIDATED, RecordStatus.RETURNED, RecordStatus.REJECTED].includes(updates.status)
+    ) {
+      throw new Error('Validation decisions must be submitted through the formal validation workflow.');
+    }
 
     if (isSupabaseConfigured) {
       await updateBiomassRecordInSupabase(id, updates, user, action);
@@ -510,17 +611,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       action,
       entityType: 'BiomassRecord',
       entityId: id,
-      details: updates.status === RecordStatus.SUBMITTED
-        ? `Resubmitted record ${id} for review`
-        : `Updated biomass record ${id}`,
+      details:
+        updates.status === RecordStatus.SUBMITTED
+          ? `Resubmitted record ${id} for validation`
+          : `Updated biomass record ${id}`,
     });
 
     if (updates.status === RecordStatus.SUBMITTED) {
       addNotification({
-        recipientRole: Role.LGU,
+        recipientRole: Role.COORDINATOR,
         title: 'Biomass Record Re-submitted',
-        message: `Record ${id} was corrected and resubmitted for review.`,
-        link: '/biomass-records',
+        message: `Record ${id} was updated and resubmitted for Coordinator validation.`,
+        link: '/biomass-records?tab=validation',
         type: 'RECORD_SUBMITTED',
       });
     }
@@ -533,6 +635,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     validationNotes: string
   ): Promise<ValidationRecord> => {
     if (!user) throw new Error('You must be signed in to validate a record.');
+    if (!hasPermission(user.role, Permission.VALIDATE_BIOMASS_RECORD)) {
+      throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may validate biomass records.');
+    }
+
+    const targetRecord = records.find((r) => r.id === recordId);
+    if (targetRecord && targetRecord.submitterId === user.id) {
+      throw new Error('Self-validation is prohibited: a different Coordinator must validate records you submitted.');
+    }
 
     let createdVal: ValidationRecord;
     if (isSupabaseConfigured) {
@@ -555,28 +665,38 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     recordUserAction({
       userId: user.id,
-      action: decision === RecordStatus.VALIDATED
-        ? SystemAction.VALIDATE
-        : decision === RecordStatus.RETURNED
-        ? SystemAction.RETURN
-        : SystemAction.REJECT,
+      action:
+        decision === RecordStatus.VALIDATED
+          ? SystemAction.VALIDATE
+          : decision === RecordStatus.RETURNED
+          ? SystemAction.RETURN
+          : SystemAction.REJECT,
       entityType: 'ValidationRecord',
       entityId: recordId,
-      details: `${decision === RecordStatus.VALIDATED ? 'Validated' : decision === RecordStatus.RETURNED ? 'Returned' : 'Rejected'} record ${recordId}: ${validationBasis}`,
+      details: `${
+        decision === RecordStatus.VALIDATED
+          ? 'Validated'
+          : decision === RecordStatus.RETURNED
+          ? 'Returned'
+          : 'Rejected'
+      } record ${recordId}: ${validationBasis}`,
     });
 
-    // Auto-dispatch notification based on decision
+    const recipientTarget = targetRecord?.submitterId
+      ? { recipientUserId: targetRecord.submitterId }
+      : { recipientRole: Role.COORDINATOR };
+
     if (decision === RecordStatus.VALIDATED) {
       addNotification({
-        recipientRole: Role.COORDINATOR,
+        ...recipientTarget,
         title: `Record ${recordId} Approved & Validated`,
-        message: `LGU Officer ${user.name} validated record ${recordId}. It is now eligible for aggregation and buyer listing.`,
+        message: `Coordinator ${user.name} validated record ${recordId}. It is now eligible for aggregation and buyer listing.`,
         link: '/biomass-records',
         type: 'RECORD_VALIDATED',
       });
     } else if (decision === RecordStatus.RETURNED) {
       addNotification({
-        recipientRole: Role.COORDINATOR,
+        ...recipientTarget,
         title: `Record ${recordId} Returned for Correction`,
         message: `Correction requested: "${validationNotes}". Please edit and resubmit.`,
         link: '/biomass-records',
@@ -584,9 +704,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     } else if (decision === RecordStatus.REJECTED) {
       addNotification({
-        recipientRole: Role.COORDINATOR,
+        ...recipientTarget,
         title: `Record ${recordId} Rejected`,
-        message: `LGU rejection reason: "${validationNotes}".`,
+        message: `Validation rejection reason: "${validationNotes}".`,
         link: '/biomass-records',
         type: 'RECORD_REJECTED',
       });
@@ -603,14 +723,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     notes?: string
   ): Promise<AggregationGroup> => {
     if (!user) throw new Error('You must be signed in to create an aggregation group.');
+    if (!hasPermission(user.role, Permission.CREATE_AGGREGATION_GROUP)) {
+      throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may create aggregation groups.');
+    }
 
-    // Enforce that none of the selected records are already assigned to an active aggregation group
     const activeMemberRecordIds = new Set(
       aggregationMembers.filter((m) => m.isActive).map((m) => m.biomassRecordId)
     );
     const conflictingRecord = memberRecordIds.find((id) => activeMemberRecordIds.has(id));
     if (conflictingRecord) {
-      throw new Error(`Biomass record ${conflictingRecord} is already assigned to an active aggregation group and cannot be re-aggregated.`);
+      throw new Error(
+        `Biomass record ${conflictingRecord} is already assigned to an active aggregation group and cannot be re-aggregated.`
+      );
     }
 
     const cleanHubId = hubId && hubId.trim().length > 0 ? hubId.trim() : undefined;
@@ -641,18 +765,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       action: SystemAction.CREATE_GROUP,
       entityType: 'AggregationGroup',
       entityId: createdGroup.id,
-      details: `Created aggregation group "${name}"`,
+      details: `Created information-based aggregation group "${name}"`,
     });
 
     return createdGroup;
   };
 
-  const getInquiryMessages = useCallback((inquiryId: string) => {
-    return inquiryMessages.filter((m) => m.inquiryId === inquiryId);
-  }, [inquiryMessages]);
+  const getInquiryMessages = useCallback(
+    (inquiryId: string) => {
+      return inquiryMessages.filter((m) => m.inquiryId === inquiryId);
+    },
+    [inquiryMessages]
+  );
 
   const addInquiryMessage = async (inquiryId: string, message: string): Promise<InquiryMessage> => {
     if (!user) throw new Error('You must be signed in to send a message.');
+    if (user.role !== Role.COORDINATOR && user.role !== Role.BUYER) {
+      throw new Error('Unauthorized: Only the inquiring Buyer and Coordinator may communicate on inquiries.');
+    }
+
     const newMsg: InquiryMessage = {
       id: `msg-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       inquiryId,
@@ -670,14 +801,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       action: SystemAction.UPDATE,
       entityType: 'Inquiry',
       entityId: inquiryId,
-      details: `Sent message in inquiry ${inquiryId} conversation`,
+      details: `Added coordination note to inquiry ${inquiryId}`,
     });
-
-    // Automatically transition SUBMITTED or ACKNOWLEDGED to IN_DISCUSSION if active discussion begins
-    const inq = inquiries.find((i) => i.id === inquiryId);
-    if (inq && (inq.status === InquiryStatus.SUBMITTED || inq.status === InquiryStatus.ACKNOWLEDGED)) {
-      await updateInquiryStatus(inquiryId, InquiryStatus.IN_DISCUSSION, `Discussion message from ${user.name}`);
-    }
 
     return newMsg;
   };
@@ -695,8 +820,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     additionalRequirements?: string;
   }): Promise<Inquiry> => {
     if (!user) throw new Error('You must be signed in to submit an inquiry.');
+    if (!hasPermission(user.role, Permission.SUBMIT_INQUIRY)) {
+      throw new Error('Unauthorized: Only Buyer/Institutional Inquirer accounts may submit inquiries.');
+    }
 
-    // Reject inquiries on individual records that are consolidated into an active aggregation group
     if (input.targetType === 'RECORD') {
       const activeMember = aggregationMembers.find((m) => m.biomassRecordId === input.targetId && m.isActive);
       if (activeMember) {
@@ -724,8 +851,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         requestedUnit: input.requestedUnit,
         intendedUse: input.intendedUse,
         preferredAvailabilityPeriod: input.preferredAvailabilityPeriod,
-        preferredCollectionDate: input.preferredCollectionDate,
-        preferredPickupTime: input.preferredPickupTime,
         additionalRequirements: input.additionalRequirements,
         status: InquiryStatus.SUBMITTED,
         submittedAt: new Date().toISOString(),
@@ -750,14 +875,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       action: SystemAction.INQUIRE,
       entityType: 'Inquiry',
       entityId: createdInq.id,
-      details: `Submitted inquiry ${createdInq.id} for ${input.requestedQuantity} ${input.requestedUnit}`,
+      details: `Submitted non-binding inquiry ${createdInq.id} for ${input.requestedQuantity} ${input.requestedUnit}`,
     });
 
-    // Auto-dispatch notification to Coordinators & Admin
     addNotification({
       recipientRole: Role.COORDINATOR,
-      title: 'New Biomass Buyer Inquiry Received',
-      message: `${user.name} submitted an inquiry for ${input.requestedQuantity} ${input.requestedUnit} (${input.targetType} ${input.targetId}).`,
+      title: 'New Buyer Inquiry Received',
+      message: `${user.name} submitted a non-binding inquiry for ${input.requestedQuantity} ${input.requestedUnit} (${input.targetType} ${input.targetId}).`,
       link: '/inquiries',
       type: 'INQUIRY_SUBMITTED',
     });
@@ -772,6 +896,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ): Promise<void> => {
     if (!user) throw new Error('You must be signed in to update an inquiry.');
 
+    const targetInquiry = inquiries.find((i) => i.id === inquiryId);
+
+    if (newStatus === InquiryStatus.WITHDRAWN) {
+      if (!hasPermission(user.role, Permission.VIEW_OWN_INQUIRIES)) {
+        throw new Error('Unauthorized: Only the inquiring Buyer may withdraw an inquiry.');
+      }
+      if (targetInquiry && targetInquiry.buyerUserId !== user.id) {
+        throw new Error('Unauthorized: You may only withdraw inquiries submitted under your own account.');
+      }
+    } else if (newStatus === InquiryStatus.ACCEPTED || newStatus === InquiryStatus.DECLINED) {
+      if (!hasPermission(user.role, Permission.RESPOND_TO_INQUIRIES)) {
+        throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may accept or decline buyer inquiries.');
+      }
+    } else {
+      throw new Error(`Unsupported inquiry status action: ${newStatus}`);
+    }
+
     if (isSupabaseConfigured) {
       await updateInquiryStatusInSupabase(inquiryId, newStatus, user, notes);
       await refreshData();
@@ -782,12 +923,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const actionText =
       newStatus === InquiryStatus.ACCEPTED
-        ? `Accepted inquiry ${inquiryId} for direct discussion`
+        ? `Accepted non-binding inquiry ${inquiryId}`
         : newStatus === InquiryStatus.DECLINED
         ? `Declined inquiry ${inquiryId}`
-        : newStatus === InquiryStatus.WITHDRAWN
-        ? `Withdrew inquiry ${inquiryId}`
-        : `Updated status of inquiry ${inquiryId} to ${newStatus}`;
+        : `Withdrew inquiry ${inquiryId}`;
 
     recordUserAction({
       userId: user.id,
@@ -797,13 +936,88 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       details: actionText,
     });
 
-    addNotification({
-      recipientRole: Role.BUYER,
-      title: `Inquiry ${inquiryId} Status: ${newStatus.replace(/_/g, ' ')}`,
-      message: `Your inquiry has been updated to ${newStatus.replace(/_/g, ' ')}.${notes ? ` Note: "${notes}"` : ''}`,
-      link: '/inquiries',
-      type: 'INQUIRY_STATUS_CHANGED',
+    if (newStatus === InquiryStatus.WITHDRAWN) {
+      addNotification({
+        recipientRole: Role.COORDINATOR,
+        title: `Inquiry ${inquiryId} Withdrawn`,
+        message: `${user.name} withdrew buyer inquiry ${inquiryId}.`,
+        link: '/inquiries',
+        type: 'INQUIRY_STATUS_CHANGED',
+      });
+    } else if (targetInquiry?.buyerUserId) {
+      addNotification({
+        recipientUserId: targetInquiry.buyerUserId,
+        title: `Inquiry ${inquiryId} ${newStatus === InquiryStatus.ACCEPTED ? 'Accepted' : 'Declined'}`,
+        message: `Your inquiry ${inquiryId} was ${newStatus.toLowerCase()} by the LGU Biomass Information Coordinator.${notes ? ` Note: "${notes}"` : ''}`,
+        link: '/inquiries',
+        type: 'INQUIRY_STATUS_CHANGED',
+      });
+    }
+  };
+
+  const updateUserRole = async (
+    email: string,
+    newRole: Role,
+    organizationId?: string
+  ): Promise<User> => {
+    if (!user || !hasPermission(user.role, Permission.MANAGE_USERS)) {
+      throw new Error('Unauthorized: Only Administrators may assign or update user roles.');
+    }
+
+    let updated: User;
+    if (isSupabaseConfigured) {
+      updated = await updateUserRoleInSupabase(email, newRole, organizationId, user);
+      await refreshData();
+    } else {
+      const target = profiles.find((p) => p.email.toLowerCase() === email.toLowerCase());
+      if (!target) {
+        throw new Error(`User profile with email ${email} was not found.`);
+      }
+      updated = { ...target, role: newRole, organizationId: organizationId || undefined };
+      setProfiles((prev) => prev.map((p) => (p.id === target.id ? updated : p)));
+    }
+
+    recordUserAction({
+      userId: user.id,
+      action: SystemAction.UPDATE,
+      entityType: 'User',
+      entityId: updated.id,
+      details: `Assigned role ${newRole} to ${updated.email}`,
     });
+
+    return updated;
+  };
+
+  const toggleUserActiveStatus = async (email: string, isActive: boolean): Promise<User> => {
+    if (!user || !hasPermission(user.role, Permission.MANAGE_USERS)) {
+      throw new Error('Unauthorized: Only Administrators may activate or deactivate user accounts.');
+    }
+    if (user.email.toLowerCase() === email.toLowerCase() && !isActive) {
+      throw new Error('Administrators cannot deactivate their own active account.');
+    }
+
+    let updated: User;
+    if (isSupabaseConfigured) {
+      updated = await setUserActiveStatusInSupabase(email, isActive, user);
+      await refreshData();
+    } else {
+      const target = profiles.find((p) => p.email.toLowerCase() === email.toLowerCase());
+      if (!target) {
+        throw new Error(`User profile with email ${email} was not found.`);
+      }
+      updated = { ...target, isActive };
+      setProfiles((prev) => prev.map((p) => (p.id === target.id ? updated : p)));
+    }
+
+    recordUserAction({
+      userId: user.id,
+      action: SystemAction.UPDATE_STATUS,
+      entityType: 'User',
+      entityId: updated.id,
+      details: `${isActive ? 'Activated' : 'Deactivated'} user account ${updated.email}`,
+    });
+
+    return updated;
   };
 
   return (
@@ -840,7 +1054,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         getInquiryMessages,
         addInquiryMessage,
         addLocation,
+        updateLocationCoordinates,
         addSource,
+        updateSource,
         addOrganization,
         addRecord,
         updateRecord,
@@ -848,6 +1064,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addAggregationGroup,
         addInquiry,
         updateInquiryStatus,
+        updateUserRole,
+        toggleUserActiveStatus,
         recordUserAction,
       }}
     >

@@ -69,11 +69,36 @@ export default function App() {
               </ProtectedRoute>
             }>
               <Route index element={<Dashboard />} />
-              <Route path="biomass-records" element={<BiomassRecords />} />
-              <Route path="aggregation-hubs" element={<AggregationHubs />} />
-              <Route path="listings" element={<BiomassListings />} />
-              <Route path="listings/:type/:id" element={<ListingDetail />} />
-              <Route path="inquiries" element={<Inquiries />} />
+              <Route path="biomass-records" element={
+                <ProtectedRoute allowedRoles={[Role.COORDINATOR, Role.LGU]}>
+                  <BiomassRecords />
+                </ProtectedRoute>
+              } />
+              <Route path="aggregation-hubs" element={
+                <ProtectedRoute allowedRoles={[Role.COORDINATOR, Role.LGU]}>
+                  <AggregationHubs />
+                </ProtectedRoute>
+              } />
+              <Route path="aggregation" element={
+                <ProtectedRoute allowedRoles={[Role.COORDINATOR, Role.LGU]}>
+                  <AggregationHubs />
+                </ProtectedRoute>
+              } />
+              <Route path="listings" element={
+                <ProtectedRoute allowedRoles={[Role.BUYER]}>
+                  <BiomassListings />
+                </ProtectedRoute>
+              } />
+              <Route path="listings/:type/:id" element={
+                <ProtectedRoute allowedRoles={[Role.BUYER]}>
+                  <ListingDetail />
+                </ProtectedRoute>
+              } />
+              <Route path="inquiries" element={
+                <ProtectedRoute allowedRoles={[Role.COORDINATOR, Role.BUYER]}>
+                  <Inquiries />
+                </ProtectedRoute>
+              } />
               <Route path="reports" element={
                 <ProtectedRoute allowedRoles={[Role.ADMINISTRATOR, Role.COORDINATOR, Role.LGU]}>
                   <Reports />
@@ -89,7 +114,11 @@ export default function App() {
                   <AuditLogs />
                 </ProtectedRoute>
               } />
-              <Route path="map" element={<MapView />} />
+              <Route path="map" element={
+                <ProtectedRoute allowedRoles={[Role.COORDINATOR, Role.LGU, Role.BUYER]}>
+                  <MapView />
+                </ProtectedRoute>
+              } />
               <Route path="*" element={<PlaceholderPage />} />
             </Route>
           </Routes>

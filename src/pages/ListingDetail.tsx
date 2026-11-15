@@ -6,8 +6,15 @@ import { StatusBadge } from '../components/ui/StatusBadge';
 import { BiomassRecord, AggregationGroup, RecordStatus } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
+import { hasPermission, Permission } from '../utils/rbac';
 import { ArrowLeft, MapPin, Send, AlertTriangle, Lock } from 'lucide-react';
 import { format } from 'date-fns';
+
+const formatSafeDate = (iso?: string, fallback = 'Flexible') => {
+  if (!iso) return fallback;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? fallback : format(d, 'MMM d, yyyy');
+};
 
 export const ListingDetail: React.FC = () => {
   const { type, id } = useParams<{ type: 'record' | 'group'; id: string }>();
@@ -19,7 +26,6 @@ export const ListingDetail: React.FC = () => {
     getRecord,
     getSource,
     getLocation,
-    getOrganization,
     getAggregationGroup,
     getAggregationMembers,
     addInquiry,
@@ -29,18 +35,16 @@ export const ListingDetail: React.FC = () => {
   const [inquiryQty, setInquiryQty] = useState<number | ''>('');
   const [inquiryUse, setInquiryUse] = useState('');
   const [inquiryPeriod, setInquiryPeriod] = useState('');
-  const [collectionDate, setCollectionDate] = useState('');
-  const [pickupTime, setPickupTime] = useState('09:00');
   const [inquiryNotes, setInquiryNotes] = useState('');
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!user || !id || !type) return null;
 
+  const canSubmitInquiry = hasPermission(user.role, Permission.SUBMIT_INQUIRY);
   const record: BiomassRecord | undefined = type === 'record' ? getRecord(id) : undefined;
   const group: AggregationGroup | undefined = type === 'group' ? getAggregationGroup(id) : undefined;
 
-  // Check if this individual record is consolidated into an active aggregation group
   const activeAggregationMembership =
     type === 'record' && record
       ? aggregationMembers.find((m) => m.biomassRecordId === record.id && m.isActive)
@@ -53,15 +57,21 @@ export const ListingDetail: React.FC = () => {
     return <div className="text-center py-10">Listing no longer available.</div>;
   }
 
-  // Warning for stale records
   const isStale =
     (type === 'record' && record?.status === RecordStatus.STALE) ||
     (type === 'group' && group?.status === 'STALE');
 
   const handleSubmitInquiry = async () => {
     setFormError('');
+    if (!canSubmitInquiry) {
+      setFormError('Unauthorized: Only Buyer/Institutional Inquirer accounts may submit market inquiries.');
+      return;
+    }
+
     if (type === 'record' && parentAggregationGroup) {
-      setFormError('This biomass record is consolidated into an aggregation group and cannot receive independent buyer inquiries.');
+      setFormError(
+        'This biomass record is consolidated into an aggregation group and cannot receive independent buyer inquiries.'
+      );
       return;
     }
 
@@ -82,11 +92,6 @@ export const ListingDetail: React.FC = () => {
       }
     }
 
-    const schedulingNote = collectionDate
-      ? `[Preferred Collection Date: ${collectionDate}, Time: ${pickupTime || 'Flexible'}]`
-      : '';
-    const combinedRequirements = [schedulingNote, inquiryNotes.trim()].filter(Boolean).join('\n');
-
     setIsSubmitting(true);
     try {
       await addInquiry({
@@ -97,9 +102,7 @@ export const ListingDetail: React.FC = () => {
         requestedUnit: requestedUnitId,
         intendedUse: inquiryUse.trim() || undefined,
         preferredAvailabilityPeriod: inquiryPeriod.trim() || undefined,
-        preferredCollectionDate: collectionDate || undefined,
-        preferredPickupTime: pickupTime || undefined,
-        additionalRequirements: combinedRequirements || undefined,
+        additionalRequirements: inquiryNotes.trim() || undefined,
       });
       navigate('/inquiries');
     } catch (err: any) {
@@ -115,7 +118,6 @@ export const ListingDetail: React.FC = () => {
       const unit = referenceData.find((r) => r.id === record.originalUnit)?.label;
       const source = getSource(record.sourceId);
       const location = source ? getLocation(source.locationId) : getLocation(record.locationId);
-      const coop = source?.cooperativeId ? getOrganization(source.cooperativeId) : undefined;
       const availQty = record.remainingQuantity !== undefined ? record.remainingQuantity : record.quantity;
 
       return (
@@ -136,7 +138,7 @@ export const ListingDetail: React.FC = () => {
                 </p>
               </div>
               <div>
-                <p className="text-gray-500">Condition & Storage</p>
+                <p className="text-gray-500">Condition & Source Site Storage</p>
                 <p className="font-medium">
                   {record.condition} ({record.storage})
                 </p>
@@ -149,9 +151,11 @@ export const ListingDetail: React.FC = () => {
                 <p className="text-gray-500">Availability Period</p>
                 <p className="font-medium">
                   {record.availabilityPeriodStart && record.availabilityPeriodEnd
-                    ? `${format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} - ${format(new Date(record.availabilityPeriodEnd), 'MMM d, yyyy')}`
+                    ? `${formatSafeDate(record.availabilityPeriodStart)} – ${formatSafeDate(record.availabilityPeriodEnd)}`
                     : record.availabilityPeriodStart
-                    ? `From ${format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} (Flexible)`
+                    ? `From ${formatSafeDate(record.availabilityPeriodStart)} (Flexible)`
+                    : record.availabilityPeriodEnd
+                    ? `Until ${formatSafeDate(record.availabilityPeriodEnd)}`
                     : 'Immediate & Flexible'}
                 </p>
               </div>
@@ -173,25 +177,16 @@ export const ListingDetail: React.FC = () => {
                   <MapPin size={13} className="text-agri-green-600 shrink-0" /> {location?.barangay}, {location?.city}
                 </p>
                 {record.accessLocationNotes && (
-                  <p className="text-xs text-gray-500 mt-1 italic">
-                    Access: {record.accessLocationNotes}
-                  </p>
+                  <p className="text-xs text-gray-500 mt-1 italic">Access: {record.accessLocationNotes}</p>
                 )}
               </div>
-              {coop && (
-                <div>
-                  <h4 className="text-sm font-semibold mb-1 text-gray-900">Cooperative / Hub Office</h4>
-                  <p className="text-sm font-medium text-gray-800">{coop.name}</p>
-                  {coop.officeAddress && (
-                    <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                      <MapPin size={13} className="text-blue-600 shrink-0" /> {coop.officeAddress}
-                    </p>
-                  )}
-                  {coop.contactPhone && (
-                    <p className="text-xs text-gray-500 mt-0.5">Phone: {coop.contactPhone}</p>
-                  )}
-                </div>
-              )}
+              <div>
+                <h4 className="text-sm font-semibold mb-1 text-gray-900">Information Coordination</h4>
+                <p className="text-sm font-medium text-gray-800">LGU Biomass Information Coordinator</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Inquiries are reviewed and coordinated at the information level prior to external buyer-source engagement.
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -200,7 +195,6 @@ export const ListingDetail: React.FC = () => {
 
     if (type === 'group' && group) {
       const typeLabel = referenceData.find((r) => r.id === group.biomassTypeId)?.label;
-      const hub = getOrganization(group.hubId);
       const members = getAggregationMembers(group.id);
 
       let total = 0;
@@ -222,8 +216,7 @@ export const ListingDetail: React.FC = () => {
           <CardHeader>
             <CardTitle>Aggregation Group Information</CardTitle>
             <CardDescription>
-              Aggregation indicates that compatible biomass records have been grouped in the system. It does not confirm
-              that the materials have been physically collected or stored together.
+              Aggregation indicates that compatible validated biomass records have been grouped at the information level. It does not confirm physical collection, warehousing, or guaranteed delivery.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -240,11 +233,11 @@ export const ListingDetail: React.FC = () => {
               </div>
               <div>
                 <p className="text-gray-500">Member Count</p>
-                <p className="font-medium">{members.length} Sources</p>
+                <p className="font-medium">{members.length} Validated Sources</p>
               </div>
               <div>
-                <p className="text-gray-500">Hub / Cooperative</p>
-                <p className="font-medium">{hub?.name}</p>
+                <p className="text-gray-500">Coordination Scope</p>
+                <p className="font-medium">LGU Biomass Information Consolidation</p>
               </div>
               <div>
                 <p className="text-gray-500">Group Status</p>
@@ -295,8 +288,7 @@ export const ListingDetail: React.FC = () => {
                 Consolidated into Aggregation Group: {parentAggregationGroup.name}
               </p>
               <p className="text-amber-700 text-xs mt-0.5">
-                This biomass record has been consolidated into an active aggregation group and is no longer available as an independent listing.
-                Individual buyer inquiries on this record are closed.
+                This biomass record has been consolidated into an active aggregation group and is no longer available as an independent listing. Individual buyer inquiries on this record are closed.
               </p>
             </div>
           </div>
@@ -313,7 +305,7 @@ export const ListingDetail: React.FC = () => {
 
       {renderBiomassInfo()}
 
-      {parentAggregationGroup ? (
+      {!canSubmitInquiry ? null : parentAggregationGroup ? (
         <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-center text-sm text-gray-600">
           Independent inquiries are disabled because this biomass record is part of{' '}
           <button
@@ -321,21 +313,21 @@ export const ListingDetail: React.FC = () => {
             className="text-agri-green-700 font-semibold underline hover:text-agri-green-800"
           >
             {parentAggregationGroup.name}
-          </button>. Please submit your inquiry through the group listing.
+          </button>
+          . Please submit your inquiry through the group listing.
         </div>
       ) : !showInquiryForm ? (
         <div className="flex justify-end">
           <Button onClick={() => setShowInquiryForm(true)} icon={<Send size={16} />}>
-            Submit Inquiry
+            Submit Non-Binding Inquiry
           </Button>
         </div>
       ) : (
         <Card className="border-agri-green-200 shadow-md">
           <CardHeader className="bg-agri-green-50/50 border-b border-agri-green-100">
-            <CardTitle>Submit Inquiry</CardTitle>
+            <CardTitle>Submit Non-Binding Inquiry</CardTitle>
             <CardDescription className="text-agri-earth-600 font-medium">
-              Non-binding market linkage coordination inquiry. This does not constitute a purchase, contract, payment,
-              or delivery agreement.
+              Non-binding market linkage coordination inquiry. Submitting an inquiry does not constitute a purchase, contract, reservation, payment, or collection agreement.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-6">
@@ -366,47 +358,23 @@ export const ListingDetail: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Preferred Collection Date (Optional)
-                </label>
-                <input
-                  type="date"
-                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  value={collectionDate}
-                  onChange={(e) => setCollectionDate(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Preferred Pickup Time Window (Optional)
-                </label>
-                <input
-                  type="time"
-                  className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  value={pickupTime}
-                  onChange={(e) => setPickupTime(e.target.value)}
-                />
-              </div>
-
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Preferred Availability / Collection Timeline Notes (Optional)
+                  Preferred Availability Period / Timeline Notes (Optional)
                 </label>
                 <input
                   type="text"
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  placeholder="e.g. Within next 2 weeks, Weekdays morning only"
+                  placeholder="e.g. Interested during Q4 2026 availability window"
                   value={inquiryPeriod}
                   onChange={(e) => setInquiryPeriod(e.target.value)}
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Additional Requirements</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Additional Information / Notes</label>
                 <textarea
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 h-20"
-                  placeholder="Any logistics requirements, hauling vehicle specifications, or packaging needs..."
+                  placeholder="Specify feedstock requirements or questions for the Coordinator..."
                   value={inquiryNotes}
                   onChange={(e) => setInquiryNotes(e.target.value)}
                 />
@@ -414,7 +382,7 @@ export const ListingDetail: React.FC = () => {
             </div>
 
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 leading-relaxed">
-              <strong>Notice:</strong> Preferred collection date and pickup time are <strong>scheduling preferences, not confirmed appointments</strong>. Submitting an inquiry does not automatically reserve stock, guarantee inventory, or create a binding commercial contract.
+              <strong>Important Notice:</strong> Submitting an inquiry records non-binding interest for Coordinator review. It does not reserve biomass stock, deduct reported quantities, schedule hauling, or create a commercial contract.
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">

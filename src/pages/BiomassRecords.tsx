@@ -5,17 +5,36 @@ import { StatusBadge } from '../components/ui/StatusBadge';
 import { RecordStatus, Role, BiomassRecord, SystemAction } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
-import { hasPermission, Permission } from '../utils/rbac';
-import { Search, Filter, Plus, AlertTriangle, ArrowLeft, ShieldCheck, Layers } from 'lucide-react';
+import { getRoleDisplayName, hasPermission, Permission } from '../utils/rbac';
+import {
+  Search,
+  Filter,
+  Plus,
+  AlertTriangle,
+  ArrowLeft,
+  ShieldCheck,
+  Layers,
+  Eye,
+  Building2,
+  Edit3,
+  X,
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { useSearchParams, Link } from 'react-router-dom';
 import { CreateRecordForm } from '../components/CreateRecordForm';
 import { ValidationForm } from '../components/ValidationForm';
 
+const formatSafeDate = (iso?: string, fallback = 'Flexible') => {
+  if (!iso) return fallback;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? fallback : format(d, 'MMM d, yyyy');
+};
+
 export const BiomassRecords: React.FC = () => {
   const { user } = useAuth();
   const {
     records,
+    sources,
     referenceData,
     validationRecords,
     aggregationGroups,
@@ -26,31 +45,55 @@ export const BiomassRecords: React.FC = () => {
     getLocation,
     getRecord,
     updateRecord,
+    updateSource,
   } = useData();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const tabParam = searchParams.get('tab');
+  const isValidationTab = tabParam === 'validation';
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<string>(isValidationTab ? 'VALIDATION_QUEUE' : 'ALL');
   const [isCreating, setIsCreating] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // State for detail view
+  // Source Directory / Edit Modal for Coordinators
+  const [showSourcesModal, setShowSourcesModal] = useState(false);
+  const [editingSourceId, setEditingSourceId] = useState<string | null>(null);
+  const [editSourceName, setEditSourceName] = useState('');
+  const [editSourceType, setEditSourceType] = useState('Farm');
+  const [editSourceContact, setEditSourceContact] = useState('');
+  const [sourceSaveError, setSourceSaveError] = useState('');
+  const [isSavingSource, setIsSavingSource] = useState(false);
+
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(searchParams.get('recordId'));
 
-  // Sync selectedRecordId with URL
   useEffect(() => {
-    if (selectedRecordId) {
-      setSearchParams({ recordId: selectedRecordId });
-    } else {
-      setSearchParams({});
+    if (isValidationTab) {
+      setStatusFilter('VALIDATION_QUEUE');
+    } else if (statusFilter === 'VALIDATION_QUEUE') {
+      setStatusFilter('ALL');
     }
-  }, [selectedRecordId, setSearchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isValidationTab]);
+
+  useEffect(() => {
+    const nextParams: Record<string, string> = {};
+    if (tabParam) nextParams.tab = tabParam;
+    if (selectedRecordId) nextParams.recordId = selectedRecordId;
+    setSearchParams(nextParams, { replace: true });
+  }, [selectedRecordId, tabParam, setSearchParams]);
 
   if (!user) return null;
 
-  if (isCreating) {
+  const isPlanningReadOnly = user.role === Role.LGU;
+  const canManageRecords = hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS);
+  const canRegisterSources = hasPermission(user.role, Permission.REGISTER_BIOMASS_SOURCE);
+  const canValidate = hasPermission(user.role, Permission.VALIDATE_BIOMASS_RECORD);
+
+  if (isCreating && canManageRecords) {
     return (
       <CreateRecordForm
         onCancel={() => setIsCreating(false)}
@@ -62,7 +105,7 @@ export const BiomassRecords: React.FC = () => {
     );
   }
 
-  if (editingRecordId) {
+  if (editingRecordId && canManageRecords) {
     const recordToEdit = getRecord(editingRecordId);
     return (
       <CreateRecordForm
@@ -76,13 +119,52 @@ export const BiomassRecords: React.FC = () => {
     );
   }
 
-  // Render detail view if a record is selected
+  const openEditSource = (srcId: string) => {
+    const src = getSource(srcId);
+    if (!src) return;
+    setEditingSourceId(src.id);
+    setEditSourceName(src.name);
+    setEditSourceType(src.type);
+    setEditSourceContact(src.contactPerson || '');
+    setSourceSaveError('');
+    setShowSourcesModal(true);
+  };
+
+  const handleSaveSourceEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSourceId || !editSourceName.trim()) {
+      setSourceSaveError('Source name is required.');
+      return;
+    }
+    setIsSavingSource(true);
+    setSourceSaveError('');
+    try {
+      await updateSource(editingSourceId, {
+        name: editSourceName.trim(),
+        type: editSourceType,
+        contactPerson: editSourceContact.trim() || 'Source Contact',
+      });
+      setEditingSourceId(null);
+    } catch (err: any) {
+      setSourceSaveError(err?.message || 'Failed to update source.');
+    } finally {
+      setIsSavingSource(false);
+    }
+  };
+
+  // Detail View
   if (selectedRecordId) {
     const record = getRecord(selectedRecordId);
-    if (!record) {
+    const isRestrictedForPlanning = isPlanningReadOnly && record && record.status !== RecordStatus.VALIDATED;
+
+    if (!record || isRestrictedForPlanning) {
       return (
         <div className="max-w-4xl mx-auto py-10 text-center space-y-4">
-          <p className="text-gray-600">Record not found or not accessible.</p>
+          <p className="text-gray-600">
+            {isRestrictedForPlanning
+              ? 'Planning users have read-only access to validated biomass records only.'
+              : 'Record not found or not accessible.'}
+          </p>
           <Button variant="outline" onClick={() => setSelectedRecordId(null)}>
             Back to Records
           </Button>
@@ -96,34 +178,18 @@ export const BiomassRecords: React.FC = () => {
     const unit = referenceData.find((r) => r.id === record.originalUnit)?.label;
     const recordValidations = validationRecords.filter((v) => v.biomassRecordId === record.id);
 
-    // Self-validation check
     const isSubmitter = record.submitterId === user.id || record.submitterId === user.name;
-    const canValidate = hasPermission(user.role, Permission.VALIDATE_BIOMASS_RECORD) || user.role === Role.ADMINISTRATOR;
     const showValidationControls =
       canValidate && (record.status === RecordStatus.SUBMITTED || record.status === RecordStatus.UNDER_REVIEW);
     const canSubmit =
-      hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS) &&
+      canManageRecords &&
       (record.status === RecordStatus.DRAFT || record.status === RecordStatus.RETURNED);
 
     const handleStatusChange = async (newStatus: RecordStatus, action: SystemAction) => {
       setActionError('');
-      if (
-        isSubmitter &&
-        canValidate &&
-        (action === SystemAction.VALIDATE || action === SystemAction.REJECT || action === SystemAction.RETURN)
-      ) {
-        setActionError('Self-validation denied. You cannot validate a record you submitted.');
-        return;
-      }
-
-      const updates: Partial<BiomassRecord> = { status: newStatus };
-      if (action === SystemAction.VALIDATE) {
-        updates.validationDate = new Date().toISOString();
-      }
-
       setIsUpdating(true);
       try {
-        await updateRecord(record.id, updates, action);
+        await updateRecord(record.id, { status: newStatus }, action);
       } catch (err: any) {
         setActionError(err?.message || 'Failed to update record status.');
       } finally {
@@ -153,18 +219,25 @@ export const BiomassRecords: React.FC = () => {
             </div>
           </div>
 
-          {/* Edit record button for authorized coordinator/submitter */}
-          {(isSubmitter || user.role === Role.ADMINISTRATOR || hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS)) &&
-            record.status !== RecordStatus.ARCHIVED && (
-              <Button
-                variant="outline"
-                onClick={() => setEditingRecordId(record.id)}
-                className="border-agri-green-600 text-agri-green-700 hover:bg-agri-green-50"
-              >
-                Edit Record
-              </Button>
-            )}
+          {canManageRecords && record.status !== RecordStatus.ARCHIVED && (
+            <Button
+              variant="outline"
+              onClick={() => setEditingRecordId(record.id)}
+              className="border-agri-green-600 text-agri-green-700 hover:bg-agri-green-50"
+            >
+              Edit Record
+            </Button>
+          )}
         </div>
+
+        {isPlanningReadOnly && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 text-sm text-blue-900 flex items-center gap-2.5">
+            <Eye size={18} className="text-blue-700 shrink-0" />
+            <span>
+              <strong>Read-Only Planning View:</strong> You are viewing a validated biomass record for regional planning and assessment.
+            </span>
+          </div>
+        )}
 
         {actionError && (
           <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-sm flex items-center gap-2">
@@ -173,15 +246,16 @@ export const BiomassRecords: React.FC = () => {
           </div>
         )}
 
-        {/* Prominent Return Feedback Banner for Coordinators and Submitters */}
-        {record.status === RecordStatus.RETURNED && (user.role === Role.COORDINATOR || isSubmitter || user.role === Role.ADMINISTRATOR) && (
+        {record.status === RecordStatus.RETURNED && canManageRecords && (
           <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-amber-900 shadow-sm">
             <div className="flex items-center gap-2 font-semibold text-amber-800 mb-1">
-              <span className="text-lg">⚠️</span> Returned for Correction by LGU Reviewer
+              <AlertTriangle size={18} /> Returned for Correction
             </div>
             <p className="text-sm text-amber-800">
-              <strong>Reviewer Reason / Instructions:</strong>{' '}
-              {recordValidations[0]?.validationNotes || record.returnReason || 'Please review and correct source and quantity information before resubmitting.'}
+              <strong>Validation Notes / Instructions:</strong>{' '}
+              {recordValidations[0]?.validationNotes ||
+                record.returnReason ||
+                'Please review and correct source and quantity information before resubmitting.'}
             </p>
             <div className="mt-3">
               <Button
@@ -195,27 +269,16 @@ export const BiomassRecords: React.FC = () => {
           </div>
         )}
 
-        {/* Informational Notice for LGU Reviewers when record is returned to submitter */}
-        {record.status === RecordStatus.RETURNED && user.role === Role.LGU && !isSubmitter && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-blue-900 shadow-sm">
-            <div className="flex items-center gap-2 font-semibold text-blue-800 mb-1">
-              <span className="text-lg">ℹ️</span> Returned to Submitter for Corrections
-            </div>
-            <p className="text-sm text-blue-800">
-              This record was returned to the submitter with correction instructions: "{recordValidations[0]?.validationNotes || record.returnReason || 'Awaiting submitter revisions'}". The record will reappear for validation once resubmitted.
-            </p>
-          </div>
-        )}
-
-        {/* Prominent Rejection Banner */}
         {record.status === RecordStatus.REJECTED && (
           <div className="bg-red-50 border border-red-300 rounded-xl p-4 text-red-900 shadow-sm">
             <div className="flex items-center gap-2 font-semibold text-red-800 mb-1">
-              <span className="text-lg">❌</span> Record Rejected by LGU Reviewer
+              <AlertTriangle size={18} /> Record Rejected during Validation
             </div>
             <p className="text-sm text-red-800">
               <strong>Official Rejection Basis:</strong>{' '}
-              {recordValidations[0]?.validationNotes || record.rejectionReason || 'Record did not satisfy regional biomass reporting standards.'}
+              {recordValidations[0]?.validationNotes ||
+                record.rejectionReason ||
+                'Record did not satisfy regional biomass reporting standards.'}
             </p>
           </div>
         )}
@@ -249,7 +312,7 @@ export const BiomassRecords: React.FC = () => {
                 to="/aggregation-hubs"
                 className="text-xs font-semibold px-3 py-1.5 bg-white border border-agri-green-300 rounded-lg text-agri-green-800 hover:bg-agri-green-100 transition-colors shrink-0 text-center"
               >
-                View Hubs
+                View Aggregation
               </Link>
             </div>
           );
@@ -263,11 +326,13 @@ export const BiomassRecords: React.FC = () => {
             </div>
             <div className="flex flex-col items-end gap-1.5">
               <StatusBadge status={record.status} />
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${
-                record.externalAvailability === 'NOT_AVAILABLE'
-                  ? 'bg-gray-100 text-gray-700'
-                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-              }`}>
+              <span
+                className={`text-[11px] font-semibold px-2 py-0.5 rounded ${
+                  record.externalAvailability === 'NOT_AVAILABLE'
+                    ? 'bg-gray-100 text-gray-700'
+                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                }`}
+              >
                 {record.externalAvailability === 'NOT_AVAILABLE' ? 'Internal Only' : 'Available to Others'}
               </span>
             </div>
@@ -294,7 +359,8 @@ export const BiomassRecords: React.FC = () => {
                 <div className="flex justify-between pt-1 border-t border-gray-200">
                   <span className="font-semibold text-agri-green-900">Remaining Available:</span>
                   <span className="font-bold text-agri-green-700">
-                    {(record.remainingQuantity !== undefined ? record.remainingQuantity : record.quantity).toLocaleString()} {unit}
+                    {(record.remainingQuantity !== undefined ? record.remainingQuantity : record.quantity).toLocaleString()}{' '}
+                    {unit}
                   </span>
                 </div>
               </div>
@@ -308,11 +374,11 @@ export const BiomassRecords: React.FC = () => {
               <p className="text-gray-500 font-medium mb-1">Availability Window</p>
               <p className="text-gray-900 font-medium">
                 {record.availabilityPeriodStart && record.availabilityPeriodEnd
-                  ? `${format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} to ${format(new Date(record.availabilityPeriodEnd), 'MMM d, yyyy')}`
+                  ? `${formatSafeDate(record.availabilityPeriodStart)} to ${formatSafeDate(record.availabilityPeriodEnd)}`
                   : record.availabilityPeriodStart
-                  ? `From ${format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} (Flexible / Ongoing)`
+                  ? `From ${formatSafeDate(record.availabilityPeriodStart)} (Flexible / Ongoing)`
                   : record.availabilityPeriodEnd
-                  ? `Until ${format(new Date(record.availabilityPeriodEnd), 'MMM d, yyyy')}`
+                  ? `Until ${formatSafeDate(record.availabilityPeriodEnd)}`
                   : 'Immediate & Flexible Availability'}
               </p>
               <p className="text-gray-500 font-medium mb-1 mt-3">Present Internal Use</p>
@@ -325,23 +391,38 @@ export const BiomassRecords: React.FC = () => {
                   </span>
                 ) : (
                   <span className="text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                    Not Publicly Listed ({record.status !== RecordStatus.VALIDATED ? 'Awaiting Validation' : 'Marked Internal Only'})
+                    Not Publicly Listed (
+                    {record.status !== RecordStatus.VALIDATED ? 'Awaiting Validation' : 'Marked Internal Only'})
                   </span>
                 )}
               </p>
             </div>
             <div>
-              <p className="text-gray-500 font-medium mb-1">Source Information</p>
+              <div className="flex items-center justify-between">
+                <p className="text-gray-500 font-medium mb-1">Source Information</p>
+                {canRegisterSources && source && (
+                  <button
+                    type="button"
+                    onClick={() => openEditSource(source.id)}
+                    className="text-xs font-semibold text-agri-green-700 hover:text-agri-green-800 flex items-center gap-1"
+                  >
+                    <Edit3 size={12} /> Edit Source
+                  </button>
+                )}
+              </div>
               <p className="text-gray-900 font-semibold">{source?.name}</p>
               <p className="text-gray-600 text-xs">
                 {source?.type} • {location?.barangay}, {location?.city}
               </p>
-              <p className="text-gray-500 font-medium mb-1 mt-3">Condition & Storage</p>
+              {source?.contactPerson && (
+                <p className="text-gray-500 text-xs mt-0.5">Contact: {source.contactPerson}</p>
+              )}
+              <p className="text-gray-500 font-medium mb-1 mt-3">Condition & Source Site Storage</p>
               <p className="text-gray-900">
                 {record.condition}{' '}
                 {record.conditionNote && <span className="text-gray-500 text-xs">({record.conditionNote})</span>}
               </p>
-              <p className="text-gray-600 text-xs mt-1">Storage: {record.storage}</p>
+              <p className="text-gray-600 text-xs mt-1">Storage Condition: {record.storage}</p>
             </div>
             <div>
               <p className="text-gray-500 font-medium mb-1">Traceability & Access</p>
@@ -350,19 +431,11 @@ export const BiomassRecords: React.FC = () => {
                   (p) => p.id === record.submitterId || p.email === record.submitterId
                 );
                 const submitterDisplay = submitterUser
-                  ? `${submitterUser.name} — ${
-                      submitterUser.role === Role.COORDINATOR
-                        ? 'Cooperative/Hub Coordinator'
-                        : submitterUser.role
-                    }`
+                  ? `${submitterUser.name} — ${getRoleDisplayName(submitterUser.role)}`
                   : record.submitterId === 'user-coord'
-                  ? 'Nitronford Beatingo — Cooperative/Hub Coordinator'
+                  ? `Nitronford Beatingo — ${getRoleDisplayName(Role.COORDINATOR)}`
                   : record.submitterId === 'user-coord-2'
-                  ? 'Maria Clara — Cooperative/Hub Coordinator'
-                  : record.submitterId === 'user-lgu'
-                  ? 'Engr. Arvin Jimenez (LGU)'
-                  : record.submitterId === 'user-admin'
-                  ? 'Juan Dela Cruz (Administrator)'
+                  ? `Maria Clara — ${getRoleDisplayName(Role.COORDINATOR)}`
                   : record.submitterId;
 
                 return (
@@ -395,8 +468,12 @@ export const BiomassRecords: React.FC = () => {
             </CardHeader>
             <CardContent className="p-4 space-y-3">
               {recordValidations.map((val) => {
-                const validatorUser = profiles.find((p) => p.id === val.validatorId || p.email === val.validatorId);
-                const validatorName = validatorUser ? `${validatorUser.name} (${validatorUser.role})` : val.validatorId;
+                const validatorUser = profiles.find(
+                  (p) => p.id === val.validatorId || p.email === val.validatorId
+                );
+                const validatorName = validatorUser
+                  ? `${validatorUser.name} (${getRoleDisplayName(validatorUser.role)})`
+                  : val.validatorId;
                 return (
                   <div key={val.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 text-sm">
                     <div className="flex justify-between items-center mb-1">
@@ -418,14 +495,16 @@ export const BiomassRecords: React.FC = () => {
           </Card>
         )}
 
-        {/* Validation / Action Controls */}
+        {/* Coordinator Action & Validation Controls (Hidden for Read-Only Planning User) */}
         <div className="flex flex-col gap-3">
           {canSubmit && (
             <Card className="border-agri-green-200 bg-agri-green-50/30">
               <CardContent className="p-4 flex justify-between items-center">
                 <div>
-                  <p className="font-medium text-gray-900">Submit for Review</p>
-                  <p className="text-xs text-gray-500">Send this record to the LGU for validation.</p>
+                  <p className="font-medium text-gray-900">Submit for Validation</p>
+                  <p className="text-xs text-gray-500">
+                    Send this record for LGU Biomass Information Coordinator validation.
+                  </p>
                 </div>
                 <Button
                   isLoading={isUpdating}
@@ -442,8 +521,7 @@ export const BiomassRecords: React.FC = () => {
               <CardContent className="p-4">
                 {isSubmitter ? (
                   <div className="text-red-700 text-sm flex items-center gap-2 font-medium p-4">
-                    <AlertTriangle size={16} /> Self-validation is not permitted. You cannot validate a record you
-                    submitted.
+                    <AlertTriangle size={16} /> Self-validation is not permitted. Another LGU Biomass Information Coordinator must validate records you submitted.
                   </div>
                 ) : (
                   <ValidationForm recordId={record.id} currentStatus={record.status} onComplete={() => {}} />
@@ -452,13 +530,13 @@ export const BiomassRecords: React.FC = () => {
             </Card>
           )}
 
-          {canValidate && record.status === RecordStatus.VALIDATED && (
+          {canManageRecords && record.status === RecordStatus.VALIDATED && (
             <Card className="border-gray-200 bg-gray-50/50">
-              <CardContent className="p-4 flex justify-between items-center">
+              <CardContent className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                 <div>
                   <p className="font-medium text-gray-900">Data Freshness</p>
                   <p className="text-xs text-gray-500">
-                    Mark as stale if the availability period has passed or information is outdated.
+                    Mark as stale or unavailable if the availability period has passed or source availability changed.
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -486,27 +564,24 @@ export const BiomassRecords: React.FC = () => {
     );
   }
 
-  // Filter records based on role and search
+  // Filter records strictly by role
   let visibleRecords = records;
 
-  // Role-based filtering
-  if (user.role === Role.COORDINATOR) {
-    visibleRecords = records.filter(
-      (r) =>
-        r.submitterId === user.id ||
-        r.submitterId === user.name ||
-        r.sourceId.includes('src-1') ||
-        r.sourceId.includes('src-2') ||
-        getSource(r.sourceId)?.cooperativeId === user.organizationId
-    );
+  if (isPlanningReadOnly) {
+    visibleRecords = records.filter((r) => r.status === RecordStatus.VALIDATED);
   } else if (user.role === Role.BUYER) {
     visibleRecords = records.filter((r) => r.status === RecordStatus.VALIDATED);
   }
 
   // Search & Status filters
-  if (statusFilter !== 'ALL') {
+  if (statusFilter === 'VALIDATION_QUEUE') {
+    visibleRecords = visibleRecords.filter(
+      (r) => r.status === RecordStatus.SUBMITTED || r.status === RecordStatus.UNDER_REVIEW
+    );
+  } else if (statusFilter !== 'ALL') {
     visibleRecords = visibleRecords.filter((r) => r.status === statusFilter);
   }
+
   if (searchTerm) {
     const term = searchTerm.toLowerCase();
     visibleRecords = visibleRecords.filter((r) => {
@@ -520,17 +595,50 @@ export const BiomassRecords: React.FC = () => {
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Biomass Records</h2>
+          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
+            {isValidationTab && canValidate
+              ? 'Biomass Validation Queue'
+              : isPlanningReadOnly
+              ? 'Validated Biomass Information'
+              : 'Biomass Sources & Records'}
+          </h2>
           <p className="text-sm text-agri-earth-500 mt-1">
-            Manage and view reported practical availability.
+            {isValidationTab && canValidate
+              ? 'Review, validate, return, or reject submitted biomass records (excluding your own submissions).'
+              : isPlanningReadOnly
+              ? 'Read-only directory of formally validated community biomass records.'
+              : 'Manage registered biomass sources and reported practical availability records.'}
           </p>
         </div>
-        {hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS) && (
-          <Button icon={<Plus size={18} />} onClick={() => setIsCreating(true)}>
-            Add New Record
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {canRegisterSources && (
+            <Button
+              variant="outline"
+              icon={<Building2 size={16} />}
+              onClick={() => {
+                setEditingSourceId(null);
+                setShowSourcesModal(true);
+              }}
+            >
+              Manage Sources ({sources.length})
+            </Button>
+          )}
+          {canManageRecords && (
+            <Button icon={<Plus size={18} />} onClick={() => setIsCreating(true)}>
+              Add New Record
+            </Button>
+          )}
+        </div>
       </div>
+
+      {isPlanningReadOnly && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900 flex items-center gap-3">
+          <Eye size={18} className="text-blue-700 shrink-0" />
+          <div>
+            <strong>LGU/Institutional Planning View (Read-Only):</strong> Only validated biomass records are displayed here. Editing, record intake, and validation actions are restricted to LGU Biomass Information Coordinators.
+          </div>
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-0">
@@ -547,23 +655,26 @@ export const BiomassRecords: React.FC = () => {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Filter size={18} className="text-gray-400" />
-              <select
-                className="block w-full sm:w-48 pl-3 pr-10 py-2 text-sm border-gray-200 focus:outline-none focus:ring-agri-green-500 focus:border-agri-green-500 rounded-lg"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="ALL">All Statuses</option>
-                <option value={RecordStatus.SUBMITTED}>Submitted</option>
-                <option value={RecordStatus.VALIDATED}>Validated</option>
-                <option value={RecordStatus.UNDER_REVIEW}>Under Review</option>
-                <option value={RecordStatus.RETURNED}>Returned</option>
-                <option value={RecordStatus.REJECTED}>Rejected</option>
-                <option value={RecordStatus.STALE}>Stale</option>
-                <option value={RecordStatus.UNAVAILABLE}>Unavailable</option>
-              </select>
-            </div>
+            {!isPlanningReadOnly && (
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Filter size={18} className="text-gray-400" />
+                <select
+                  className="block w-full sm:w-52 pl-3 pr-10 py-2 text-sm border-gray-200 focus:outline-none focus:ring-agri-green-500 focus:border-agri-green-500 rounded-lg"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="VALIDATION_QUEUE">Validation Queue (Submitted / Under Review)</option>
+                  <option value={RecordStatus.SUBMITTED}>Submitted</option>
+                  <option value={RecordStatus.UNDER_REVIEW}>Under Review</option>
+                  <option value={RecordStatus.VALIDATED}>Validated</option>
+                  <option value={RecordStatus.RETURNED}>Returned</option>
+                  <option value={RecordStatus.REJECTED}>Rejected</option>
+                  <option value={RecordStatus.STALE}>Stale</option>
+                  <option value={RecordStatus.UNAVAILABLE}>Unavailable</option>
+                </select>
+              </div>
+            )}
           </div>
 
           <div className="overflow-x-auto">
@@ -619,8 +730,13 @@ export const BiomassRecords: React.FC = () => {
                           )}
                         </td>
                         <td className="px-5 py-4 text-agri-earth-600 text-xs">
-                          {format(new Date(record.availabilityPeriodStart), 'MMM d, yyyy')} - <br />
-                          {format(new Date(record.availabilityPeriodEnd), 'MMM d, yyyy')}
+                          {record.availabilityPeriodStart && record.availabilityPeriodEnd
+                            ? `${formatSafeDate(record.availabilityPeriodStart)} – ${formatSafeDate(record.availabilityPeriodEnd)}`
+                            : record.availabilityPeriodStart
+                            ? `From ${formatSafeDate(record.availabilityPeriodStart)}`
+                            : record.availabilityPeriodEnd
+                            ? `Until ${formatSafeDate(record.availabilityPeriodEnd)}`
+                            : 'Immediate / Flexible'}
                         </td>
                         <td className="px-5 py-4">
                           <StatusBadge status={record.status} />
@@ -641,7 +757,7 @@ export const BiomassRecords: React.FC = () => {
                           })()}
                         </td>
                         <td className="px-5 py-4 text-agri-earth-500 text-xs">
-                          {format(new Date(record.lastUpdatedDate), 'MMM d, yyyy')}
+                          {formatSafeDate(record.lastUpdatedDate)}
                         </td>
                         <td className="px-5 py-4 text-right">
                           <Button
@@ -665,6 +781,111 @@ export const BiomassRecords: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Coordinator Source Management Modal */}
+      {showSourcesModal && canRegisterSources && (
+        <div className="fixed inset-0 z-50 bg-gray-900/50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-2xl shadow-xl bg-white max-h-[85vh] flex flex-col">
+            <CardHeader className="border-b border-gray-100 flex flex-row items-center justify-between pb-3">
+              <div>
+                <CardTitle className="text-lg">Registered Biomass Sources</CardTitle>
+                <CardDescription>
+                  View or update farm, mill, and processor profiles managed by Coordinators.
+                </CardDescription>
+              </div>
+              <button
+                onClick={() => {
+                  setShowSourcesModal(false);
+                  setEditingSourceId(null);
+                }}
+                className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+              >
+                <X size={18} />
+              </button>
+            </CardHeader>
+            <CardContent className="p-5 overflow-y-auto space-y-4">
+              {editingSourceId ? (
+                <form onSubmit={handleSaveSourceEdit} className="space-y-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                  <h4 className="font-semibold text-sm text-gray-900">Edit Source Profile</h4>
+                  {sourceSaveError && (
+                    <div className="text-xs text-red-700 bg-red-50 p-2.5 rounded border border-red-200">
+                      {sourceSaveError}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Source Name *</label>
+                      <input
+                        type="text"
+                        className="w-full p-2 border border-gray-200 rounded-lg text-sm bg-white"
+                        value={editSourceName}
+                        onChange={(e) => setEditSourceName(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Source Type *</label>
+                      <select
+                        className="w-full p-2 border border-gray-200 rounded-lg text-sm bg-white"
+                        value={editSourceType}
+                        onChange={(e) => setEditSourceType(e.target.value)}
+                      >
+                        <option value="Farm">Farm</option>
+                        <option value="Rice Mill">Rice Mill</option>
+                        <option value="Coconut Processor">Coconut Processor</option>
+                        <option value="Wood-based Establishment">Wood-based Establishment</option>
+                        <option value="Agricultural Processor">Agricultural Processor</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Contact Person</label>
+                      <input
+                        type="text"
+                        className="w-full p-2 border border-gray-200 rounded-lg text-sm bg-white"
+                        value={editSourceContact}
+                        onChange={(e) => setEditSourceContact(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setEditingSourceId(null)}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" size="sm" isLoading={isSavingSource}>
+                      Save Source
+                    </Button>
+                  </div>
+                </form>
+              ) : null}
+
+              <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl">
+                {sources.map((src) => {
+                  const loc = getLocation(src.locationId);
+                  return (
+                    <div key={src.id} className="p-3.5 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{src.name}</p>
+                        <p className="text-xs text-gray-500">
+                          {src.type} &bull; Brgy. {loc?.barangay || 'Unknown'} &bull; Contact: {src.contactPerson}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        icon={<Edit3 size={13} />}
+                        onClick={() => openEditSource(src.id)}
+                      >
+                        Edit
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };

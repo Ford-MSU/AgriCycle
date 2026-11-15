@@ -16,14 +16,36 @@ import {
   Building,
   ArrowLeft,
   User as UserIcon,
+  Info,
 } from 'lucide-react';
 import { Role } from '../types';
+import { getRoleDisplayName, getRoleShortName, ROLE_DESCRIPTIONS } from '../utils/rbac';
 
 const ROLE_OPTIONS = [
-  { id: Role.ADMINISTRATOR, name: 'Administrator', icon: Shield, desc: 'Manage users, roles, settings, data & audit logs' },
-  { id: Role.COORDINATOR, name: 'Cooperative / Hub Coordinator', icon: Layers, desc: 'Manage records, encoding, hubs & listings' },
-  { id: Role.LGU, name: 'LGU / Institutional User', icon: Building, desc: 'Monitor info, validate records, map & reports' },
-  { id: Role.BUYER, name: 'Buyer / Institutional Inquirer', icon: Briefcase, desc: 'Browse listings, filter, and send inquiries' },
+  {
+    id: Role.ADMINISTRATOR,
+    name: getRoleDisplayName(Role.ADMINISTRATOR),
+    icon: Shield,
+    desc: ROLE_DESCRIPTIONS[Role.ADMINISTRATOR],
+  },
+  {
+    id: Role.COORDINATOR,
+    name: getRoleDisplayName(Role.COORDINATOR),
+    icon: Layers,
+    desc: ROLE_DESCRIPTIONS[Role.COORDINATOR],
+  },
+  {
+    id: Role.LGU,
+    name: getRoleDisplayName(Role.LGU),
+    icon: Building,
+    desc: ROLE_DESCRIPTIONS[Role.LGU],
+  },
+  {
+    id: Role.BUYER,
+    name: getRoleDisplayName(Role.BUYER),
+    icon: Briefcase,
+    desc: ROLE_DESCRIPTIONS[Role.BUYER],
+  },
 ];
 
 export const Login: React.FC = () => {
@@ -38,35 +60,7 @@ export const Login: React.FC = () => {
   const { login, register, isLoading, isSupabaseAuth } = useAuth();
   const navigate = useNavigate();
 
-  const getRoleDisplayName = (role: Role | null) => {
-    switch (role) {
-      case Role.ADMINISTRATOR:
-        return 'an Admin';
-      case Role.COORDINATOR:
-        return 'a Coordinator';
-      case Role.LGU:
-        return 'an LGU Validator';
-      case Role.BUYER:
-        return 'a Buyer';
-      default:
-        return 'an Account';
-    }
-  };
-
-  const getRoleShortName = (role: Role | null) => {
-    switch (role) {
-      case Role.ADMINISTRATOR:
-        return 'Admin';
-      case Role.COORDINATOR:
-        return 'Coordinator';
-      case Role.LGU:
-        return 'LGU Validator';
-      case Role.BUYER:
-        return 'Buyer';
-      default:
-        return 'User';
-    }
-  };
+  const canSelfRegister = selectedRole === Role.BUYER;
 
   const handleRoleSelect = (role: Role) => {
     setSelectedRole(role);
@@ -85,6 +79,9 @@ export const Login: React.FC = () => {
   };
 
   const toggleRegisterMode = () => {
+    if (selectedRole !== Role.BUYER) {
+      setSelectedRole(Role.BUYER);
+    }
     const nextMode = !isRegisterMode;
     setIsRegisterMode(nextMode);
     setError('');
@@ -92,16 +89,17 @@ export const Login: React.FC = () => {
 
     if (!isSupabaseAuth) {
       if (nextMode) {
-        // Clear for fresh registration
         setName('');
         setEmail('');
         setPassword('');
-      } else if (selectedRole) {
-        // Restore demo credentials
-        const rolePrefix = selectedRole.toLowerCase().replace('_', '');
-        setEmail(`${rolePrefix}@test.com`);
+      } else {
+        setEmail('buyer@test.com');
         setPassword('password');
       }
+    } else {
+      setName('');
+      setEmail('');
+      setPassword('');
     }
   };
 
@@ -121,12 +119,12 @@ export const Login: React.FC = () => {
           setError('Please enter your full name or organization name.');
           return;
         }
-        const targetRole = selectedRole || Role.BUYER;
+        // Public self-registration is strictly restricted to Buyer/Institutional Inquirer.
         localStorage.setItem('agricycle_registered_email', email.trim());
-        const { requiresEmailConfirmation } = await register(name, email, password, targetRole);
+        const { requiresEmailConfirmation } = await register(name, email, password, Role.BUYER);
         if (requiresEmailConfirmation) {
           setInfoMessage(
-            `Account created for ${getRoleShortName(targetRole)}! A confirmation link has been sent to ${email}. Please check your inbox and click the confirmation link before signing in.`
+            `Account created for ${getRoleDisplayName(Role.BUYER)}! A confirmation link has been sent to ${email}. Please check your inbox and click the confirmation link before signing in.`
           );
           setIsRegisterMode(false);
         } else {
@@ -140,7 +138,7 @@ export const Login: React.FC = () => {
       const rawMsg = err?.message || '';
       if (rawMsg.toLowerCase().includes('error sending confirmation email')) {
         setError(
-          'Email delivery failed: Supabase could not dispatch the confirmation email. Please check your Custom SMTP settings (Host, Port, or App Password) in the Supabase Dashboard, or disable "Confirm email" under Auth > Providers > Email for testing.'
+          'Email delivery failed: Supabase could not dispatch the confirmation email. Please check your Custom SMTP settings in the Supabase Dashboard, or disable "Confirm email" under Auth > Providers > Email for testing.'
         );
       } else {
         setError(
@@ -155,7 +153,6 @@ export const Login: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-agri-green-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
-      {/* Decorative background elements */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-agri-green-200 opacity-20 blur-3xl"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-agri-accent-500 opacity-10 blur-3xl"></div>
 
@@ -166,8 +163,8 @@ export const Login: React.FC = () => {
         <h2 className="mt-2 text-center text-3xl font-extrabold text-gray-900 tracking-tight">
           AgriCycle
         </h2>
-        <p className="mt-2 text-center text-sm text-agri-earth-600 max-w-sm mx-auto">
-          Community-Based Biomass Information Management
+        <p className="mt-2 text-center text-sm text-agri-earth-600 max-w-md mx-auto">
+          Community-Based Biomass Information Management & Market Linkage System
         </p>
       </div>
 
@@ -219,26 +216,20 @@ export const Login: React.FC = () => {
                   <ArrowLeft size={20} />
                 </button>
                 <div className="px-2.5 py-1 rounded-full bg-agri-green-100 text-agri-green-800 text-xs font-semibold">
-                  {ROLE_OPTIONS.find((r) => r.id === selectedRole)?.name}
+                  {getRoleDisplayName(selectedRole)}
                 </div>
               </div>
               <CardTitle className="text-xl">
                 {isRegisterMode
-                  ? `Register as ${getRoleDisplayName(selectedRole)}`
+                  ? `Register as ${getRoleDisplayName(Role.BUYER)}`
                   : `Sign in as ${getRoleShortName(selectedRole)}`}
               </CardTitle>
               <CardDescription className="text-sm mt-1">
                 {isRegisterMode
-                  ? selectedRole === Role.ADMINISTRATOR
-                    ? 'Create an administrator account to oversee users, hubs, and system compliance.'
-                    : selectedRole === Role.COORDINATOR
-                    ? 'Create a coordinator account to manage biomass aggregation and listings.'
-                    : selectedRole === Role.LGU
-                    ? 'Create an institutional validator account to monitor and verify regional biomass records.'
-                    : 'Create a buyer account to browse biomass listings and submit commercial inquiries.'
+                  ? 'Create a Buyer/Institutional Inquirer account to browse validated biomass listings and submit non-binding market inquiries.'
                   : isSupabaseAuth
-                  ? `Enter your credentials for ${getRoleShortName(selectedRole)} access.`
-                  : 'Test credentials have been pre-filled for this role.'}
+                  ? `Enter your credentials for ${getRoleDisplayName(selectedRole)} access.`
+                  : 'Demo credentials have been pre-filled for this role.'}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -259,7 +250,7 @@ export const Login: React.FC = () => {
                   <Input
                     label="Full Name / Organization"
                     type="text"
-                    placeholder="Enter your name"
+                    placeholder="Enter your name or organization"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     icon={<UserIcon size={18} />}
@@ -304,9 +295,21 @@ export const Login: React.FC = () => {
                   isLoading={isLoading}
                 >
                   {isRegisterMode
-                    ? `Register as ${getRoleShortName(selectedRole)}`
+                    ? `Register as ${getRoleShortName(Role.BUYER)}`
                     : `Sign In as ${getRoleShortName(selectedRole)}`}
                 </Button>
+
+                {!canSelfRegister && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3 flex items-start gap-2.5 text-xs text-blue-900">
+                    <Info size={16} className="shrink-0 mt-0.5 text-blue-700" />
+                    <div>
+                      <p className="font-semibold">Administrator-Managed Role</p>
+                      <p className="mt-0.5 text-blue-800">
+                        Public self-registration provisions Buyer/Institutional Inquirer accounts only. Coordinator, Planning User, and Administrator permissions are assigned by an Administrator.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="text-center pt-2 border-t border-gray-100 space-y-2">
                   <div>
@@ -316,8 +319,10 @@ export const Login: React.FC = () => {
                       className="text-xs font-medium text-agri-green-700 hover:text-agri-green-800 transition-colors"
                     >
                       {isRegisterMode
-                        ? `Already have an account? Sign in as ${getRoleShortName(selectedRole)}`
-                        : `Don't have an account? Register as ${getRoleDisplayName(selectedRole)}`}
+                        ? 'Already have an account? Sign in'
+                        : canSelfRegister
+                        ? "Don't have an account? Register as Buyer/Institutional Inquirer"
+                        : 'Need a new account? Register as Buyer/Institutional Inquirer'}
                     </button>
                   </div>
                   <div>

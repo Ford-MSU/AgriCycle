@@ -3,8 +3,16 @@ import { useData } from '../store/DataContext';
 import { Card, CardContent } from '../components/ui/Card';
 import { format } from 'date-fns';
 import { Search, Filter, ShieldAlert, Download } from 'lucide-react';
-import { SystemAction } from '../types';
+import { Role, SystemAction } from '../types';
 import { Button } from '../components/ui/Button';
+import { getRoleDisplayName, getRoleShortName, getRoleBadgeStyle } from '../utils/rbac';
+
+const safeFormatTimestamp = (value?: string): string => {
+  if (!value) return 'N/A';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'N/A';
+  return format(parsed, 'MMM d, yyyy HH:mm:ss');
+};
 
 export const AuditLogs: React.FC = () => {
   const { auditLogs, profiles, isLoading } = useData();
@@ -23,19 +31,47 @@ export const AuditLogs: React.FC = () => {
       };
     }
 
-    // Graceful fallback for mock/system IDs
-    if (userId === 'user-admin') return { name: 'Juan Dela Cruz', role: 'ADMINISTRATOR', email: 'admin@agricycle.ph' };
-    if (userId === 'user-coord') return { name: 'Nitronford Beatingo', role: 'COORDINATOR', email: 'nitronford.beatingo@g.msuiit.edu.ph' };
-    if (userId === 'user-lgu') return { name: 'Engr. Arvin Jimenez', role: 'LGU', email: 'arvin.jimenez@g.msuiit.edu.ph' };
-    if (userId === 'user-buyer') return { name: 'Carlos Santos', role: 'BUYER', email: 'buyer@biopower.ph' };
+    if (userId === 'user-admin') {
+      return { name: 'Juan Dela Cruz', role: Role.ADMINISTRATOR, email: 'admin@agricycle.ph' };
+    }
+    if (userId === 'user-coord') {
+      return {
+        name: 'Nitronford Beatingo',
+        role: Role.COORDINATOR,
+        email: 'nitronford.beatingo@g.msuiit.edu.ph',
+      };
+    }
+    if (userId === 'user-coord-2') {
+      return {
+        name: 'Maria Clara Santos',
+        role: Role.COORDINATOR,
+        email: 'coordinator.butuan@lgu.gov.ph',
+      };
+    }
+    if (userId === 'user-lgu') {
+      return {
+        name: 'Engr. Arvin Jimenez',
+        role: Role.LGU,
+        email: 'arvin.jimenez@g.msuiit.edu.ph',
+      };
+    }
+    if (userId === 'user-buyer') {
+      return { name: 'Carlos Santos', role: Role.BUYER, email: 'buyer@biopower.ph' };
+    }
 
-    // Generic UUID or system actor
     if (userId.includes('@')) {
-      const fallbackName = userId.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      const fallbackName = userId
+        .split('@')[0]
+        .replace(/[._]/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
       return { name: fallbackName, role: 'SYSTEM / USER', email: userId };
     }
 
-    return { name: userId.length > 12 ? `${userId.slice(0, 8)}...` : userId, role: 'SYSTEM', email: userId };
+    return {
+      name: userId.length > 12 ? `${userId.slice(0, 8)}...` : userId,
+      role: 'SYSTEM',
+      email: userId,
+    };
   };
 
   const logs = [...auditLogs].sort(
@@ -44,11 +80,13 @@ export const AuditLogs: React.FC = () => {
 
   const filteredLogs = logs.filter((log) => {
     const actor = getActorInfo(log.userId);
+    const formalRole = getRoleDisplayName(actor.role);
     const matchesSearch =
       log.entityId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       log.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       actor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      actor.role.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      String(actor.role).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      formalRole.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (log.details && log.details.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (log.notes && log.notes.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesAction = actionFilter === 'ALL' || log.action === actionFilter;
@@ -56,13 +94,22 @@ export const AuditLogs: React.FC = () => {
   });
 
   const exportCSV = () => {
-    const headers = ['Date/Time', 'Actor Name', 'Role', 'User ID', 'Action', 'Entity Type', 'Entity ID', 'Details'];
+    const headers = [
+      'Date/Time',
+      'Actor Name',
+      'Formal Role',
+      'User ID',
+      'Action',
+      'Entity Type',
+      'Entity ID',
+      'Details',
+    ];
     const rows = filteredLogs.map((log) => {
       const actor = getActorInfo(log.userId);
       return [
-        format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm:ss'),
+        safeFormatTimestamp(log.timestamp),
         `"${actor.name.replace(/"/g, '""')}"`,
-        actor.role,
+        `"${getRoleDisplayName(actor.role).replace(/"/g, '""')}"`,
         log.userId,
         log.action,
         log.entityType,
@@ -83,21 +130,6 @@ export const AuditLogs: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case 'ADMINISTRATOR':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'COORDINATOR':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'LGU':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-      case 'BUYER':
-        return 'bg-amber-100 text-amber-800 border-amber-200';
-      default:
-        return 'bg-gray-100 text-gray-700 border-gray-200';
-    }
-  };
-
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
@@ -106,7 +138,7 @@ export const AuditLogs: React.FC = () => {
             <ShieldAlert className="text-agri-green-600" /> System Audit Trail
           </h2>
           <p className="text-sm text-agri-earth-500 mt-1">
-            Tamper-evident record of all system events, status changes, and administrative actions with full actor identification.
+            Tamper-evident record of system events, validations, status changes, and role administration.
           </p>
         </div>
         <Button onClick={exportCSV} variant="outline" icon={<Download size={16} />}>
@@ -151,7 +183,7 @@ export const AuditLogs: React.FC = () => {
               <thead>
                 <tr className="bg-gray-50/50 border-b border-gray-100 text-xs uppercase text-agri-earth-500 font-semibold tracking-wider">
                   <th className="px-5 py-4">Date/Time</th>
-                  <th className="px-5 py-4">Actor & Role</th>
+                  <th className="px-5 py-4">Actor &amp; Role</th>
                   <th className="px-5 py-4">Action</th>
                   <th className="px-5 py-4">Entity Type</th>
                   <th className="px-5 py-4">Entity ID</th>
@@ -177,13 +209,18 @@ export const AuditLogs: React.FC = () => {
                     return (
                       <tr key={log.id} className="hover:bg-agri-green-50/30 transition-colors">
                         <td className="px-5 py-4 whitespace-nowrap text-agri-earth-600 font-mono text-xs">
-                          {format(new Date(log.timestamp), 'MMM d, yyyy HH:mm:ss')}
+                          {safeFormatTimestamp(log.timestamp)}
                         </td>
                         <td className="px-5 py-4">
                           <div className="font-semibold text-gray-900">{actor.name}</div>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${getRoleBadgeColor(actor.role)}`}>
-                              {actor.role}
+                            <span
+                              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${getRoleBadgeStyle(
+                                actor.role
+                              )}`}
+                              title={getRoleDisplayName(actor.role)}
+                            >
+                              {getRoleShortName(actor.role)}
                             </span>
                             <span className="text-[11px] text-gray-400 font-mono" title={log.userId}>
                               {log.userId.length > 16 ? `${log.userId.slice(0, 12)}...` : log.userId}
@@ -195,9 +232,16 @@ export const AuditLogs: React.FC = () => {
                             {log.action}
                           </span>
                         </td>
-                        <td className="px-5 py-4 text-agri-earth-600 font-medium">{log.entityType}</td>
-                        <td className="px-5 py-4 font-mono text-xs text-agri-green-700">{log.entityId}</td>
-                        <td className="px-5 py-4 text-xs text-gray-600 max-w-xs truncate" title={log.details || log.notes || ''}>
+                        <td className="px-5 py-4 text-agri-earth-600 font-medium">
+                          {log.entityType}
+                        </td>
+                        <td className="px-5 py-4 font-mono text-xs text-agri-green-700">
+                          {log.entityId}
+                        </td>
+                        <td
+                          className="px-5 py-4 text-xs text-gray-600 max-w-xs truncate"
+                          title={log.details || log.notes || ''}
+                        >
                           {log.details || log.notes || '—'}
                         </td>
                       </tr>

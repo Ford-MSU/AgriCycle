@@ -4,6 +4,7 @@ import { Button } from './ui/Button';
 import { RecordStatus, SystemAction } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
+import { hasPermission, Permission } from '../utils/rbac';
 import { CheckCircle, XCircle, RotateCcw, Clock, AlertCircle } from 'lucide-react';
 
 interface ValidationFormProps {
@@ -24,7 +25,9 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  if (!user) return null;
+  if (!user || !hasPermission(user.role, Permission.VALIDATE_BIOMASS_RECORD)) {
+    return null;
+  }
 
   const handleMarkUnderReview = async () => {
     setError('');
@@ -48,7 +51,11 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
     }
 
     if ((decision === RecordStatus.RETURNED || decision === RecordStatus.REJECTED) && !notes.trim()) {
-      setError(`An explanatory reason is mandatory when ${decision === RecordStatus.RETURNED ? 'returning' : 'rejecting'} a record.`);
+      setError(
+        `An explanatory reason is mandatory when ${
+          decision === RecordStatus.RETURNED ? 'returning' : 'rejecting'
+        } a record.`
+      );
       return;
     }
 
@@ -58,7 +65,10 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
         recordId,
         decision,
         basis || 'Documentary Review',
-        notes.trim() || (decision === RecordStatus.VALIDATED ? 'Validated according to regional biomass guidelines' : 'Not specified')
+        notes.trim() ||
+          (decision === RecordStatus.VALIDATED
+            ? 'Validated according to regional biomass reporting guidelines'
+            : 'Not specified')
       );
       onComplete();
     } catch (err: any) {
@@ -69,18 +79,18 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
   };
 
   return (
-    <Card className="border-agri-green-300 shadow-sm mt-6 bg-white">
+    <Card className="border-agri-green-300 shadow-sm mt-2 bg-white">
       <CardHeader className="bg-agri-green-50/70 border-b border-agri-green-100 pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
-            LGU Administrative Review Workflow
+            LGU Biomass Information Coordinator Validation
           </CardTitle>
           <span className="text-xs font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-800 uppercase">
             Status: {currentStatus}
           </span>
         </div>
         <CardDescription className="text-xs text-gray-600">
-          Official administrative review evaluating documentary completeness and regional reporting standards. This does not constitute a laboratory or biological certification.
+          Formal administrative validation evaluating documentary completeness, source consistency, and regional reporting standards. This does not constitute laboratory or biological certification.
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-4 space-y-4">
@@ -93,10 +103,10 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
 
         {/* Step 1: Mark Under Review if Submitted */}
         {currentStatus === RecordStatus.SUBMITTED && (
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between gap-3">
             <div className="text-xs text-blue-900">
               <p className="font-semibold">Step 1: Initiate Formal Review</p>
-              <p className="text-blue-700">Acknowledge receipt and move this submission into active evaluation.</p>
+              <p className="text-blue-700">Acknowledge receipt and move this submission into active Coordinator evaluation.</p>
             </div>
             <Button
               size="sm"
@@ -122,18 +132,18 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
               value={basis}
               onChange={(e) => setBasis(e.target.value)}
             >
-              <option value="Documentary Review">Documentary Review (Barangay/Coop records)</option>
-              <option value="Phone Verification">Phone / Officer Verification</option>
+              <option value="Documentary Review">Documentary Review (Source / Barangay Records)</option>
+              <option value="Phone Verification">Phone / Source Contact Verification</option>
               <option value="Field Visit">Field Inspection / Site Visit</option>
               <option value="Historical Data Comparison">Historical Agronomic Yield Comparison</option>
-              <option value="LGU Farm Registry Cross-Reference">LGU Farm Registry Cross-Reference</option>
+              <option value="LGU Farm Registry Cross-Reference">LGU Registry Cross-Reference</option>
             </select>
-            <p className="text-xs text-gray-500 mt-1">Grounding methodology used by the LGU reviewer.</p>
+            <p className="text-xs text-gray-500 mt-1">Grounding methodology used by the validating Coordinator.</p>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Reviewer Notes / Correction Reason
+              Validation Notes / Correction Reason
             </label>
             <textarea
               className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"

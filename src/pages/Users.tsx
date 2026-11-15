@@ -5,32 +5,44 @@ import { Card, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Role, User } from '../types';
 import {
+  getRoleDisplayName,
+  getRoleShortName,
+  getRoleBadgeStyle,
+  hasPermission,
+  Permission,
+} from '../utils/rbac';
+import {
   Users as UsersIcon,
   Search,
   Filter,
   Shield,
   Building,
   UserCheck,
+  UserX,
   Mail,
-  UserPlus,
   CheckCircle,
+  AlertCircle,
+  Edit3,
+  Info,
   X,
 } from 'lucide-react';
 
 export const UsersPage: React.FC = () => {
-  const { profiles, organizations } = useData();
+  const { profiles, organizations, updateUserRole, toggleUserActiveStatus } = useData();
   const { user: currentUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('ALL');
   const [activeTab, setActiveTab] = useState<string>('ALL');
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [newUserName, setNewUserName] = useState('');
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserRole, setNewUserRole] = useState<Role>(Role.COORDINATOR);
-  const [newUserOrg, setNewUserOrg] = useState('');
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Combine profiles with any fallback
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editedRole, setEditedRole] = useState<Role>(Role.BUYER);
+  const [editedOrgId, setEditedOrgId] = useState<string>('');
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+
+  const canManageUsers = hasPermission(currentUser?.role, Permission.MANAGE_USERS);
   const userList: User[] = profiles && profiles.length > 0 ? profiles : [];
 
   const getOrgName = (orgId?: string) => {
@@ -51,7 +63,8 @@ export const UsersPage: React.FC = () => {
     const matchesSearch =
       u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      getOrgName(u.organizationId).toLowerCase().includes(searchTerm.toLowerCase());
+      getOrgName(u.organizationId).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      getRoleDisplayName(u.role).toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesRole =
       (selectedRoleFilter === 'ALL' || u.role === selectedRoleFilter) &&
@@ -60,60 +73,65 @@ export const UsersPage: React.FC = () => {
     return matchesSearch && matchesRole;
   });
 
-  const getRoleBadgeStyle = (role: Role) => {
-    switch (role) {
-      case Role.ADMINISTRATOR:
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case Role.COORDINATOR:
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case Role.LGU:
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-      case Role.BUYER:
-        return 'bg-amber-100 text-amber-800 border-amber-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+  const openEditModal = (target: User) => {
+    setEditingUser(target);
+    setEditedRole(target.role);
+    setEditedOrgId(target.organizationId || '');
+    setErrorMsg(null);
+  };
+
+  const handleSaveRoleAssignment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser || !canManageUsers) return;
+    setIsSubmitting(true);
+    setErrorMsg(null);
+
+    try {
+      await updateUserRole(editingUser.email, editedRole, editedOrgId || undefined);
+      setFeedbackMsg(
+        `Updated ${editingUser.name} (${editingUser.email}) to ${getRoleDisplayName(editedRole)}.`
+      );
+      setEditingUser(null);
+      setTimeout(() => setFeedbackMsg(null), 5000);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to update user role.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleCreateUser = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newUserName.trim() || !newUserEmail.trim()) return;
+  const handleToggleActive = async (target: User) => {
+    if (!canManageUsers) return;
+    const nextActive = target.isActive === false;
+    setIsSubmitting(true);
+    setErrorMsg(null);
 
-    // Simulate creation into the active directory
-    userList.push({
-      id: `usr-${Date.now()}`,
-      name: newUserName.trim(),
-      email: newUserEmail.trim(),
-      role: newUserRole,
-      organizationId: newUserOrg || undefined,
-    });
-
-    setFeedbackMsg(`User ${newUserName} successfully added as ${newUserRole}.`);
-    setIsAddModalOpen(false);
-    setNewUserName('');
-    setNewUserEmail('');
-    setNewUserOrg('');
-    setTimeout(() => setFeedbackMsg(null), 4000);
+    try {
+      await toggleUserActiveStatus(target.email, nextActive);
+      setFeedbackMsg(
+        `${target.name} (${target.email}) has been ${nextActive ? 'activated' : 'deactivated'}.`
+      );
+      setTimeout(() => setFeedbackMsg(null), 5000);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to update account status.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-10">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
-            <UsersIcon className="text-agri-green-600" /> User Directory & Access Management
+            <UsersIcon className="text-agri-green-600" /> User Directory &amp; Role Governance
           </h2>
           <p className="text-sm text-agri-earth-500 mt-1">
-            Browse and manage all registered AgriCycle accounts grouped by operational role in Caraga Region.
+            Assign formal system roles and manage account activation across Butuan City AgriCycle users.
           </p>
         </div>
-        <Button
-          onClick={() => setIsAddModalOpen(true)}
-          variant="primary"
-          icon={<UserPlus size={16} />}
-        >
-          Add New User
+        <Button onClick={() => setIsGuideOpen(true)} variant="outline" icon={<Info size={16} />}>
+          Role Assignment Guide
         </Button>
       </div>
 
@@ -121,6 +139,13 @@ export const UsersPage: React.FC = () => {
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg flex items-center gap-2 text-sm shadow-sm">
           <CheckCircle size={18} className="text-emerald-600 shrink-0" />
           <span>{feedbackMsg}</span>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center gap-2 text-sm shadow-sm">
+          <AlertCircle size={18} className="text-red-600 shrink-0" />
+          <span>{errorMsg}</span>
         </div>
       )}
 
@@ -137,7 +162,9 @@ export const UsersPage: React.FC = () => {
               : 'bg-white border-gray-200 hover:border-agri-green-300'
           }`}
         >
-          <div className="text-xs font-semibold text-agri-earth-500 uppercase tracking-wider">All Accounts</div>
+          <div className="text-xs font-semibold text-agri-earth-500 uppercase tracking-wider">
+            All Accounts
+          </div>
           <div className="text-2xl font-bold text-gray-900 mt-1">{roleCounts.total}</div>
           <div className="text-[11px] text-gray-500 mt-0.5">Total registered</div>
         </div>
@@ -153,9 +180,13 @@ export const UsersPage: React.FC = () => {
               : 'bg-white border-gray-200 hover:border-purple-300'
           }`}
         >
-          <div className="text-xs font-semibold text-purple-700 uppercase tracking-wider">Admins</div>
-          <div className="text-2xl font-bold text-purple-900 mt-1">{roleCounts[Role.ADMINISTRATOR]}</div>
-          <div className="text-[11px] text-purple-600 mt-0.5">Full governance</div>
+          <div className="text-xs font-semibold text-purple-700 uppercase tracking-wider">
+            Administrators
+          </div>
+          <div className="text-2xl font-bold text-purple-900 mt-1">
+            {roleCounts[Role.ADMINISTRATOR]}
+          </div>
+          <div className="text-[11px] text-purple-600 mt-0.5">Accounts &amp; audit governance</div>
         </div>
 
         <div
@@ -165,13 +196,19 @@ export const UsersPage: React.FC = () => {
           }}
           className={`cursor-pointer p-4 rounded-xl border transition-all ${
             activeTab === Role.COORDINATOR
-              ? 'bg-blue-50/70 border-blue-500 shadow-sm'
-              : 'bg-white border-gray-200 hover:border-blue-300'
+              ? 'bg-emerald-50/70 border-emerald-500 shadow-sm'
+              : 'bg-white border-gray-200 hover:border-emerald-300'
           }`}
         >
-          <div className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Coordinators</div>
-          <div className="text-2xl font-bold text-blue-900 mt-1">{roleCounts[Role.COORDINATOR]}</div>
-          <div className="text-[11px] text-blue-600 mt-0.5">Coops & Hubs</div>
+          <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">
+            Biomass Coordinators
+          </div>
+          <div className="text-2xl font-bold text-emerald-900 mt-1">
+            {roleCounts[Role.COORDINATOR]}
+          </div>
+          <div className="text-[11px] text-emerald-600 mt-0.5">
+            Intake, validation &amp; inquiries
+          </div>
         </div>
 
         <div
@@ -181,13 +218,15 @@ export const UsersPage: React.FC = () => {
           }}
           className={`cursor-pointer p-4 rounded-xl border transition-all ${
             activeTab === Role.LGU
-              ? 'bg-emerald-50/70 border-emerald-500 shadow-sm'
-              : 'bg-white border-gray-200 hover:border-emerald-300'
+              ? 'bg-blue-50/70 border-blue-500 shadow-sm'
+              : 'bg-white border-gray-200 hover:border-blue-300'
           }`}
         >
-          <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">LGU Officers</div>
-          <div className="text-2xl font-bold text-emerald-900 mt-1">{roleCounts[Role.LGU]}</div>
-          <div className="text-[11px] text-emerald-600 mt-0.5">City Validators</div>
+          <div className="text-xs font-semibold text-blue-700 uppercase tracking-wider">
+            Planning Users
+          </div>
+          <div className="text-2xl font-bold text-blue-900 mt-1">{roleCounts[Role.LGU]}</div>
+          <div className="text-[11px] text-blue-600 mt-0.5">View-only LGU planning</div>
         </div>
 
         <div
@@ -201,16 +240,17 @@ export const UsersPage: React.FC = () => {
               : 'bg-white border-gray-200 hover:border-amber-300'
           }`}
         >
-          <div className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Buyers</div>
+          <div className="text-xs font-semibold text-amber-700 uppercase tracking-wider">
+            Buyers / Inquirers
+          </div>
           <div className="text-2xl font-bold text-amber-900 mt-1">{roleCounts[Role.BUYER]}</div>
-          <div className="text-[11px] text-amber-600 mt-0.5">Commercial & Power</div>
+          <div className="text-[11px] text-amber-600 mt-0.5">Validated listing inquiries</div>
         </div>
       </div>
 
       {/* Main Table Card */}
       <Card>
         <CardContent className="p-0">
-          {/* Search and filters toolbar */}
           <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row gap-4 items-center bg-gray-50/50">
             <div className="relative flex-1 w-full">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -218,7 +258,7 @@ export const UsersPage: React.FC = () => {
               </div>
               <input
                 type="text"
-                placeholder="Search by name, email, or affiliated organization..."
+                placeholder="Search by name, email, role, or affiliated organization..."
                 className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -227,29 +267,28 @@ export const UsersPage: React.FC = () => {
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Filter size={18} className="text-gray-400" />
               <select
-                className="block w-full sm:w-48 pl-3 pr-10 py-2 text-sm border-gray-200 focus:outline-none focus:ring-agri-green-500 focus:border-agri-green-500 rounded-lg bg-white"
+                className="block w-full sm:w-64 pl-3 pr-10 py-2 text-sm border-gray-200 focus:outline-none focus:ring-agri-green-500 focus:border-agri-green-500 rounded-lg bg-white"
                 value={selectedRoleFilter}
                 onChange={(e) => setSelectedRoleFilter(e.target.value)}
               >
-                <option value="ALL">All Categories</option>
-                <option value={Role.ADMINISTRATOR}>Administrators</option>
-                <option value={Role.COORDINATOR}>Coordinators</option>
-                <option value={Role.LGU}>LGU Officers</option>
-                <option value={Role.BUYER}>Buyers</option>
+                <option value="ALL">All Formal Roles</option>
+                <option value={Role.ADMINISTRATOR}>{getRoleDisplayName(Role.ADMINISTRATOR)}</option>
+                <option value={Role.COORDINATOR}>{getRoleDisplayName(Role.COORDINATOR)}</option>
+                <option value={Role.LGU}>{getRoleDisplayName(Role.LGU)}</option>
+                <option value={Role.BUYER}>{getRoleDisplayName(Role.BUYER)}</option>
               </select>
             </div>
           </div>
 
-          {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gray-50/50 border-b border-gray-100 text-xs uppercase text-agri-earth-500 font-semibold tracking-wider">
                   <th className="px-5 py-4">User</th>
-                  <th className="px-5 py-4">Role / Category</th>
-                  <th className="px-5 py-4">Affiliation / Organization</th>
-                  <th className="px-5 py-4">Status</th>
-                  <th className="px-5 py-4">User ID</th>
+                  <th className="px-5 py-4">Assigned Formal Role</th>
+                  <th className="px-5 py-4">Affiliation / Agency</th>
+                  <th className="px-5 py-4">Account Status</th>
+                  <th className="px-5 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
@@ -261,7 +300,11 @@ export const UsersPage: React.FC = () => {
                   </tr>
                 ) : (
                   filteredUsers.map((u) => {
-                    const isSelf = currentUser?.id === u.id || currentUser?.email === u.email;
+                    const isSelf =
+                      currentUser?.id === u.id ||
+                      currentUser?.email.toLowerCase() === u.email.toLowerCase();
+                    const isActive = u.isActive !== false;
+
                     return (
                       <tr key={u.id} className="hover:bg-agri-green-50/30 transition-colors">
                         <td className="px-5 py-4">
@@ -290,9 +333,10 @@ export const UsersPage: React.FC = () => {
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${getRoleBadgeStyle(
                               u.role
                             )}`}
+                            title={getRoleDisplayName(u.role)}
                           >
                             <Shield size={12} />
-                            {u.role.replace(/_/g, ' ')}
+                            {getRoleShortName(u.role)}
                           </span>
                         </td>
                         <td className="px-5 py-4">
@@ -302,13 +346,42 @@ export const UsersPage: React.FC = () => {
                           </div>
                         </td>
                         <td className="px-5 py-4">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <UserCheck size={12} />
-                            Active
-                          </span>
+                          {isActive ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <UserCheck size={12} />
+                              Active
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 border border-gray-300">
+                              <UserX size={12} />
+                              Inactive
+                            </span>
+                          )}
                         </td>
-                        <td className="px-5 py-4 font-mono text-xs text-gray-400">
-                          {u.id.length > 16 ? `${u.id.slice(0, 12)}...` : u.id}
+                        <td className="px-5 py-4 text-right">
+                          {canManageUsers && (
+                            <div className="inline-flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                icon={<Edit3 size={13} />}
+                                onClick={() => openEditModal(u)}
+                                disabled={isSubmitting}
+                              >
+                                Assign Role
+                              </Button>
+                              {!isSelf && (
+                                <Button
+                                  size="sm"
+                                  variant={isActive ? 'danger' : 'secondary'}
+                                  onClick={() => handleToggleActive(u)}
+                                  disabled={isSubmitting}
+                                >
+                                  {isActive ? 'Deactivate' : 'Activate'}
+                                </Button>
+                              )}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -320,71 +393,55 @@ export const UsersPage: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Add User Modal */}
-      {isAddModalOpen && (
+      {/* Assign Role Modal */}
+      {editingUser && (
         <div className="fixed inset-0 z-50 bg-gray-900/50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-gray-100">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-agri-green-500 text-white">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-agri-green-600 text-white">
               <h3 className="font-bold text-lg flex items-center gap-2">
-                <UserPlus size={18} /> Register New Platform User
+                <Shield size={18} /> Assign Formal Role
               </h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-white hover:text-gray-200">
+              <button
+                onClick={() => setEditingUser(null)}
+                className="text-white hover:text-gray-200"
+              >
                 <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-agri-earth-700 mb-1">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Maria Clara"
-                  value={newUserName}
-                  onChange={(e) => setNewUserName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                />
+            <form onSubmit={handleSaveRoleAssignment} className="p-6 space-y-4">
+              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-xs">
+                <p className="font-semibold text-gray-900">{editingUser.name}</p>
+                <p className="text-gray-600">{editingUser.email}</p>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-agri-earth-700 mb-1">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="name@organization.ph"
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-agri-earth-700 mb-1">
-                  Role / System Category
+                  Formal System Role
                 </label>
                 <select
-                  value={newUserRole}
-                  onChange={(e) => setNewUserRole(e.target.value as Role)}
+                  value={editedRole}
+                  onChange={(e) => setEditedRole(e.target.value as Role)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                 >
-                  <option value={Role.COORDINATOR}>Cooperative / Hub Coordinator</option>
-                  <option value={Role.LGU}>LGU Officer / Validator</option>
-                  <option value={Role.BUYER}>Biomass Buyer</option>
-                  <option value={Role.ADMINISTRATOR}>System Administrator</option>
+                  <option value={Role.ADMINISTRATOR}>
+                    {getRoleDisplayName(Role.ADMINISTRATOR)}
+                  </option>
+                  <option value={Role.COORDINATOR}>
+                    {getRoleDisplayName(Role.COORDINATOR)}
+                  </option>
+                  <option value={Role.LGU}>{getRoleDisplayName(Role.LGU)}</option>
+                  <option value={Role.BUYER}>{getRoleDisplayName(Role.BUYER)}</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-agri-earth-700 mb-1">
-                  Affiliated Organization (Optional)
+                  Affiliated Office / Organization (Optional)
                 </label>
                 <select
-                  value={newUserOrg}
-                  onChange={(e) => setNewUserOrg(e.target.value)}
+                  value={editedOrgId}
+                  onChange={(e) => setEditedOrgId(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                 >
                   <option value="">None / Independent</option>
@@ -396,15 +453,65 @@ export const UsersPage: React.FC = () => {
                 </select>
               </div>
 
+              {editingUser.id === currentUser?.id && editedRole !== Role.ADMINISTRATOR && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-lg text-xs">
+                  Warning: Reassigning your own role away from Administrator will remove your access to User &amp; Audit administration.
+                </div>
+              )}
+
               <div className="pt-4 flex justify-end gap-2 border-t border-gray-100">
-                <Button type="button" variant="outline" onClick={() => setIsAddModalOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => setEditingUser(null)}>
                   Cancel
                 </Button>
-                <Button type="submit" variant="primary">
-                  Create User
+                <Button type="submit" variant="primary" disabled={isSubmitting}>
+                  {isSubmitting ? 'Saving...' : 'Save Role Assignment'}
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Role Assignment Guide Modal */}
+      {isGuideOpen && (
+        <div className="fixed inset-0 z-50 bg-gray-900/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full overflow-hidden border border-gray-100">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-slate-800 text-white">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <Info size={18} /> Privileged Account Provisioning Policy
+              </h3>
+              <button
+                onClick={() => setIsGuideOpen(false)}
+                className="text-white hover:text-gray-200"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-3 text-sm text-gray-700">
+              <p>
+                To enforce strict role governance, public self-registration creates standard{' '}
+                <strong>{getRoleDisplayName(Role.BUYER)}</strong> accounts only.
+              </p>
+              <ol className="list-decimal pl-5 space-y-1.5 text-xs text-gray-600">
+                <li>
+                  The staff member or planning user registers and verifies their email through the standard Sign Up flow.
+                </li>
+                <li>
+                  Their profile appears automatically in this directory as a Buyer/Institutional Inquirer.
+                </li>
+                <li>
+                  An Administrator uses <strong>Assign Role</strong> on that row to promote the account to{' '}
+                  <strong>{getRoleDisplayName(Role.COORDINATOR)}</strong>,{' '}
+                  <strong>{getRoleDisplayName(Role.LGU)}</strong>, or{' '}
+                  <strong>{getRoleDisplayName(Role.ADMINISTRATOR)}</strong>.
+                </li>
+              </ol>
+              <div className="pt-3 flex justify-end border-t border-gray-100">
+                <Button variant="primary" onClick={() => setIsGuideOpen(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       )}
