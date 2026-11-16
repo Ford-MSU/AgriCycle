@@ -6,6 +6,7 @@ import { RecordStatus, Role, AggregationGroup, AggregationStatus } from '../type
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { hasPermission, Permission } from '../utils/rbac';
+import { formatLocationHierarchy, formatShortLocation } from '../utils/philippineLocations';
 import { Plus, Info, MapPin, ArrowLeft, AlertTriangle, Lock, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
@@ -315,7 +316,7 @@ export const AggregationHubs: React.FC = () => {
                 <input
                   type="text"
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  placeholder="e.g. Butuan Rice Husk Consolidation Batch A"
+                  placeholder="e.g. Regional Rice Husk Consolidation Batch A"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
                 />
@@ -345,7 +346,7 @@ export const AggregationHubs: React.FC = () => {
                 <input
                   type="text"
                   className="w-full p-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                  placeholder="e.g. Consolidated Libertad and Ampayon validated rice husk sources"
+                  placeholder="e.g. Consolidated validated rice husk sources across participating barangays"
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
                 />
@@ -409,7 +410,7 @@ export const AggregationHubs: React.FC = () => {
                           </p>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">
-                          {location?.barangay} &bull; Avail:{' '}
+                          {formatShortLocation(location)} &bull; Avail:{' '}
                           {record.availabilityPeriodStart && record.availabilityPeriodEnd
                             ? `${formatSafeShortDate(record.availabilityPeriodStart)} - ${formatSafeShortDate(record.availabilityPeriodEnd)}`
                             : record.availabilityPeriodStart
@@ -485,7 +486,7 @@ export const AggregationHubs: React.FC = () => {
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 mt-1">
-                          <span>{location?.barangay || 'Butuan'}</span>
+                          <span>{formatShortLocation(location)}</span>
                           <span>&bull;</span>
                           <span>Record ID: {record.id}</span>
                           {membership?.addedAt && (
@@ -625,7 +626,7 @@ export const AggregationHubs: React.FC = () => {
                         <tr key={m.id} className={isValidated ? '' : 'bg-red-50/50 opacity-75'}>
                           <td className="py-3">
                             <p className="font-medium text-gray-900">{source?.name}</p>
-                            <p className="text-xs text-gray-500">{loc?.barangay}</p>
+                            <p className="text-xs text-gray-500">{formatLocationHierarchy(loc)}</p>
                           </td>
                           <td className="py-3">
                             <span className="font-semibold text-gray-900">{availQty.toLocaleString()}</span>

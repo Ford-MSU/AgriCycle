@@ -23,6 +23,16 @@ import { format } from 'date-fns';
 import { useSearchParams, Link } from 'react-router-dom';
 import { CreateRecordForm } from '../components/CreateRecordForm';
 import { ValidationForm } from '../components/ValidationForm';
+import { LocationSelector } from '../components/LocationSelector';
+import {
+  PhilippineHierarchySelection,
+  formatLocationHierarchy,
+  formatShortLocation,
+  isLocationHierarchyComplete,
+  normalizeLocationPart,
+  normalizeRegionName,
+  resolveLocationRegion,
+} from '../utils/philippineLocations';
 
 const formatSafeDate = (iso?: string, fallback = 'Flexible') => {
   if (!iso) return fallback;
@@ -44,6 +54,7 @@ export const BiomassRecords: React.FC = () => {
     getSource,
     getLocation,
     getRecord,
+    addLocation,
     updateRecord,
     updateSource,
   } = useData();
@@ -65,6 +76,12 @@ export const BiomassRecords: React.FC = () => {
   const [editSourceName, setEditSourceName] = useState('');
   const [editSourceType, setEditSourceType] = useState('Farm');
   const [editSourceContact, setEditSourceContact] = useState('');
+  const [editSourceLocation, setEditSourceLocation] = useState<PhilippineHierarchySelection>({
+    region: '',
+    province: '',
+    city: '',
+    barangay: '',
+  });
   const [sourceSaveError, setSourceSaveError] = useState('');
   const [isSavingSource, setIsSavingSource] = useState(false);
 
@@ -122,10 +139,17 @@ export const BiomassRecords: React.FC = () => {
   const openEditSource = (srcId: string) => {
     const src = getSource(srcId);
     if (!src) return;
+    const loc = getLocation(src.locationId);
     setEditingSourceId(src.id);
     setEditSourceName(src.name);
     setEditSourceType(src.type);
     setEditSourceContact(src.contactPerson || '');
+    setEditSourceLocation({
+      region: loc ? resolveLocationRegion(loc) : '',
+      province: loc?.province || '',
+      city: loc?.city || '',
+      barangay: loc?.barangay || '',
+    });
     setSourceSaveError('');
     setShowSourcesModal(true);
   };
@@ -136,13 +160,28 @@ export const BiomassRecords: React.FC = () => {
       setSourceSaveError('Source name is required.');
       return;
     }
+    if (!isLocationHierarchyComplete(editSourceLocation)) {
+      setSourceSaveError(
+        'Complete administrative location (Region, Province, City/Municipality, and Barangay) is required.'
+      );
+      return;
+    }
+
     setIsSavingSource(true);
     setSourceSaveError('');
     try {
+      const resolvedLocation = await addLocation({
+        region: normalizeRegionName(editSourceLocation.region),
+        province: normalizeLocationPart(editSourceLocation.province),
+        city: normalizeLocationPart(editSourceLocation.city),
+        barangay: normalizeLocationPart(editSourceLocation.barangay),
+      });
+
       await updateSource(editingSourceId, {
         name: editSourceName.trim(),
         type: editSourceType,
         contactPerson: editSourceContact.trim() || 'Source Contact',
+        locationId: resolvedLocation.id,
       });
       setEditingSourceId(null);
     } catch (err: any) {
@@ -411,11 +450,29 @@ export const BiomassRecords: React.FC = () => {
                 )}
               </div>
               <p className="text-gray-900 font-semibold">{source?.name}</p>
-              <p className="text-gray-600 text-xs">
-                {source?.type} • {location?.barangay}, {location?.city}
-              </p>
+              <p className="text-gray-600 text-xs">{source?.type}</p>
+              <div className="mt-1.5 text-xs text-gray-700 bg-gray-50 p-2.5 rounded-lg border border-gray-100 space-y-0.5">
+                <p>
+                  <span className="text-gray-500">Barangay:</span>{' '}
+                  <span className="font-medium text-gray-900">{location?.barangay || 'Not specified'}</span>
+                </p>
+                <p>
+                  <span className="text-gray-500">City / Municipality:</span>{' '}
+                  <span className="font-medium text-gray-900">{location?.city || 'Not specified'}</span>
+                </p>
+                <p>
+                  <span className="text-gray-500">Province:</span>{' '}
+                  <span className="font-medium text-gray-900">{location?.province || 'Not specified'}</span>
+                </p>
+                <p>
+                  <span className="text-gray-500">Region:</span>{' '}
+                  <span className="font-medium text-gray-900">
+                    {resolveLocationRegion(location) || 'Not specified'}
+                  </span>
+                </p>
+              </div>
               {source?.contactPerson && (
-                <p className="text-gray-500 text-xs mt-0.5">Contact: {source.contactPerson}</p>
+                <p className="text-gray-500 text-xs mt-1.5">Contact: {source.contactPerson}</p>
               )}
               <p className="text-gray-500 font-medium mb-1 mt-3">Condition & Source Site Storage</p>
               <p className="text-gray-900">
@@ -586,8 +643,16 @@ export const BiomassRecords: React.FC = () => {
     const term = searchTerm.toLowerCase();
     visibleRecords = visibleRecords.filter((r) => {
       const type = referenceData.find((ref) => ref.id === r.biomassTypeId)?.label?.toLowerCase() || '';
-      const source = getSource(r.sourceId)?.name?.toLowerCase() || '';
-      return type.includes(term) || source.includes(term) || r.id.toLowerCase().includes(term);
+      const src = getSource(r.sourceId);
+      const sourceName = src?.name?.toLowerCase() || '';
+      const loc = src ? getLocation(src.locationId) : getLocation(r.locationId);
+      const fullLoc = formatLocationHierarchy(loc).toLowerCase();
+      return (
+        type.includes(term) ||
+        sourceName.includes(term) ||
+        fullLoc.includes(term) ||
+        r.id.toLowerCase().includes(term)
+      );
     });
   }
 
@@ -649,7 +714,7 @@ export const BiomassRecords: React.FC = () => {
               </div>
               <input
                 type="text"
-                placeholder="Search by biomass type, source, or record ID..."
+                placeholder="Search by biomass type, source, record ID, or location..."
                 className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -718,7 +783,12 @@ export const BiomassRecords: React.FC = () => {
                         <td className="px-5 py-4">
                           <p className="font-medium text-gray-900">{type}</p>
                           <p className="text-xs text-agri-earth-500 mt-0.5">{source?.name}</p>
-                          {location && <p className="text-xs text-agri-earth-400">{location.barangay}</p>}
+                          {location && (
+                            <p className="text-xs text-agri-earth-400">
+                              {formatShortLocation(location)}
+                              {resolveLocationRegion(location) ? ` (${resolveLocationRegion(location)})` : ''}
+                            </p>
+                          )}
                         </td>
                         <td className="px-5 py-4">
                           <span className="font-semibold text-gray-900">{record.quantity.toLocaleString()}</span>
@@ -848,6 +918,12 @@ export const BiomassRecords: React.FC = () => {
                       />
                     </div>
                   </div>
+                  <div className="pt-2 border-t border-gray-200">
+                    <LocationSelector
+                      value={editSourceLocation}
+                      onChange={setEditSourceLocation}
+                    />
+                  </div>
                   <div className="flex justify-end gap-2">
                     <Button type="button" variant="outline" size="sm" onClick={() => setEditingSourceId(null)}>
                       Cancel
@@ -867,7 +943,7 @@ export const BiomassRecords: React.FC = () => {
                       <div>
                         <p className="text-sm font-semibold text-gray-900">{src.name}</p>
                         <p className="text-xs text-gray-500">
-                          {src.type} &bull; Brgy. {loc?.barangay || 'Unknown'} &bull; Contact: {src.contactPerson}
+                          {src.type} &bull; {formatLocationHierarchy(loc)} &bull; Contact: {src.contactPerson}
                         </p>
                       </div>
                       <Button

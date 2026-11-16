@@ -5,22 +5,16 @@ import { BiomassRecord, RecordStatus } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { hasPermission, Permission } from '../utils/rbac';
-import { ArrowLeft, Save, MapPin, Check, AlertCircle, Info, Lock } from 'lucide-react';
-
-const BUTUAN_BARANGAYS = [
-  'Agusan Pequeño', 'Amparo', 'Ampayon', 'Anticala', 'Antongalon', 'Aupagan',
-  'Baan KM 3', 'Baan Riverside', 'Babag', 'Bading', 'Bancasi', 'Banza',
-  'Baobaoan', 'Basag', 'Bilay', 'Bit-os', 'Bitan-agan', 'Bobon', 'Bonbon',
-  'Bugabus', 'Cabcabon', 'Camayahan', 'Dagohoy', 'Dankias', 'De Oro',
-  'Diego Silang', 'Doongan', 'Dulag', 'Dumalagan', 'Florida', 'Golden Ribbon',
-  'Holy Redeemer', 'Humabon', 'Kinamlutan', 'Lapu-lapu', 'Lemon', 'Leon Kilat',
-  'Libertad', 'Limaha', 'Los Angeles', 'Lumbocan', 'Maguinda', 'Mahay',
-  'Mahogany', 'Maibu', 'Mandamo', 'Maon', 'Masao', 'Maug', 'New Society Village',
-  'Nong-nong', 'Obrero', 'Ong Yiu', 'Pangabugan', 'Pianing', 'Pigdaulan',
-  'Pinamanculan', 'Port Poyohon', 'Rajahi', 'Salvacion', 'San Ignacio',
-  'San Mateo', 'San Vicente', 'Santo Niño', 'Tagabaca', 'Taguibo', 'Taligaman',
-  'Tiniwisan', 'Tungao', 'Urduja', 'Villa Kananga'
-];
+import { ArrowLeft, Save, MapPin, AlertCircle, Info, Lock } from 'lucide-react';
+import { LocationSelector } from './LocationSelector';
+import {
+  PhilippineHierarchySelection,
+  formatLocationHierarchy,
+  isLocationHierarchyComplete,
+  normalizeLocationPart,
+  normalizeRegionName,
+  resolveLocationRegion,
+} from '../utils/philippineLocations';
 
 interface CreateRecordFormProps {
   initialRecord?: BiomassRecord;
@@ -36,7 +30,6 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
   const { user } = useAuth();
   const {
     sources,
-    locations,
     referenceData,
     getSource,
     getLocation,
@@ -61,11 +54,14 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
   const [isCreatingSource, setIsCreatingSource] = useState(false);
   const [newSourceName, setNewSourceName] = useState('');
   const [newSourceContact, setNewSourceContact] = useState('');
-  const [selectedBarangay, setSelectedBarangay] = useState(initialLocation?.barangay || '');
+  const [locationSelection, setLocationSelection] = useState<PhilippineHierarchySelection>({
+    region: initialLocation ? resolveLocationRegion(initialLocation) : '',
+    province: initialLocation?.province || '',
+    city: initialLocation?.city || '',
+    barangay: initialLocation?.barangay || '',
+  });
   const [newLat, setNewLat] = useState('');
   const [newLng, setNewLng] = useState('');
-  const [barangaySearch, setBarangaySearch] = useState('');
-  const [showBarangayDropdown, setShowBarangayDropdown] = useState(false);
   const [accessLocationNotes, setAccessLocationNotes] = useState(initialRecord?.accessLocationNotes || '');
 
   // Section B: Biomass Information State
@@ -100,12 +96,14 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const filteredBarangays = useMemo(() => {
-    if (!barangaySearch) return BUTUAN_BARANGAYS.slice(0, 20);
-    return BUTUAN_BARANGAYS.filter((b) =>
-      b.toLowerCase().includes(barangaySearch.toLowerCase())
-    );
-  }, [barangaySearch]);
+  const selectedExistingSource = useMemo(
+    () => (!isCreatingSource && sourceId ? getSource(sourceId) : undefined),
+    [isCreatingSource, sourceId, getSource]
+  );
+  const selectedExistingLocation = useMemo(
+    () => (selectedExistingSource ? getLocation(selectedExistingSource.locationId) : undefined),
+    [selectedExistingSource, getLocation]
+  );
 
   if (!user || !hasPermission(user.role, Permission.MANAGE_BIOMASS_RECORDS)) {
     return (
@@ -155,7 +153,12 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
       setSourceType(src.type);
       const loc = getLocation(src.locationId);
       if (loc) {
-        setSelectedBarangay(loc.barangay);
+        setLocationSelection({
+          region: resolveLocationRegion(loc),
+          province: loc.province || '',
+          city: loc.city || '',
+          barangay: loc.barangay || '',
+        });
       }
     }
   };
@@ -218,23 +221,22 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
       let finalLocationId = initialRecord?.locationId || '';
 
       if (isCreatingSource) {
-        if (!newSourceName.trim() || !selectedBarangay) {
-          setError('Please provide a source name and select a barangay.');
+        if (!newSourceName.trim() || !isLocationHierarchyComplete(locationSelection)) {
+          setError(
+            'Please provide a source name and select the complete administrative location (Region, Province, City/Municipality, and Barangay).'
+          );
           setIsSubmitting(false);
           return;
         }
 
-        let loc = locations.find(
-          (l) => l.barangay.toLowerCase() === selectedBarangay.toLowerCase() && l.city === 'Butuan City'
-        );
-        if (!loc || parsedCoords) {
-          loc = await addLocation({
-            barangay: selectedBarangay,
-            city: 'Butuan City',
-            province: 'Agusan del Norte',
-            coordinates: parsedCoords,
-          });
-        }
+        const loc = await addLocation({
+          region: normalizeRegionName(locationSelection.region),
+          province: normalizeLocationPart(locationSelection.province),
+          city: normalizeLocationPart(locationSelection.city),
+          barangay: normalizeLocationPart(locationSelection.barangay),
+          coordinates: parsedCoords,
+          coordinatePrecision: parsedCoords ? 'EXACT_SITE' : undefined,
+        });
         finalLocationId = loc.id;
 
         const newSource = await addSource({
@@ -374,7 +376,12 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsCreatingSource(true)}
+                  onClick={() => {
+                    setIsCreatingSource(true);
+                    if (!isEditing) {
+                      setLocationSelection({ region: '', province: '', city: '', barangay: '' });
+                    }
+                  }}
                   className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                     isCreatingSource
                       ? 'bg-agri-green-50 border-agri-green-500 text-agri-green-800'
@@ -387,22 +394,65 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
             </div>
 
             {!isCreatingSource ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Select Existing Source *
-                </label>
-                <select
-                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
-                  value={sourceId}
-                  onChange={(e) => handleSourceSelect(e.target.value)}
-                >
-                  <option value="">-- Choose Source --</option>
-                  {sources.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.type}) — {getLocation(s.locationId)?.barangay || 'Butuan'}
-                    </option>
-                  ))}
-                </select>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Select Existing Source *
+                  </label>
+                  <select
+                    className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                    value={sourceId}
+                    onChange={(e) => handleSourceSelect(e.target.value)}
+                  >
+                    <option value="">-- Choose Source --</option>
+                    {sources.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.type}) — {formatLocationHierarchy(getLocation(s.locationId))}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedExistingSource && (
+                  <div className="p-3.5 bg-agri-green-50/50 border border-agri-green-200 rounded-xl text-xs space-y-2">
+                    <div className="flex items-center gap-1.5 font-semibold text-agri-green-900">
+                      <MapPin size={14} className="text-agri-green-700" />
+                      <span>Saved Source Administrative Location</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div>
+                        <span className="text-gray-500 block text-[11px]">Region</span>
+                        <span className="font-semibold text-gray-900">
+                          {resolveLocationRegion(selectedExistingLocation) || 'Not specified'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block text-[11px]">Province</span>
+                        <span className="font-semibold text-gray-900">
+                          {selectedExistingLocation?.province || 'Not specified'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block text-[11px]">City / Municipality</span>
+                        <span className="font-semibold text-gray-900">
+                          {selectedExistingLocation?.city || 'Not specified'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block text-[11px]">Barangay</span>
+                        <span className="font-semibold text-gray-900">
+                          {selectedExistingLocation?.barangay || 'Not specified'}
+                        </span>
+                      </div>
+                    </div>
+                    {selectedExistingLocation?.coordinates && (
+                      <p className="text-[11px] text-gray-600 pt-1 border-t border-agri-green-100">
+                        GPS Coordinates: {selectedExistingLocation.coordinates.lat.toFixed(4)},{' '}
+                        {selectedExistingLocation.coordinates.lng.toFixed(4)}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-4">
@@ -428,73 +478,28 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                     </label>
                     <input
                       type="text"
-                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                      placeholder={`e.g. ${sourceType === 'Farm' ? 'Green Valley Farm' : 'Libertad Community Mill'}`}
+                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                      placeholder={`e.g. ${sourceType === 'Farm' ? 'Green Valley Farm' : 'San Isidro Community Mill'}`}
                       value={newSourceName}
                       onChange={(e) => setNewSourceName(e.target.value)}
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Barangay (Butuan City) *
-                    </label>
-                    <div className="relative">
-                      <div
-                        className="w-full p-2.5 border border-gray-200 rounded-lg text-sm bg-white flex items-center justify-between cursor-pointer"
-                        onClick={() => setShowBarangayDropdown(!showBarangayDropdown)}
-                      >
-                        <span className={selectedBarangay ? 'text-gray-900 font-medium' : 'text-gray-400'}>
-                          {selectedBarangay || 'Select Barangay'}
-                        </span>
-                        <MapPin size={16} className="text-gray-400" />
-                      </div>
+                <LocationSelector
+                  value={locationSelection}
+                  onChange={setLocationSelection}
+                />
 
-                      {showBarangayDropdown && (
-                        <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg p-2 max-h-56 overflow-y-auto">
-                          <input
-                            type="text"
-                            placeholder="Type to search barangay..."
-                            className="w-full p-2 text-xs border border-gray-200 rounded-md mb-2 focus:ring-agri-green-500 focus:border-agri-green-500"
-                            value={barangaySearch}
-                            onChange={(e) => setBarangaySearch(e.target.value)}
-                            autoFocus
-                          />
-                          <div className="space-y-1">
-                            {filteredBarangays.map((b) => (
-                              <div
-                                key={b}
-                                onClick={() => {
-                                  setSelectedBarangay(b);
-                                  setShowBarangayDropdown(false);
-                                  setBarangaySearch('');
-                                }}
-                                className={`px-2.5 py-1.5 text-xs rounded cursor-pointer flex items-center justify-between hover:bg-agri-green-50 hover:text-agri-green-800 ${
-                                  selectedBarangay === b ? 'bg-agri-green-50 font-bold text-agri-green-800' : 'text-gray-700'
-                                }`}
-                              >
-                                <span>{b}</span>
-                                {selectedBarangay === b && <Check size={14} className="text-agri-green-600" />}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact Person</label>
-                    <input
-                      type="text"
-                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
-                      placeholder="e.g. Juan dela Cruz"
-                      value={newSourceContact}
-                      onChange={(e) => setNewSourceContact(e.target.value)}
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Contact Person</label>
+                  <input
+                    type="text"
+                    className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
+                    placeholder="e.g. Juan dela Cruz"
+                    value={newSourceContact}
+                    onChange={(e) => setNewSourceContact(e.target.value)}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -506,7 +511,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                       type="number"
                       step="any"
                       className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
-                      placeholder="e.g. 8.9475"
+                      placeholder="e.g. 8.4772"
                       value={newLat}
                       onChange={(e) => setNewLat(e.target.value)}
                     />
@@ -519,7 +524,7 @@ export const CreateRecordForm: React.FC<CreateRecordFormProps> = ({
                       type="number"
                       step="any"
                       className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500 bg-white"
-                      placeholder="e.g. 125.5406"
+                      placeholder="e.g. 124.6361"
                       value={newLng}
                       onChange={(e) => setNewLng(e.target.value)}
                     />

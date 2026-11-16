@@ -19,22 +19,31 @@ import {
   Role,
 } from '../types';
 import { hasPermission, Permission } from '../utils/rbac';
+import {
+  isSameLocationHierarchy,
+  normalizeLocationPart,
+  normalizeRegionName,
+  resolveLocationRegion,
+} from '../utils/philippineLocations';
 
 // ============================================================================
 // Database Row Mappers (PostgreSQL snake_case -> TypeScript camelCase)
 // ============================================================================
 
 export function mapLocationRow(row: any): Location {
-  return {
+  const mapped: Location = {
     id: row.id,
-    barangay: row.barangay,
-    city: row.city,
+    region: row.region ? normalizeRegionName(row.region) : resolveLocationRegion({ province: row.province }) || undefined,
     province: row.province,
+    city: row.city,
+    barangay: row.barangay,
     coordinates:
       row.latitude !== null && row.latitude !== undefined && row.longitude !== null && row.longitude !== undefined
         ? { lat: Number(row.latitude), lng: Number(row.longitude) }
         : undefined,
+    coordinatePrecision: row.coordinate_precision || undefined,
   };
+  return mapped;
 }
 
 export function mapOrganizationRow(row: any): Organization {
@@ -246,7 +255,13 @@ export async function fetchAllDataFromSupabase(): Promise<AgriCycleDataset> {
     logRes,
     profRes,
   ] = await Promise.all([
-    client.from('locations').select('*').order('barangay', { ascending: true }),
+    client
+      .from('locations')
+      .select('*')
+      .order('region', { ascending: true, nullsFirst: false })
+      .order('province', { ascending: true })
+      .order('city', { ascending: true })
+      .order('barangay', { ascending: true }),
     client.from('organizations').select('*').order('name', { ascending: true }),
     client.from('reference_data').select('*').order('category', { ascending: true }).order('label', { ascending: true }),
     client.from('biomass_sources').select('*').order('name', { ascending: true }),
@@ -358,13 +373,83 @@ export async function createLocationInSupabase(
     throw new Error('Unauthorized: Only LGU Biomass Information Coordinators may register source locations.');
   }
 
+  const cleanRegion = normalizeRegionName(location.region);
+  const cleanProvince = normalizeLocationPart(location.province);
+  const cleanCity = normalizeLocationPart(location.city);
+  const cleanBarangay = normalizeLocationPart(location.barangay);
+
+  if (!cleanRegion || !cleanProvince || !cleanCity || !cleanBarangay) {
+    throw new Error('Complete administrative location (Region, Province, City/Municipality, Barangay) is required.');
+  }
+
   const client = getSupabaseClient();
+
+  // Check for existing matching location across full hierarchy (never match on barangay alone)
+  const { data: candidates, error: lookupError } = await client
+    .from('locations')
+    .select('*')
+    .ilike('barangay', cleanBarangay)
+    .ilike('city', cleanCity)
+    .ilike('province', cleanProvince);
+
+  if (!lookupError && candidates && candidates.length > 0) {
+    const exactMatch = candidates.find((row) =>
+      isSameLocationHierarchy(mapLocationRow(row), {
+        region: cleanRegion,
+        province: cleanProvince,
+        city: cleanCity,
+        barangay: cleanBarangay,
+      })
+    );
+
+    if (exactMatch) {
+      // If existing location lacked coordinates and new coordinates were supplied, fill them in
+      if (
+        location.coordinates &&
+        (exactMatch.latitude === null || exactMatch.latitude === undefined || exactMatch.longitude === null || exactMatch.longitude === undefined)
+      ) {
+        const { data: updated, error: updateErr } = await client
+          .from('locations')
+          .update({
+            latitude: location.coordinates.lat,
+            longitude: location.coordinates.lng,
+            coordinate_precision: location.coordinatePrecision || 'EXACT_SITE',
+            region: exactMatch.region || cleanRegion,
+          })
+          .eq('id', exactMatch.id)
+          .select('*')
+          .single();
+        if (!updateErr && updated) {
+          return mapLocationRow(updated);
+        }
+      }
+      return mapLocationRow(exactMatch);
+    }
+  }
+
+  // Prefer RPC find_or_create_location when available; fall back to direct insert if migration not yet applied
+  const { data: rpcData, error: rpcError } = await client.rpc('find_or_create_location', {
+    p_region: cleanRegion,
+    p_province: cleanProvince,
+    p_city: cleanCity,
+    p_barangay: cleanBarangay,
+    p_latitude: location.coordinates?.lat ?? null,
+    p_longitude: location.coordinates?.lng ?? null,
+    p_coordinate_precision: location.coordinates ? (location.coordinatePrecision || 'EXACT_SITE') : null,
+  });
+
+  if (!rpcError && rpcData) {
+    return mapLocationRow(rpcData);
+  }
+
   const payload: Record<string, any> = {
-    barangay: location.barangay,
-    city: location.city,
-    province: location.province,
+    region: cleanRegion,
+    province: cleanProvince,
+    city: cleanCity,
+    barangay: cleanBarangay,
     latitude: location.coordinates?.lat ?? null,
     longitude: location.coordinates?.lng ?? null,
+    coordinate_precision: location.coordinates ? (location.coordinatePrecision || 'EXACT_SITE') : null,
   };
   if (location.id) payload.id = location.id;
 
@@ -386,7 +471,11 @@ export async function updateLocationCoordinatesInSupabase(
   const client = getSupabaseClient();
   const { data, error } = await client
     .from('locations')
-    .update({ latitude: lat, longitude: lng })
+    .update({
+      latitude: lat,
+      longitude: lng,
+      coordinate_precision: lat !== null && lng !== null ? 'EXACT_SITE' : null,
+    })
     .eq('id', locationId)
     .select('*')
     .single();

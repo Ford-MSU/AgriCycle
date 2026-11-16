@@ -16,6 +16,7 @@ import {
   InquiryMessage,
   Role,
 } from '../types';
+import { isSameLocationHierarchy, normalizeLocationPart, normalizeRegionName } from '../utils/philippineLocations';
 
 // Legacy Organization records preserved for historical reference compatibility
 export const MOCK_ORGANIZATIONS: Organization[] = [
@@ -39,12 +40,12 @@ export const MOCK_ORGANIZATIONS: Organization[] = [
   },
 ];
 
-// Mock Locations
+// Mock Locations (Existing Butuan City historical records preserved with full administrative hierarchy)
 export const MOCK_LOCATIONS: Location[] = [
-  { id: 'loc-1', barangay: 'Lumbocan', city: 'Butuan City', province: 'Agusan del Norte', coordinates: { lat: 8.9715, lng: 125.5097 } },
-  { id: 'loc-2', barangay: 'Libertad', city: 'Butuan City', province: 'Agusan del Norte', coordinates: { lat: 8.9328, lng: 125.5342 } },
-  { id: 'loc-3', barangay: 'Ampayon', city: 'Butuan City', province: 'Agusan del Norte', coordinates: { lat: 8.9564, lng: 125.5843 } },
-  { id: 'loc-4', barangay: 'Bancasi', city: 'Butuan City', province: 'Agusan del Norte' },
+  { id: 'loc-1', region: 'Caraga Region', province: 'Agusan del Norte', city: 'Butuan City', barangay: 'Lumbocan', coordinates: { lat: 8.9715, lng: 125.5097 }, coordinatePrecision: 'EXACT_SITE' },
+  { id: 'loc-2', region: 'Caraga Region', province: 'Agusan del Norte', city: 'Butuan City', barangay: 'Libertad', coordinates: { lat: 8.9328, lng: 125.5342 }, coordinatePrecision: 'EXACT_SITE' },
+  { id: 'loc-3', region: 'Caraga Region', province: 'Agusan del Norte', city: 'Butuan City', barangay: 'Ampayon', coordinates: { lat: 8.9564, lng: 125.5843 }, coordinatePrecision: 'EXACT_SITE' },
+  { id: 'loc-4', region: 'Caraga Region', province: 'Agusan del Norte', city: 'Butuan City', barangay: 'Bancasi' },
 ];
 
 // Mock Sources (Aligned to approved non-cooperative source types)
@@ -529,10 +530,41 @@ class MockDatabase {
     this.locations.push(location);
   }
 
+  findOrAddLocation(input: Omit<Location, 'id'> & { id?: string }): Location {
+    const normalized: Omit<Location, 'id'> = {
+      region: normalizeRegionName(input.region),
+      province: normalizeLocationPart(input.province),
+      city: normalizeLocationPart(input.city),
+      barangay: normalizeLocationPart(input.barangay),
+      coordinates: input.coordinates,
+      coordinatePrecision: input.coordinates ? (input.coordinatePrecision || 'EXACT_SITE') : undefined,
+    };
+
+    const existing = this.locations.find((l) => isSameLocationHierarchy(l, normalized));
+    if (existing) {
+      if (!existing.region && normalized.region) {
+        existing.region = normalized.region;
+      }
+      if (!existing.coordinates && normalized.coordinates) {
+        existing.coordinates = normalized.coordinates;
+        existing.coordinatePrecision = normalized.coordinatePrecision || 'EXACT_SITE';
+      }
+      return existing;
+    }
+
+    const newLoc: Location = {
+      id: input.id || `loc-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      ...normalized,
+    };
+    this.locations.push(newLoc);
+    return newLoc;
+  }
+
   updateLocationCoordinates(locationId: string, lat: number | undefined, lng: number | undefined) {
     const loc = this.locations.find((l) => l.id === locationId);
     if (loc) {
       loc.coordinates = lat !== undefined && lng !== undefined ? { lat, lng } : undefined;
+      loc.coordinatePrecision = lat !== undefined && lng !== undefined ? 'EXACT_SITE' : undefined;
     }
   }
 

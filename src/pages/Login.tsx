@@ -341,7 +341,7 @@ export const Login: React.FC = () => {
         )}
 
         <div className="mt-8 text-center text-xs text-agri-earth-500">
-          <p>AgriCycle CB-BAIM System &bull; Butuan City, Philippines</p>
+          <p>AgriCycle CB-BAIM System &bull; Philippines</p>
         </div>
       </div>
     </div>

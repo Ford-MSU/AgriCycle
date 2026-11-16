@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/Card';
 import { Button } from './ui/Button';
 import { RecordStatus, SystemAction } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { hasPermission, Permission } from '../utils/rbac';
-import { CheckCircle, XCircle, RotateCcw, Clock, AlertCircle } from 'lucide-react';
+import { CheckCircle, XCircle, RotateCcw, Clock, AlertCircle, MapPin, ShieldAlert } from 'lucide-react';
+import {
+  PSGCValidationResult,
+  resolveLocationRegion,
+  verifyLocationHierarchyAgainstPSGC,
+} from '../utils/philippineLocations';
 
 interface ValidationFormProps {
   recordId: string;
@@ -19,11 +24,26 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
   onComplete,
 }) => {
   const { user } = useAuth();
-  const { addValidation, updateRecord } = useData();
+  const { addValidation, updateRecord, getRecord, getSource, getLocation } = useData();
   const [basis, setBasis] = useState('Documentary Review');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [psgcCheck, setPsgcCheck] = useState<PSGCValidationResult | null>(null);
+
+  const record = getRecord(recordId);
+  const source = record ? getSource(record.sourceId) : undefined;
+  const location = source ? getLocation(source.locationId) : record ? getLocation(record.locationId) : undefined;
+
+  useEffect(() => {
+    let active = true;
+    verifyLocationHierarchyAgainstPSGC(location).then((res) => {
+      if (active) setPsgcCheck(res);
+    });
+    return () => {
+      active = false;
+    };
+  }, [location]);
 
   if (!user || !hasPermission(user.role, Permission.VALIDATE_BIOMASS_RECORD)) {
     return null;
@@ -67,7 +87,7 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
         basis || 'Documentary Review',
         notes.trim() ||
           (decision === RecordStatus.VALIDATED
-            ? 'Validated according to regional biomass reporting guidelines'
+            ? 'Validated according to Philippine biomass reporting guidelines'
             : 'Not specified')
       );
       onComplete();
@@ -90,7 +110,7 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
           </span>
         </div>
         <CardDescription className="text-xs text-gray-600">
-          Formal administrative validation evaluating documentary completeness, source consistency, and regional reporting standards. This does not constitute laboratory or biological certification.
+          Formal administrative validation evaluating documentary completeness, administrative location accuracy, and reporting standards. This does not constitute laboratory or biological certification.
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-4 space-y-4">
@@ -100,6 +120,86 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
             <span>{error}</span>
           </div>
         )}
+
+        {/* Complete Location Verification Panel */}
+        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/70 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-800">
+              <MapPin size={14} className="text-agri-green-600" />
+              <span>Submitted Biomass Source Location Verification</span>
+            </div>
+            {psgcCheck && (
+              <span
+                className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                  psgcCheck.status === 'VERIFIED'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                }`}
+              >
+                {psgcCheck.status === 'VERIFIED'
+                  ? 'PSGC Hierarchy Match'
+                  : psgcCheck.status === 'INCOMPLETE'
+                  ? 'Incomplete Location'
+                  : 'Needs Location Verification'}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div className="bg-white p-2 rounded border border-gray-100">
+              <span className="text-[11px] text-gray-500 block">Region</span>
+              <span className="font-semibold text-gray-900">
+                {resolveLocationRegion(location) || 'Missing'}
+              </span>
+            </div>
+            <div className="bg-white p-2 rounded border border-gray-100">
+              <span className="text-[11px] text-gray-500 block">Province</span>
+              <span className="font-semibold text-gray-900">
+                {location?.province || 'Missing'}
+              </span>
+            </div>
+            <div className="bg-white p-2 rounded border border-gray-100">
+              <span className="text-[11px] text-gray-500 block">City / Municipality</span>
+              <span className="font-semibold text-gray-900">
+                {location?.city || 'Missing'}
+              </span>
+            </div>
+            <div className="bg-white p-2 rounded border border-gray-100">
+              <span className="text-[11px] text-gray-500 block">Barangay</span>
+              <span className="font-semibold text-gray-900">
+                {location?.barangay || 'Missing'}
+              </span>
+            </div>
+          </div>
+
+          {psgcCheck && (
+            <div
+              className={`text-[11px] flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 ${
+                psgcCheck.status === 'VERIFIED' ? 'text-emerald-700' : 'text-amber-800'
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                {psgcCheck.status !== 'VERIFIED' && <ShieldAlert size={13} className="shrink-0" />}
+                {psgcCheck.message}
+              </span>
+              {psgcCheck.status !== 'VERIFIED' && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setNotes((prev) =>
+                      prev.trim()
+                        ? `${prev.trim()}\nLocation issue: ${psgcCheck.message}`
+                        : `Location verification issue: ${psgcCheck.message}`
+                    )
+                  }
+                  className="text-[11px] font-semibold underline text-amber-900 hover:text-amber-700 shrink-0 text-left"
+                >
+                  Insert location issue into notes
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Step 1: Mark Under Review if Submitted */}
         {currentStatus === RecordStatus.SUBMITTED && (
@@ -148,7 +248,7 @@ export const ValidationForm: React.FC<ValidationFormProps> = ({
             <textarea
               className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-agri-green-500 focus:border-agri-green-500"
               rows={3}
-              placeholder="Mandatory if returning for correction or rejecting. Explains what needs correction to the submitter..."
+              placeholder="Mandatory if returning for correction or rejecting (e.g., incomplete/inconsistent Region, Province, City/Municipality, or Barangay)..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />

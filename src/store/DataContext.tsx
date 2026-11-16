@@ -197,7 +197,7 @@ const INITIAL_NOTIFICATIONS: SystemNotification[] = [
     id: 'notif-3',
     recipientRole: Role.ADMINISTRATOR,
     title: 'System Audit Check Completed',
-    message: 'Automated integrity validation passed across Butuan City barangay records.',
+    message: 'Automated integrity validation passed across registered barangay biomass records.',
     link: '/audit-logs',
     isRead: true,
     createdAt: new Date(Date.now() - 3600000 * 48).toISOString(),
@@ -414,13 +414,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return created;
     }
 
-    const newLoc: Location = {
-      id: locationInput.id || `loc-${Date.now()}`,
-      ...locationInput,
-    };
-    db.addLocation(newLoc);
+    const resolved = db.findOrAddLocation(locationInput);
     syncLocalStateFromMock();
-    return newLoc;
+    return resolved;
   };
 
   const updateLocationCoordinates = async (

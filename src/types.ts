@@ -72,12 +72,16 @@ export interface User {
   isActive?: boolean;
 }
 
+export type CoordinatePrecision = 'EXACT_SITE' | 'BARANGAY_CENTROID';
+
 export interface Location {
   id: string;
-  barangay: string;
-  city: string;
+  region?: string;
   province: string;
+  city: string;
+  barangay: string;
   coordinates?: { lat: number; lng: number };
+  coordinatePrecision?: CoordinatePrecision;
 }
 
 export interface BiomassSource {

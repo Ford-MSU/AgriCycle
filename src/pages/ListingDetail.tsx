@@ -7,6 +7,7 @@ import { BiomassRecord, AggregationGroup, RecordStatus } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { hasPermission, Permission } from '../utils/rbac';
+import { formatLocationHierarchy } from '../utils/philippineLocations';
 import { ArrowLeft, MapPin, Send, AlertTriangle, Lock } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -173,8 +174,8 @@ export const ListingDetail: React.FC = () => {
                 <p className="text-sm font-medium text-gray-800">
                   {source?.name} ({source?.type})
                 </p>
-                <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                  <MapPin size={13} className="text-agri-green-600 shrink-0" /> {location?.barangay}, {location?.city}
+                <p className="text-xs text-gray-600 flex items-center gap-1 mt-1">
+                  <MapPin size={13} className="text-agri-green-600 shrink-0" /> {formatLocationHierarchy(location)}
                 </p>
                 {record.accessLocationNotes && (
                   <p className="text-xs text-gray-500 mt-1 italic">Access: {record.accessLocationNotes}</p>

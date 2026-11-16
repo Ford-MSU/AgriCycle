@@ -35,6 +35,7 @@ import {
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { calculateCoreMetrics, convertToMetricTonnes } from '../utils/analytics';
+import { formatShortLocation, getLocationHierarchyKey } from '../utils/philippineLocations';
 
 const safeFormatDate = (value?: string, fmt: string = 'MMM d, yyyy'): string => {
   if (!value) return 'N/A';
@@ -195,13 +196,25 @@ export const Dashboard: React.FC = () => {
 
     const map = new Map<
       string,
-      { barangay: string; totalTonnes: number; availableTonnes: number; internalTonnes: number; count: number }
+      {
+        locationKey: string;
+        barangay: string;
+        city: string;
+        province: string;
+        totalTonnes: number;
+        availableTonnes: number;
+        internalTonnes: number;
+        count: number;
+      }
     >();
 
     recordsToCount.forEach((r) => {
       const src = sources.find((s) => s.id === r.sourceId);
       const loc = locations.find((l) => l.id === (src?.locationId || r.locationId));
-      const barangay = loc?.barangay || 'Other / Regional';
+      const locationKey = loc ? getLocationHierarchyKey(loc) || loc.id : 'unspecified';
+      const barangay = loc?.barangay || 'Location not specified';
+      const city = loc?.city || '';
+      const province = loc?.province || '';
 
       const totalT = convertToMetricTonnes(r.quantity, r.originalUnit, referenceData);
       const availT =
@@ -209,9 +222,12 @@ export const Dashboard: React.FC = () => {
           ? convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData)
           : totalT;
 
-      if (!map.has(barangay)) {
-        map.set(barangay, {
+      if (!map.has(locationKey)) {
+        map.set(locationKey, {
+          locationKey,
           barangay,
+          city,
+          province,
           totalTonnes: 0,
           availableTonnes: 0,
           internalTonnes: 0,
@@ -219,7 +235,7 @@ export const Dashboard: React.FC = () => {
         });
       }
 
-      const item = map.get(barangay)!;
+      const item = map.get(locationKey)!;
       item.count++;
       item.totalTonnes += totalT;
       if (r.status === RecordStatus.VALIDATED && r.externalAvailability !== 'NOT_AVAILABLE') {
@@ -241,7 +257,7 @@ export const Dashboard: React.FC = () => {
   const topMillsAndFarms = useMemo(() => {
     const map = new Map<
       string,
-      { id: string; name: string; type: string; barangay: string; totalTonnes: number; recordCount: number }
+      { id: string; name: string; type: string; locationLabel: string; totalTonnes: number; recordCount: number }
     >();
 
     accessibleRecords.forEach((r) => {
@@ -250,7 +266,7 @@ export const Dashboard: React.FC = () => {
       const srcName = src?.name || 'Local Farm / Establishment';
       const srcType = src?.type || 'Agricultural';
       const loc = locations.find((l) => l.id === (src?.locationId || r.locationId));
-      const barangay = loc?.barangay || 'Butuan City';
+      const locationLabel = formatShortLocation(loc);
 
       const totalT = convertToMetricTonnes(r.quantity, r.originalUnit, referenceData);
 
@@ -259,7 +275,7 @@ export const Dashboard: React.FC = () => {
           id: srcId,
           name: srcName,
           type: srcType,
-          barangay,
+          locationLabel,
           totalTonnes: 0,
           recordCount: 0,
         });
@@ -405,7 +421,7 @@ export const Dashboard: React.FC = () => {
               : 'Biomass Information Overview'}
           </h2>
           <p className="text-sm text-agri-earth-500 mt-1">
-            {getRoleDisplayName(user.role)} Portal &bull; Butuan City Community-Based Biomass System
+            {getRoleDisplayName(user.role)} Portal &bull; Philippines-Wide Community-Based Biomass Information System
           </p>
         </div>
 
@@ -728,10 +744,10 @@ export const Dashboard: React.FC = () => {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <MapPin className="text-agri-green-600" size={18} />
-                  Butuan City Barangay Distribution
+                  Barangay Biomass Distribution
                 </CardTitle>
                 <CardDescription>
-                  Biomass tonnage recorded and available per barangay.
+                  Biomass tonnage recorded and available per barangay (disambiguated by city and province).
                 </CardDescription>
               </div>
               <div className="flex items-center gap-1.5 bg-gray-50 p-1 rounded-lg border border-gray-200 text-xs">
@@ -759,7 +775,7 @@ export const Dashboard: React.FC = () => {
                 <div className="space-y-2.5">
                   {filteredBarangayRankings.slice(0, 5).map((b, idx) => (
                     <div
-                      key={b.barangay}
+                      key={b.locationKey}
                       className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 hover:bg-agri-green-50/40 transition-colors border border-gray-100"
                     >
                       <div className="flex items-center gap-2.5">
@@ -768,6 +784,11 @@ export const Dashboard: React.FC = () => {
                         </span>
                         <div>
                           <p className="font-semibold text-gray-900 text-sm">{b.barangay}</p>
+                          {(b.city || b.province) && (
+                            <p className="text-[11px] text-gray-600">
+                              {[b.city, b.province].filter(Boolean).join(', ')}
+                            </p>
+                          )}
                           <p className="text-[11px] text-gray-500">
                             {b.count} records &bull; {b.internalTonnes} MT internal use
                           </p>
@@ -793,7 +814,7 @@ export const Dashboard: React.FC = () => {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Building className="text-agri-green-600" size={18} />
-                  Top Biomass Sources in Butuan City
+                  Top Registered Biomass Sources
                 </CardTitle>
                 <CardDescription>
                   Key farms, rice mills, coconut processors, and wood-based establishments.
@@ -832,7 +853,7 @@ export const Dashboard: React.FC = () => {
                             <span className="bg-gray-200 text-gray-800 px-1.5 py-0.5 rounded font-medium text-[10px]">
                               {m.type}
                             </span>
-                            <span>&bull; {m.barangay}</span>
+                            <span>&bull; {m.locationLabel}</span>
                           </div>
                         </div>
                       </div>

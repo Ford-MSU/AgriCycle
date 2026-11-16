@@ -127,7 +127,7 @@ export const UsersPage: React.FC = () => {
             <UsersIcon className="text-agri-green-600" /> User Directory &amp; Role Governance
           </h2>
           <p className="text-sm text-agri-earth-500 mt-1">
-            Assign formal system roles and manage account activation across Butuan City AgriCycle users.
+            Assign formal system roles and manage account activation across AgriCycle system users.
           </p>
         </div>
         <Button onClick={() => setIsGuideOpen(true)} variant="outline" icon={<Info size={16} />}>

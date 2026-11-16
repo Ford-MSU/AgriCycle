@@ -5,6 +5,7 @@ import { Role, InquiryStatus, Inquiry, InquiryMessage } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { getRoleShortName, hasPermission, Permission } from '../utils/rbac';
+import { formatLocationHierarchy } from '../utils/philippineLocations';
 import {
   MessageSquare,
   Clock,
@@ -634,7 +635,7 @@ export const Inquiries: React.FC = () => {
                       </p>
                       {sourceLocation && (
                         <p className="text-xs text-gray-600 mt-0.5">
-                          {sourceLocation.barangay}, {sourceLocation.city}, {sourceLocation.province}
+                          {formatLocationHierarchy(sourceLocation)}
                         </p>
                       )}
                       {targetSource?.contactPerson && (
@@ -656,7 +657,7 @@ export const Inquiries: React.FC = () => {
                       </div>
                       <p className="text-sm font-bold text-gray-900">LGU Biomass Information Office</p>
                       <p className="text-xs text-gray-600 mt-0.5">
-                        Butuan City Information Linkage Desk
+                        LGU Biomass Information Linkage Desk
                       </p>
                       <p className="text-xs text-blue-800 mt-2">
                         Coordinator role is limited to reviewing, accepting, or declining non-binding market inquiries.

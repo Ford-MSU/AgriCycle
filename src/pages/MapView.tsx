@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { Button } from '../components/ui/Button';
-import { RecordStatus, Role } from '../types';
+import { Location, RecordStatus, Role } from '../types';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { hasPermission, Permission } from '../utils/rbac';
-import { Filter, MapPin, Edit3, X, AlertCircle } from 'lucide-react';
+import { LocationFilterSelects } from '../components/LocationSelector';
+import { formatLocationHierarchy, normalizeRegionName } from '../utils/philippineLocations';
+import { Filter, MapPin, Edit3, X, AlertCircle, RotateCcw } from 'lucide-react';
 import { format } from 'date-fns';
 import { useSearchParams, Link } from 'react-router-dom';
 import L from 'leaflet';
@@ -36,12 +38,42 @@ const createStatusIcon = (status: RecordStatus) => {
   });
 };
 
-const INITIAL_CENTER: [number, number] = [8.9475, 125.5406]; // Butuan City
+// Philippines geographic center and nationwide zoom
+const INITIAL_CENTER: [number, number] = [12.8797, 121.7740];
+const INITIAL_ZOOM = 6;
 
-const MINDANAO_BOUNDS: L.LatLngBoundsExpression = [
-  [4.4, 119.3],
-  [9.9, 127.7],
-];
+interface ViewportControllerProps {
+  points: Array<[number, number]>;
+  fitKey: string;
+  resetCounter: number;
+}
+
+const MapViewportController: React.FC<ViewportControllerProps> = ({
+  points,
+  fitKey,
+  resetCounter,
+}) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (resetCounter > 0) {
+      map.setView(INITIAL_CENTER, INITIAL_ZOOM, { animate: true });
+    }
+  }, [resetCounter, map]);
+
+  useEffect(() => {
+    if (points.length === 0) return;
+    if (points.length === 1) {
+      map.setView(points[0], 13, { animate: true });
+      return;
+    }
+    const bounds = L.latLngBounds(points.map(([lat, lng]) => L.latLng(lat, lng)));
+    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14, animate: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitKey, map]);
+
+  return null;
+};
 
 export const MapView: React.FC = () => {
   const { user } = useAuth();
@@ -59,6 +91,13 @@ export const MapView: React.FC = () => {
 
   const [activeBiomassType, setActiveBiomassType] = useState<string>('ALL');
   const [activeStatus, setActiveStatus] = useState<string>('ALL');
+  const [locationFilter, setLocationFilter] = useState({
+    region: 'ALL',
+    province: 'ALL',
+    city: 'ALL',
+    barangay: 'ALL',
+  });
+  const [resetCounter, setResetCounter] = useState(0);
 
   // Coordinator GIS coordinate editor modal state
   const [editingLocId, setEditingLocId] = useState<string | null>(null);
@@ -68,23 +107,21 @@ export const MapView: React.FC = () => {
   const [coordError, setCoordError] = useState('');
   const [isSavingCoords, setIsSavingCoords] = useState(false);
 
-  if (!user) return null;
+  const isValidatedOnlyRole = user?.role === Role.BUYER || user?.role === Role.LGU;
 
-  const canManageMap = hasPermission(user.role, Permission.MANAGE_MAP_INFO);
-  const isValidatedOnlyRole = user.role === Role.BUYER || user.role === Role.LGU;
+  // Retrieve role-authorized records (prior to location filtering so filter dropdowns reflect available areas)
+  const roleAuthorizedRecords = useMemo(() => {
+    if (!user) return [];
+    let list = records;
 
-  // Retrieve role-authorized records
-  let mapRecords = records;
-
-  if (groupIdFilter) {
-    const memberRecordIds = getAggregationMembers(groupIdFilter).map((m) => m.biomassRecordId);
-    mapRecords = mapRecords.filter((r) => memberRecordIds.includes(r.id));
-    if (isValidatedOnlyRole) {
-      mapRecords = mapRecords.filter((r) => r.status === RecordStatus.VALIDATED);
-    }
-  } else {
-    if (user.role === Role.BUYER) {
-      mapRecords = mapRecords.filter((r) => {
+    if (groupIdFilter) {
+      const memberRecordIds = getAggregationMembers(groupIdFilter).map((m) => m.biomassRecordId);
+      list = list.filter((r) => memberRecordIds.includes(r.id));
+      if (isValidatedOnlyRole) {
+        list = list.filter((r) => r.status === RecordStatus.VALIDATED);
+      }
+    } else if (user.role === Role.BUYER) {
+      list = list.filter((r) => {
         const remaining = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity;
         return (
           r.status === RecordStatus.VALIDATED &&
@@ -94,32 +131,131 @@ export const MapView: React.FC = () => {
         );
       });
     } else if (user.role === Role.LGU) {
-      // Planning users view validated biomass information only
-      mapRecords = mapRecords.filter((r) => r.status === RecordStatus.VALIDATED);
+      list = list.filter((r) => r.status === RecordStatus.VALIDATED);
     }
-  }
 
-  if (activeBiomassType !== 'ALL') {
-    mapRecords = mapRecords.filter((r) => r.biomassTypeId === activeBiomassType);
-  }
-  if (!isValidatedOnlyRole && activeStatus !== 'ALL') {
-    mapRecords = mapRecords.filter((r) => r.status === activeStatus);
-  }
+    return list;
+  }, [user, records, groupIdFilter, isValidatedOnlyRole, getAggregationMembers]);
 
-  // Strictly use real stored coordinates — NEVER fabricate fake lat/lng
-  const enriched = mapRecords.map((record) => {
-    const source = getSource(record.sourceId);
-    const location = source ? getLocation(source.locationId) : getLocation(record.locationId);
-    return { record, source, location };
-  });
+  // Unique active locations available across role-authorized records
+  const availableFilterLocations = useMemo(() => {
+    const locMap = new Map<string, Location>();
+    roleAuthorizedRecords.forEach((rec) => {
+      const src = getSource(rec.sourceId);
+      const loc = src ? getLocation(src.locationId) : getLocation(rec.locationId);
+      if (loc) locMap.set(loc.id, loc);
+    });
+    return Array.from(locMap.values());
+  }, [roleAuthorizedRecords, getSource, getLocation]);
 
-  const mappedPoints = enriched.filter(
-    (item) =>
-      item.location?.coordinates &&
-      Number.isFinite(item.location.coordinates.lat) &&
-      Number.isFinite(item.location.coordinates.lng)
+  const enriched = useMemo(() => {
+    return roleAuthorizedRecords
+      .filter((r) => {
+        if (activeBiomassType !== 'ALL' && r.biomassTypeId !== activeBiomassType) return false;
+        if (!isValidatedOnlyRole && activeStatus !== 'ALL' && r.status !== activeStatus) return false;
+        return true;
+      })
+      .map((record) => {
+        const source = getSource(record.sourceId);
+        const location = source ? getLocation(source.locationId) : getLocation(record.locationId);
+        return { record, source, location };
+      })
+      .filter(({ location }) => {
+        const hasLocationFilter =
+          locationFilter.region !== 'ALL' ||
+          locationFilter.province !== 'ALL' ||
+          locationFilter.city !== 'ALL' ||
+          locationFilter.barangay !== 'ALL';
+        if (!hasLocationFilter) return true;
+        if (!location) return false;
+
+        if (locationFilter.region !== 'ALL' && normalizeRegionName(location.region) !== locationFilter.region) {
+          return false;
+        }
+        if (locationFilter.province !== 'ALL' && location.province !== locationFilter.province) {
+          return false;
+        }
+        if (locationFilter.city !== 'ALL' && location.city !== locationFilter.city) {
+          return false;
+        }
+        if (locationFilter.barangay !== 'ALL' && location.barangay !== locationFilter.barangay) {
+          return false;
+        }
+        return true;
+      });
+  }, [
+    roleAuthorizedRecords,
+    activeBiomassType,
+    activeStatus,
+    isValidatedOnlyRole,
+    locationFilter,
+    getSource,
+    getLocation,
+  ]);
+
+  const mappedPointsWithOffsets = useMemo(() => {
+    const valid = enriched.filter(
+      (item) =>
+        item.location?.coordinates &&
+        Number.isFinite(item.location.coordinates.lat) &&
+        Number.isFinite(item.location.coordinates.lng)
+    );
+
+    const coordGroups = new Map<string, number>();
+    valid.forEach((item) => {
+      const key = `${item.location!.coordinates!.lat.toFixed(5)},${item.location!.coordinates!.lng.toFixed(5)}`;
+      coordGroups.set(key, (coordGroups.get(key) || 0) + 1);
+    });
+
+    const seenInGroup = new Map<string, number>();
+    return valid.map((item) => {
+      const baseLat = item.location!.coordinates!.lat;
+      const baseLng = item.location!.coordinates!.lng;
+      const key = `${baseLat.toFixed(5)},${baseLng.toFixed(5)}`;
+      const totalAtCoord = coordGroups.get(key) || 1;
+      const idxInCoord = seenInGroup.get(key) || 0;
+      seenInGroup.set(key, idxInCoord + 1);
+
+      let displayLat = baseLat;
+      let displayLng = baseLng;
+      if (totalAtCoord > 1) {
+        const angle = (2 * Math.PI * idxInCoord) / totalAtCoord;
+        const radius = 0.00025;
+        displayLat = baseLat + radius * Math.cos(angle);
+        displayLng = baseLng + radius * Math.sin(angle);
+      }
+
+      return {
+        ...item,
+        displayPosition: [displayLat, displayLng] as [number, number],
+        sharedCoordCount: totalAtCoord,
+      };
+    });
+  }, [enriched]);
+
+  const unmappedItems = useMemo(
+    () =>
+      enriched.filter(
+        (item) =>
+          !item.location?.coordinates ||
+          !Number.isFinite(item.location.coordinates.lat) ||
+          !Number.isFinite(item.location.coordinates.lng)
+      ),
+    [enriched]
   );
-  const unmappedItems = enriched.filter((item) => !item.location?.coordinates);
+
+  if (!user) return null;
+
+  const canManageMap = hasPermission(user.role, Permission.MANAGE_MAP_INFO);
+  const hasLocationFilter =
+    locationFilter.region !== 'ALL' ||
+    locationFilter.province !== 'ALL' ||
+    locationFilter.city !== 'ALL' ||
+    locationFilter.barangay !== 'ALL';
+
+  const fitPoints = mappedPointsWithOffsets.map((p) => p.displayPosition);
+  const fitKey = mappedPointsWithOffsets.map((p) => p.record.id).join('|') +
+    `|${locationFilter.region}|${locationFilter.province}|${locationFilter.city}|${locationFilter.barangay}|${activeBiomassType}|${activeStatus}`;
 
   const openCoordinateEditor = (locId: string, label: string, current?: { lat: number; lng: number }) => {
     setEditingLocId(locId);
@@ -160,26 +296,43 @@ export const MapView: React.FC = () => {
     }
   };
 
+  const handleResetAllFiltersAndView = () => {
+    setActiveBiomassType('ALL');
+    setActiveStatus('ALL');
+    setLocationFilter({ region: 'ALL', province: 'ALL', city: 'ALL', barangay: 'ALL' });
+    setResetCounter((c) => c + 1);
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       <div className="mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
-            {groupIdFilter ? `GIS Map: Group ${groupIdFilter}` : 'GIS / Biomass Map'}
+            {groupIdFilter ? `GIS Map: Group ${groupIdFilter}` : 'GIS / Biomass Map (Philippines)'}
           </h2>
           <p className="text-sm text-agri-earth-500 mt-1">
             {isValidatedOnlyRole
-              ? 'Read-only spatial visibility of validated biomass sources.'
-              : 'Spatial visibility and GPS coordinate management for recorded biomass sources.'}
+              ? 'Read-only spatial visibility of validated barangay-level biomass sources across the Philippines.'
+              : 'Philippines-wide spatial visibility and GPS coordinate management for recorded biomass sources.'}
           </p>
         </div>
-        {groupIdFilter && (
-          <Link to="/aggregation-hubs">
-            <Button variant="outline" size="sm">
-              Back to Biomass Aggregation
-            </Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<RotateCcw size={14} />}
+            onClick={handleResetAllFiltersAndView}
+          >
+            Reset Philippines View
+          </Button>
+          {groupIdFilter && (
+            <Link to="/aggregation-hubs">
+              <Button variant="outline" size="sm">
+                Back to Biomass Aggregation
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 h-full min-h-0">
@@ -187,10 +340,33 @@ export const MapView: React.FC = () => {
         <Card className="md:w-80 shrink-0 h-full overflow-y-auto">
           <CardHeader className="pb-3 border-b border-gray-100">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Filter size={16} /> Map Filters ({mappedPoints.length} Plotted)
+              <Filter size={16} /> Map Filters ({mappedPointsWithOffsets.length} Plotted)
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-4 space-y-5">
+          <CardContent className="p-4 space-y-4">
+            <div className="space-y-2.5 pb-3 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-700 uppercase">Location Filter</span>
+                {hasLocationFilter && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLocationFilter({ region: 'ALL', province: 'ALL', city: 'ALL', barangay: 'ALL' })
+                    }
+                    className="text-[11px] font-semibold text-agri-green-700 hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <LocationFilterSelects
+                locations={availableFilterLocations}
+                value={locationFilter}
+                onChange={setLocationFilter}
+                compact
+              />
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-gray-700 uppercase mb-2">Biomass Type</label>
               <select
@@ -261,6 +437,7 @@ export const MapView: React.FC = () => {
                 <div className="space-y-2">
                   {unmappedItems.map((item) => {
                     const typeLabel = referenceData.find((r) => r.id === item.record.biomassTypeId)?.label;
+                    const locDisplay = formatLocationHierarchy(item.location);
                     return (
                       <div
                         key={item.record.id}
@@ -268,7 +445,7 @@ export const MapView: React.FC = () => {
                       >
                         <p className="font-semibold text-gray-900">{item.source?.name || item.record.id}</p>
                         <p className="text-gray-600">
-                          {typeLabel} &bull; Brgy. {item.location?.barangay || 'Unknown'}
+                          {typeLabel} &bull; {locDisplay}
                         </p>
                         <span className="inline-block text-[10px] font-semibold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
                           Coordinates Not Yet Recorded
@@ -280,7 +457,7 @@ export const MapView: React.FC = () => {
                               onClick={() =>
                                 openCoordinateEditor(
                                   item.location!.id,
-                                  `${item.source?.name || 'Source'} (Brgy. ${item.location!.barangay})`,
+                                  `${item.source?.name || 'Source'} (${locDisplay})`,
                                   item.location!.coordinates
                                 )
                               }
@@ -303,11 +480,9 @@ export const MapView: React.FC = () => {
         <div className="flex-1 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden relative z-0 shadow-inner">
           <MapContainer
             center={INITIAL_CENTER}
-            zoom={11}
-            minZoom={7}
+            zoom={INITIAL_ZOOM}
+            minZoom={5}
             maxZoom={18}
-            maxBounds={MINDANAO_BOUNDS}
-            maxBoundsViscosity={1.0}
             scrollWheelZoom={true}
             className="w-full h-full"
           >
@@ -317,7 +492,9 @@ export const MapView: React.FC = () => {
               maxZoom={19}
             />
 
-            {mappedPoints.map((item, index) => {
+            <MapViewportController points={fitPoints} fitKey={fitKey} resetCounter={resetCounter} />
+
+            {mappedPointsWithOffsets.map((item, index) => {
               if (!item.location?.coordinates) return null;
 
               const type = referenceData.find((r) => r.id === item.record.biomassTypeId)?.label;
@@ -325,15 +502,20 @@ export const MapView: React.FC = () => {
               const availQty =
                 item.record.remainingQuantity !== undefined ? item.record.remainingQuantity : item.record.quantity;
               const isAvailableToMarket = item.record.externalAvailability !== 'NOT_AVAILABLE';
+              const fullLoc = formatLocationHierarchy(item.location);
+              const precisionLabel =
+                item.location.coordinatePrecision === 'BARANGAY_CENTROID'
+                  ? 'Approx. Barangay Centroid'
+                  : 'Exact Site GPS';
 
               return (
                 <Marker
                   key={`${item.record.id}-${index}`}
-                  position={[item.location.coordinates.lat, item.location.coordinates.lng]}
+                  position={item.displayPosition}
                   icon={createStatusIcon(item.record.status)}
                 >
                   <Popup className="agricycle-popup">
-                    <div className="p-1 min-w-[210px]">
+                    <div className="p-1 min-w-[225px]">
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <StatusBadge status={item.record.status} />
                         <span
@@ -348,12 +530,21 @@ export const MapView: React.FC = () => {
                       </div>
                       <h3 className="font-bold text-gray-900">{type}</h3>
                       <div className="text-xs text-agri-earth-700 mb-2 border-b border-gray-100 pb-1.5 space-y-0.5">
-                        <p className="font-semibold text-gray-800">
-                          Source: {item.source?.name} ({item.location.barangay}, {item.location.city})
-                        </p>
-                        <p className="text-[11px] text-gray-500">
-                          Coords: {item.location.coordinates.lat.toFixed(4)}, {item.location.coordinates.lng.toFixed(4)}
-                        </p>
+                        <p className="font-semibold text-gray-800">{item.source?.name}</p>
+                        <p className="text-[11px] text-gray-600">{fullLoc}</p>
+                        <div className="flex items-center justify-between gap-2 pt-0.5">
+                          <span className="text-[10px] text-gray-500">
+                            {item.location.coordinates.lat.toFixed(4)}, {item.location.coordinates.lng.toFixed(4)}
+                          </span>
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                            {precisionLabel}
+                          </span>
+                        </div>
+                        {item.sharedCoordCount > 1 && (
+                          <p className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded mt-1">
+                            Pin slightly offset ({item.sharedCoordCount} records share these coordinates)
+                          </p>
+                        )}
                       </div>
 
                       <div className="space-y-1 mb-3 text-xs">
@@ -393,7 +584,7 @@ export const MapView: React.FC = () => {
                             onClick={() =>
                               openCoordinateEditor(
                                 item.location!.id,
-                                `${item.source?.name || 'Source'} (Brgy. ${item.location!.barangay})`,
+                                `${item.source?.name || 'Source'} (${fullLoc})`,
                                 item.location!.coordinates
                               )
                             }
@@ -438,7 +629,7 @@ export const MapView: React.FC = () => {
                       type="number"
                       step="any"
                       className="w-full p-2 border border-gray-200 rounded-lg text-sm"
-                      placeholder="e.g. 8.9475"
+                      placeholder="e.g. 8.4772"
                       value={latInput}
                       onChange={(e) => setLatInput(e.target.value)}
                       required
@@ -450,7 +641,7 @@ export const MapView: React.FC = () => {
                       type="number"
                       step="any"
                       className="w-full p-2 border border-gray-200 rounded-lg text-sm"
-                      placeholder="e.g. 125.5406"
+                      placeholder="e.g. 124.6361"
                       value={lngInput}
                       onChange={(e) => setLngInput(e.target.value)}
                       required

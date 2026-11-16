@@ -34,6 +34,7 @@ import {
   calculateBarangayRankings,
   convertToMetricTonnes,
 } from '../utils/analytics';
+import { resolveLocationRegion } from '../utils/philippineLocations';
 
 const COLORS = ['#22c55e', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#64748b', '#06b6d4'];
 
@@ -166,17 +167,29 @@ export const Reports: React.FC = () => {
         'Biomass Type',
         'Available Quantity',
         'Unit',
+        'Barangay',
+        'City/Municipality',
+        'Province',
+        'Region',
         'Availability Window End',
         'Last Updated',
       ];
-      const rows = accessibleRecords.map((r) => [
-        r.id,
-        `"${(referenceData.find((ref) => ref.id === r.biomassTypeId)?.label || 'Unknown').replace(/"/g, '""')}"`,
-        String(r.remainingQuantity ?? r.quantity),
-        `"${(referenceData.find((ref) => ref.id === r.originalUnit)?.label || r.originalUnit).replace(/"/g, '""')}"`,
-        safeLocaleDate(r.availabilityPeriodEnd),
-        safeLocaleDate(r.lastUpdatedDate),
-      ]);
+      const rows = accessibleRecords.map((r) => {
+        const src = sources.find((s) => s.id === r.sourceId);
+        const loc = locations.find((l) => l.id === (src?.locationId || r.locationId));
+        return [
+          r.id,
+          `"${(referenceData.find((ref) => ref.id === r.biomassTypeId)?.label || 'Unknown').replace(/"/g, '""')}"`,
+          String(r.remainingQuantity ?? r.quantity),
+          `"${(referenceData.find((ref) => ref.id === r.originalUnit)?.label || r.originalUnit).replace(/"/g, '""')}"`,
+          `"${(loc?.barangay || '').replace(/"/g, '""')}"`,
+          `"${(loc?.city || '').replace(/"/g, '""')}"`,
+          `"${(loc?.province || '').replace(/"/g, '""')}"`,
+          `"${(loc ? resolveLocationRegion(loc) : '').replace(/"/g, '""')}"`,
+          safeLocaleDate(r.availabilityPeriodEnd),
+          safeLocaleDate(r.lastUpdatedDate),
+        ];
+      });
       const csvContent = [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -497,10 +510,10 @@ export const Reports: React.FC = () => {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <MapPin size={18} className="text-agri-green-600" />
-                Butuan City Barangay Concentration
+                Barangay Biomass Concentration
               </CardTitle>
               <CardDescription>
-                Validated biomass availability ranked by barangay for LGU planning.
+                Validated biomass availability ranked by barangay (disambiguated by city and province) for institutional planning.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex-1">
@@ -512,7 +525,7 @@ export const Reports: React.FC = () => {
                 <div className="space-y-2.5">
                   {barangayRankings.slice(0, 5).map((b, idx) => (
                     <div
-                      key={b.barangay}
+                      key={b.locationKey}
                       className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 hover:bg-agri-green-50/40 transition-colors border border-gray-100"
                     >
                       <div className="flex items-center gap-2.5">
@@ -521,6 +534,11 @@ export const Reports: React.FC = () => {
                         </span>
                         <div>
                           <div className="font-semibold text-gray-900 text-sm">{b.barangay}</div>
+                          {(b.city || b.province) && (
+                            <div className="text-[11px] text-gray-600">
+                              {[b.city, b.province].filter(Boolean).join(', ')}
+                            </div>
+                          )}
                           <div className="text-xs text-agri-earth-500">{b.recordCount} validated records</div>
                         </div>
                       </div>
@@ -592,10 +610,10 @@ export const Reports: React.FC = () => {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <MapPin size={18} className="text-agri-green-600" />
-                Butuan City Barangay Concentration
+                Barangay Biomass Concentration
               </CardTitle>
               <CardDescription>
-                Geographic rankings by recorded biomass tonnage and verified availability.
+                Geographic rankings by recorded biomass tonnage and verified availability across Philippine barangays.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex-1">
@@ -607,7 +625,7 @@ export const Reports: React.FC = () => {
                 <div className="space-y-2.5">
                   {barangayRankings.slice(0, 5).map((b, idx) => (
                     <div
-                      key={b.barangay}
+                      key={b.locationKey}
                       className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 hover:bg-agri-green-50/40 transition-colors border border-gray-100"
                     >
                       <div className="flex items-center gap-2.5">
@@ -616,6 +634,11 @@ export const Reports: React.FC = () => {
                         </span>
                         <div>
                           <div className="font-semibold text-gray-900 text-sm">{b.barangay}</div>
+                          {(b.city || b.province) && (
+                            <div className="text-[11px] text-gray-600">
+                              {[b.city, b.province].filter(Boolean).join(', ')}
+                            </div>
+                          )}
                           <div className="text-xs text-agri-earth-500">{b.recordCount} records</div>
                         </div>
                       </div>

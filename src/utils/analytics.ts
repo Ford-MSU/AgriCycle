@@ -1,4 +1,5 @@
 import { BiomassRecord, RecordStatus, ReferenceData, Location, BiomassSource } from '../types';
+import { getLocationHierarchyKey, resolveLocationRegion } from './philippineLocations';
 
 export interface StandardizedMetricSummary {
   totalRecordsCount: number;
@@ -20,7 +21,12 @@ export interface CategoryBreakdownItem {
 }
 
 export interface BarangayRankingItem {
+  locationKey: string;
   barangay: string;
+  city: string;
+  province: string;
+  region: string;
+  fullLabel: string;
   recordCount: number;
   totalVolumeTonnes: number;
   availableVolumeTonnes: number;
@@ -162,7 +168,8 @@ export function calculateCategoryBreakdown(
 }
 
 /**
- * Computes barangay rankings
+ * Computes barangay rankings keyed by full administrative hierarchy (never merging
+ * identically named barangays across different cities/municipalities or provinces).
  */
 export function calculateBarangayRankings(
   records: BiomassRecord[],
@@ -176,23 +183,35 @@ export function calculateBarangayRankings(
     const src = sources.find((s) => s.id === r.sourceId);
     const locId = src?.locationId || r.locationId;
     const loc = locations.find((l) => l.id === locId);
-    const barangay = loc?.barangay || 'Other / Regional';
+    const locationKey = loc ? getLocationHierarchyKey(loc) || loc.id : 'unspecified';
+    const barangay = loc?.barangay || 'Location not specified';
+    const city = loc?.city || '';
+    const province = loc?.province || '';
+    const region = loc ? resolveLocationRegion(loc) : '';
+    const fullLabel = loc
+      ? [barangay, city, province].filter(Boolean).join(', ')
+      : 'Location not specified';
 
     const tonnes = convertToMetricTonnes(r.quantity, r.originalUnit, referenceData);
     const availTonnes = r.remainingQuantity !== undefined
       ? convertToMetricTonnes(r.remainingQuantity, r.originalUnit, referenceData)
       : tonnes;
 
-    if (!map.has(barangay)) {
-      map.set(barangay, {
+    if (!map.has(locationKey)) {
+      map.set(locationKey, {
+        locationKey,
         barangay,
+        city,
+        province,
+        region,
+        fullLabel,
         recordCount: 0,
         totalVolumeTonnes: 0,
         availableVolumeTonnes: 0,
       });
     }
 
-    const item = map.get(barangay)!;
+    const item = map.get(locationKey)!;
     item.recordCount++;
     item.totalVolumeTonnes += tonnes;
     if (r.status === RecordStatus.VALIDATED) {
