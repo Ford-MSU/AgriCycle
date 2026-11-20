@@ -238,6 +238,78 @@ export interface AgriCycleDataset {
   profiles: User[];
 }
 
+export interface PublicDashboardDataset {
+  locations: Location[];
+  referenceData: ReferenceData[];
+  sources: BiomassSource[];
+  records: BiomassRecord[];
+  aggregationGroups: AggregationGroup[];
+  aggregationMembers: AggregationMember[];
+}
+
+export async function fetchPublicDashboardDataFromSupabase(): Promise<PublicDashboardDataset> {
+  const client = getSupabaseClient();
+  const { data, error } = await client.rpc('get_public_validated_overview');
+
+  if (error) {
+    throw new Error(`Failed to load public validated biomass overview: ${error.message}`);
+  }
+
+  const payload = (data || {}) as Record<string, any[]>;
+  const rawRecords = Array.isArray(payload.records) ? payload.records : [];
+  const rawSources = Array.isArray(payload.sources) ? payload.sources : [];
+  const rawLocations = Array.isArray(payload.locations) ? payload.locations : [];
+  const rawRefData = Array.isArray(payload.referenceData) ? payload.referenceData : [];
+  const rawGroups = Array.isArray(payload.aggregationGroups) ? payload.aggregationGroups : [];
+  const rawMembers = Array.isArray(payload.aggregationMembers) ? payload.aggregationMembers : [];
+
+  const validatedRecords = rawRecords
+    .map((row) =>
+      mapBiomassRecordRow({
+        ...row,
+        submitter_id: undefined,
+        submitter_label: 'Validated Public Record',
+      })
+    )
+    .filter((r) => r.status === RecordStatus.VALIDATED);
+
+  const sanitizedSources = rawSources.map((row) =>
+    mapBiomassSourceRow({
+      ...row,
+      contact_person: '',
+    })
+  );
+
+  const activeGroups = rawGroups
+    .map((row) =>
+      mapAggregationGroupRow({
+        ...row,
+        created_by: undefined,
+        created_by_label: 'LGU Coordinator',
+      })
+    )
+    .filter((g) => g.status === AggregationStatus.ACTIVE);
+
+  const activeMembers = rawMembers
+    .map((row) =>
+      mapAggregationMemberRow({
+        ...row,
+        added_by: undefined,
+        added_by_label: 'LGU Coordinator',
+      })
+    )
+    .filter((m) => m.isActive);
+
+  return {
+    locations: rawLocations.map(mapLocationRow),
+    referenceData: rawRefData.map(mapReferenceDataRow),
+    sources: sanitizedSources,
+    records: validatedRecords,
+    aggregationGroups: activeGroups,
+    aggregationMembers: activeMembers,
+  };
+}
+
 export async function fetchAllDataFromSupabase(): Promise<AgriCycleDataset> {
   const client = getSupabaseClient();
 

@@ -11,31 +11,31 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, className }) =
   const getStatusStyles = (status: RecordStatus) => {
     switch (status) {
       case RecordStatus.DRAFT:
-        return 'bg-gray-100 text-gray-700 border-gray-200';
+        return 'bg-[#F7FAF7] text-[#64756A] border-[#E2EAE3]';
       case RecordStatus.SUBMITTED:
-        return 'bg-blue-50 text-blue-700 border-blue-200';
+        return 'bg-sky-50 text-sky-800 border-sky-200';
       case RecordStatus.UNDER_REVIEW:
-        return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+        return 'bg-[#FFF7E2] text-[#8F6500] border-[#F0D68A]';
       case RecordStatus.VALIDATED:
-        return 'bg-agri-green-50 text-agri-green-700 border-agri-green-200';
+        return 'bg-[#EAF4EC] text-[#006B45] border-[#C3DFC8]';
       case RecordStatus.RETURNED:
-        return 'bg-orange-50 text-orange-700 border-orange-200';
+        return 'bg-[#FFF7E2] text-[#9C5C00] border-[#F0C878]';
       case RecordStatus.REJECTED:
         return 'bg-red-50 text-red-700 border-red-200';
       case RecordStatus.STALE:
-        return 'bg-purple-50 text-purple-700 border-purple-200';
+        return 'bg-amber-50 text-amber-800 border-amber-200';
       case RecordStatus.UNAVAILABLE:
         return 'bg-gray-100 text-gray-500 border-gray-200 line-through';
       case RecordStatus.RESERVED:
-        return 'bg-cyan-50 text-cyan-700 border-cyan-200';
+        return 'bg-[#EAF4EC] text-[#008838] border-[#B8DEC2]';
       case RecordStatus.ALREADY_USED:
-        return 'bg-teal-50 text-teal-700 border-teal-200';
+        return 'bg-teal-50 text-teal-800 border-teal-200';
       case RecordStatus.UNSUITABLE:
         return 'bg-red-50 text-red-700 border-red-200';
       case RecordStatus.ARCHIVED:
-        return 'bg-gray-200 text-gray-600 border-gray-300';
+        return 'bg-gray-100 text-gray-600 border-gray-300';
       default:
-        return 'bg-gray-50 text-gray-700 border-gray-200';
+        return 'bg-[#F7FAF7] text-[#64756A] border-[#E2EAE3]';
     }
   };
 
@@ -46,7 +46,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, className }) =
   return (
     <span
       className={cn(
-        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border capitalize",
+        'inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold border capitalize',
         getStatusStyles(status),
         className
       )}

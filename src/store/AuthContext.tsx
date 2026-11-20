@@ -6,7 +6,12 @@ import { getAuthRedirectUrl } from '../utils/authRedirect';
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string, expectedRole?: Role) => Promise<void>;
+  login: (
+    email: string,
+    password: string,
+    expectedRole?: Role,
+    requireExactRole?: boolean
+  ) => Promise<void>;
   register: (name: string, email: string, password: string, role?: Role) => Promise<{ requiresEmailConfirmation: boolean }>;
   resendConfirmationEmail: (email: string) => Promise<{ success: boolean; message: string }>;
   logout: () => Promise<void>;
@@ -118,7 +123,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const login = async (email: string, password: string, expectedRole?: Role) => {
+  const login = async (
+    email: string,
+    password: string,
+    expectedRole?: Role,
+    requireExactRole: boolean = false
+  ) => {
     setIsLoading(true);
     try {
       if (isSupabaseConfigured && supabase) {
@@ -141,6 +151,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           throw new Error('Your account has been deactivated by an Administrator.');
         }
 
+        if (requireExactRole && expectedRole && profile.role !== expectedRole) {
+          await supabase.auth.signOut();
+          throw new Error(
+            'Access denied: Your account does not have Administrator privileges for this portal.'
+          );
+        }
+
         // Authoritative role comes strictly from PostgreSQL profiles table, never client selection
         setUser(profile);
         return;
@@ -153,13 +170,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Invalid credentials');
       }
 
-      let role = expectedRole || Role.COORDINATOR;
-      if (!expectedRole) {
-        if (email.startsWith('admin')) role = Role.ADMINISTRATOR;
-        else if (email.startsWith('coordinator')) role = Role.COORDINATOR;
-        else if (email.startsWith('buyer')) role = Role.BUYER;
-        else if (email.startsWith('lgu')) role = Role.LGU;
+      const lowerEmail = email.trim().toLowerCase();
+      let inferredRole: Role | undefined;
+      if (lowerEmail.startsWith('admin')) inferredRole = Role.ADMINISTRATOR;
+      else if (lowerEmail.startsWith('coordinator')) inferredRole = Role.COORDINATOR;
+      else if (lowerEmail.startsWith('buyer')) inferredRole = Role.BUYER;
+      else if (lowerEmail.startsWith('lgu')) inferredRole = Role.LGU;
+
+      if (requireExactRole && expectedRole === Role.ADMINISTRATOR && inferredRole !== Role.ADMINISTRATOR) {
+        throw new Error(
+          'Access denied: Valid Administrator credentials are required for this portal.'
+        );
       }
+
+      const role = requireExactRole && expectedRole ? expectedRole : inferredRole || expectedRole || Role.COORDINATOR;
 
       const defaultIdByRole: Record<Role, string> = {
         [Role.ADMINISTRATOR]: 'user-admin',

@@ -305,8 +305,8 @@ export const Inquiries: React.FC = () => {
                     onClick={() => setSelectedInquiryId(inq.id)}
                     className={`p-4 cursor-pointer transition-colors ${
                       isSelected
-                        ? 'bg-agri-green-50/70 border-l-4 border-agri-green-600'
-                        : 'hover:bg-gray-50 border-l-4 border-transparent'
+                        ? 'bg-[#EAF4EC]/70 ring-1 ring-inset ring-[#C3DFC8]'
+                        : 'hover:bg-[#F7FAF7]'
                     }`}
                   >
                     <div className="flex justify-between items-start gap-2 mb-1">
@@ -374,7 +374,7 @@ export const Inquiries: React.FC = () => {
                           size="sm"
                           onClick={handleAcceptInquiry}
                           isLoading={isUpdatingStatus}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs flex items-center gap-1.5 shadow-sm"
+                          className="bg-[#006B45] hover:bg-[#005838] text-white text-xs flex items-center gap-1.5"
                         >
                           <CheckCircle2 size={14} /> Accept Inquiry
                         </Button>

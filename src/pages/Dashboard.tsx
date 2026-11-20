@@ -468,20 +468,20 @@ export const Dashboard: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-agri-green-200 bg-gradient-to-br from-white to-agri-green-50/20">
+        <Card className="border-[#C3DFC8] bg-white">
           <CardContent className="p-5 flex items-center">
-            <div className="w-12 h-12 rounded-lg bg-agri-green-100 flex items-center justify-center text-agri-green-700 mr-4 shrink-0 shadow-sm">
+            <div className="w-12 h-12 rounded-xl bg-[#EAF4EC] flex items-center justify-center text-[#006B45] mr-4 shrink-0">
               <Scale size={24} />
             </div>
             <div>
-              <p className="text-xs font-semibold text-agri-earth-600 uppercase tracking-wider">
+              <p className="text-xs font-semibold text-[#64756A] uppercase tracking-wider">
                 Validated Available Volume
               </p>
-              <p className="text-2xl font-extrabold text-agri-green-800 mt-0.5">
+              <p className="text-2xl font-extrabold text-[#006B45] mt-0.5 tabular-nums">
                 {coreMetrics.availableVolumeTonnes.toLocaleString()}{' '}
-                <span className="text-sm font-semibold text-agri-green-600">MT</span>
+                <span className="text-sm font-semibold text-[#48A818]">MT</span>
               </p>
-              <p className="text-[11px] text-agri-earth-500 mt-0.5">
+              <p className="text-[11px] text-[#64756A] mt-0.5">
                 {coreMetrics.validatedCount} validated records
               </p>
             </div>
@@ -645,90 +645,90 @@ export const Dashboard: React.FC = () => {
               </CardDescription>
             </div>
             <div className="flex items-center gap-3 text-xs flex-wrap">
-              <span className="flex items-center gap-1.5 font-medium text-emerald-800">
-                <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block shrink-0" />{' '}
+              <span className="flex items-center gap-1.5 font-medium text-[#006B45]">
+                <span className="w-3 h-3 rounded-full bg-[#006B45] inline-block shrink-0" />{' '}
                 Available to Others ({utilizationStats.availablePercent}%)
               </span>
-              <span className="flex items-center gap-1.5 font-medium text-amber-800">
-                <span className="w-3 h-3 rounded-full bg-amber-500 inline-block shrink-0" />{' '}
+              <span className="flex items-center gap-1.5 font-medium text-[#9C6E00]">
+                <span className="w-3 h-3 rounded-full bg-[#E8A800] inline-block shrink-0" />{' '}
                 Internal Use ({utilizationStats.internalPercent}%)
               </span>
-              <span className="flex items-center gap-1.5 font-medium text-blue-800">
-                <span className="w-3 h-3 rounded-full bg-blue-600 inline-block shrink-0" />{' '}
+              <span className="flex items-center gap-1.5 font-medium text-[#008838]">
+                <span className="w-3 h-3 rounded-full bg-[#48A818] inline-block shrink-0" />{' '}
                 Reserved / Committed ({utilizationStats.reservedPercent}%)
               </span>
             </div>
           </CardHeader>
           <CardContent className="pt-4 space-y-4">
-            <div className="w-full bg-gray-100 h-4 rounded-full overflow-hidden flex">
+            <div className="w-full bg-[#EAF4EC] h-3.5 rounded-full overflow-hidden flex">
               <div
                 style={{ width: `${utilizationStats.availablePercent}%` }}
-                className="bg-emerald-500 transition-all duration-500 hover:opacity-90"
+                className="bg-[#006B45] transition-all duration-500"
                 title={`Available to Others: ${utilizationStats.availableTonnes} MT (${utilizationStats.availablePercent}%)`}
               />
               <div
                 style={{ width: `${utilizationStats.internalPercent}%` }}
-                className="bg-amber-500 transition-all duration-500 hover:opacity-90"
+                className="bg-[#E8A800] transition-all duration-500"
                 title={`Internal Producer Use: ${utilizationStats.internalTonnes} MT (${utilizationStats.internalPercent}%)`}
               />
               <div
                 style={{ width: `${utilizationStats.reservedPercent}%` }}
-                className="bg-blue-600 transition-all duration-500 hover:opacity-90"
+                className="bg-[#48A818] transition-all duration-500"
                 title={`Reserved / Committed: ${utilizationStats.reservedTonnes} MT (${utilizationStats.reservedPercent}%)`}
               />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+              <div className="p-3 bg-[#EAF4EC]/80 rounded-xl border border-[#C3DFC8]">
                 <div className="flex justify-between items-center">
-                  <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">
+                  <p className="text-xs font-semibold text-[#006B45] uppercase tracking-wider">
                     Available for Inquiries
                   </p>
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">
+                  <span className="text-xs font-bold text-[#006B45] tabular-nums">
                     {utilizationStats.availablePercent}%
                   </span>
                 </div>
-                <p className="text-xl font-bold text-emerald-900 mt-1">
+                <p className="text-xl font-bold text-[#1E3328] mt-1 tabular-nums">
                   {utilizationStats.availableTonnes.toLocaleString()}{' '}
-                  <span className="text-xs text-emerald-700">MT</span>
+                  <span className="text-xs text-[#006B45]">MT</span>
                 </p>
-                <p className="text-[11px] text-emerald-700 mt-0.5">
+                <p className="text-[11px] text-[#64756A] mt-0.5">
                   Validated &amp; listed for non-binding inquiries
                 </p>
               </div>
 
-              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <div className="p-3 bg-[#FFF7E2]/80 rounded-xl border border-[#F5DA8A]">
                 <div className="flex justify-between items-center">
-                  <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">
+                  <p className="text-xs font-semibold text-[#8F6500] uppercase tracking-wider">
                     Internal Producer Use
                   </p>
-                  <span className="text-xs font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded">
+                  <span className="text-xs font-bold text-[#8F6500] tabular-nums">
                     {utilizationStats.internalPercent}%
                   </span>
                 </div>
-                <p className="text-xl font-bold text-amber-900 mt-1">
+                <p className="text-xl font-bold text-[#1E3328] mt-1 tabular-nums">
                   {utilizationStats.internalTonnes.toLocaleString()}{' '}
-                  <span className="text-xs text-amber-700">MT</span>
+                  <span className="text-xs text-[#9C6E00]">MT</span>
                 </p>
-                <p className="text-[11px] text-amber-700 mt-0.5">
+                <p className="text-[11px] text-[#64756A] mt-0.5">
                   Retained for boiler fuel, mulch, or on-site reuse
                 </p>
               </div>
 
-              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="p-3 bg-[#F7FAF7] rounded-xl border border-[#E2EAE3]">
                 <div className="flex justify-between items-center">
-                  <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider">
+                  <p className="text-xs font-semibold text-[#008838] uppercase tracking-wider">
                     Reserved / Committed
                   </p>
-                  <span className="text-xs font-bold text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded">
+                  <span className="text-xs font-bold text-[#008838] tabular-nums">
                     {utilizationStats.reservedPercent}%
                   </span>
                 </div>
-                <p className="text-xl font-bold text-blue-900 mt-1">
+                <p className="text-xl font-bold text-[#1E3328] mt-1 tabular-nums">
                   {utilizationStats.reservedTonnes.toLocaleString()}{' '}
-                  <span className="text-xs text-blue-700">MT</span>
+                  <span className="text-xs text-[#48A818]">MT</span>
                 </p>
-                <p className="text-[11px] text-blue-700 mt-0.5">
+                <p className="text-[11px] text-[#64756A] mt-0.5">
                   Committed to existing arrangements
                 </p>
               </div>

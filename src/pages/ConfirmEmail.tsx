@@ -20,6 +20,7 @@ import {
   LogIn,
   Info,
 } from 'lucide-react';
+import { BrandLogo } from '../components/BrandLogo';
 
 export const ConfirmEmail: React.FC = () => {
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
@@ -340,60 +341,54 @@ export const ConfirmEmail: React.FC = () => {
   const isOtpExpiredError = errorCode === 'otp_expired' || errorCode === 'access_denied';
 
   return (
-    <div className="min-h-screen bg-agri-cream-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
-      {/* Decorative background accents */}
-      <div className="absolute top-[-10%] left-[-10%] w-[45%] h-[45%] rounded-full bg-agri-green-200/30 blur-3xl pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[45%] h-[45%] rounded-full bg-agri-accent-500/10 blur-3xl pointer-events-none" />
-
+    <div className="min-h-screen bg-[#F7FAF7] flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
       <div className="sm:mx-auto sm:w-full sm:max-w-lg relative z-10 px-4">
         {/* Brand header */}
         <div className="flex flex-col items-center mb-6 text-center">
-          <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-agri-green-600 text-white shadow-lg shadow-agri-green-600/20 mb-3">
-            <Leaf size={30} strokeWidth={2} />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-agri-dark-900">AgriCycle</h1>
-          <p className="text-xs uppercase tracking-widest text-agri-green-700 font-semibold mt-0.5">
+          <BrandLogo size="lg" />
+          <h1 className="text-2xl font-bold tracking-tight text-[#1E3328] mt-3">AgriCycle</h1>
+          <p className="text-xs uppercase tracking-widest text-[#006B45] font-semibold mt-0.5">
             Biomass Coordination & Verification Platform
           </p>
         </div>
 
-        <Card className="border border-agri-green-100 shadow-xl bg-white/95 backdrop-blur-sm overflow-hidden">
+        <Card className="border border-[#E2EAE3] shadow-sm bg-white overflow-hidden">
           {/* Top color accent strip */}
           <div
-            className={`h-2 w-full ${
+            className={`h-1.5 w-full ${
               status === 'success'
-                ? 'bg-agri-green-600'
+                ? 'bg-[#006B45]'
                 : status === 'error'
                 ? isOtpExpiredError
-                  ? 'bg-amber-500'
+                  ? 'bg-[#E8A800]'
                   : 'bg-red-500'
-                : 'bg-agri-accent-500 animate-pulse'
+                : 'bg-[#48A818]'
             }`}
           />
 
           <CardHeader className="text-center pt-8 pb-3">
             {status === 'verifying' && (
-              <div className="mx-auto flex items-center justify-center w-16 h-16 rounded-full bg-agri-green-50 text-agri-green-600 mb-3">
-                <Loader2 size={36} className="animate-spin text-agri-green-600" />
+              <div className="mx-auto flex items-center justify-center w-16 h-16 rounded-full bg-[#EAF4EC] text-[#006B45] mb-3">
+                <Loader2 size={36} className="animate-spin text-[#006B45]" />
               </div>
             )}
 
             {status === 'success' && (
-              <div className="mx-auto flex items-center justify-center w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 ring-8 ring-emerald-50/50 mb-3 animate-in zoom-in-75 duration-300">
-                <CheckCircle2 size={40} className="text-emerald-600" />
+              <div className="mx-auto flex items-center justify-center w-16 h-16 rounded-full bg-[#EAF4EC] text-[#006B45] mb-3">
+                <CheckCircle2 size={40} className="text-[#006B45]" />
               </div>
             )}
 
             {status === 'error' && (
               <div
-                className={`mx-auto flex items-center justify-center w-16 h-16 rounded-full mb-3 animate-in zoom-in-75 duration-300 ${
+                className={`mx-auto flex items-center justify-center w-16 h-16 rounded-full mb-3 ${
                   isOtpExpiredError
-                    ? 'bg-amber-50 text-amber-600 ring-8 ring-amber-50/50'
-                    : 'bg-red-50 text-red-600 ring-8 ring-red-50/50'
+                    ? 'bg-[#FFF7E2] text-[#9C6E00]'
+                    : 'bg-red-50 text-red-600'
                 }`}
               >
                 {isOtpExpiredError ? (
-                  <AlertTriangle size={38} className="text-amber-600" />
+                  <AlertTriangle size={38} className="text-[#E8A800]" />
                 ) : (
                   <XCircle size={40} className="text-red-600" />
                 )}
@@ -464,16 +459,16 @@ export const ConfirmEmail: React.FC = () => {
                 )}
 
                 {/* Primary Action Button: Try Signing In */}
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-3">
+                <div className="p-4 bg-[#EAF4EC] border border-[#C3DFC8] rounded-xl text-center space-y-3">
                   <div>
-                    <h3 className="text-sm font-bold text-emerald-900">Step 1: Try Signing In</h3>
-                    <p className="text-xs text-emerald-700 mt-0.5">
+                    <h3 className="text-sm font-bold text-[#1E3328]">Step 1: Try Signing In</h3>
+                    <p className="text-xs text-[#006B45] mt-0.5">
                       If your account was already verified, you can sign in directly with your password.
                     </p>
                   </div>
                   <Button
                     onClick={() => navigate('/login')}
-                    className="w-full py-2.5 bg-agri-green-700 hover:bg-agri-green-800 text-white font-semibold text-sm shadow-sm flex items-center justify-center gap-2"
+                    className="w-full py-2.5 bg-[#006B45] hover:bg-[#005838] text-white font-semibold text-sm flex items-center justify-center gap-2"
                   >
                     <LogIn size={16} />
                     <span>Try Signing In Now</span>
@@ -651,11 +646,11 @@ export const ConfirmEmail: React.FC = () => {
 
             {status === 'verifying' && (
               <div className="text-center py-2 space-y-2">
-                <p className="text-xs text-gray-500 animate-pulse">
+                <p className="text-xs text-[#64756A]">
                   Exchanging secure authentication credentials with Supabase...
                 </p>
-                <div className="w-16 h-1 bg-agri-green-100 rounded-full mx-auto overflow-hidden">
-                  <div className="w-8 h-full bg-agri-green-600 rounded-full animate-indeterminate" />
+                <div className="w-16 h-1 bg-[#EAF4EC] rounded-full mx-auto overflow-hidden">
+                  <div className="w-8 h-full bg-[#006B45] rounded-full" />
                 </div>
               </div>
             )}

@@ -36,7 +36,7 @@ import {
 } from '../utils/analytics';
 import { resolveLocationRegion } from '../utils/philippineLocations';
 
-const COLORS = ['#22c55e', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#64748b', '#06b6d4'];
+const COLORS = ['#006B45', '#48A818', '#E8A800', '#008838', '#70C000', '#64756A', '#9C6E00'];
 
 const safeLocaleDate = (value?: string): string => {
   if (!value) return 'N/A';
@@ -281,60 +281,60 @@ export const Reports: React.FC = () => {
 
       {/* Core Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border-agri-green-200 bg-gradient-to-br from-white to-agri-green-50/30">
+        <Card className="border-[#C3DFC8] bg-white">
           <CardContent className="p-5 flex items-center">
-            <div className="w-12 h-12 rounded-xl bg-agri-green-100 flex items-center justify-center text-agri-green-700 mr-4 shrink-0 shadow-sm">
+            <div className="w-12 h-12 rounded-xl bg-[#EAF4EC] flex items-center justify-center text-[#006B45] mr-4 shrink-0">
               <Scale size={24} />
             </div>
             <div>
-              <p className="text-xs font-semibold text-agri-earth-600 uppercase tracking-wider">
+              <p className="text-xs font-semibold text-[#64756A] uppercase tracking-wider">
                 Validated Available Volume
               </p>
-              <p className="text-2xl font-extrabold text-agri-green-800 mt-0.5">
+              <p className="text-2xl font-extrabold text-[#006B45] mt-0.5 tabular-nums">
                 {coreMetrics.availableVolumeTonnes.toLocaleString()}{' '}
-                <span className="text-sm font-semibold text-agri-green-600">MT</span>
+                <span className="text-sm font-semibold text-[#48A818]">MT</span>
               </p>
-              <p className="text-[11px] text-agri-earth-500 mt-0.5">
+              <p className="text-[11px] text-[#64756A] mt-0.5">
                 {coreMetrics.validatedCount} validated records
               </p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-blue-100 bg-gradient-to-br from-white to-blue-50/20">
+        <Card className="border-[#E2EAE3] bg-white">
           <CardContent className="p-5 flex items-center">
-            <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-700 mr-4 shrink-0 shadow-sm">
+            <div className="w-12 h-12 rounded-xl bg-[#EAF4EC] flex items-center justify-center text-[#008838] mr-4 shrink-0">
               <Layers size={24} />
             </div>
             <div>
-              <p className="text-xs font-semibold text-blue-800 uppercase tracking-wider">
+              <p className="text-xs font-semibold text-[#64756A] uppercase tracking-wider">
                 {user.role === Role.LGU ? 'Validated Gross Volume' : 'Total Recorded Volume'}
               </p>
-              <p className="text-2xl font-extrabold text-gray-900 mt-0.5">
+              <p className="text-2xl font-extrabold text-[#1E3328] mt-0.5 tabular-nums">
                 {coreMetrics.totalVolumeTonnes.toLocaleString()}{' '}
-                <span className="text-sm font-semibold text-gray-500">MT</span>
+                <span className="text-sm font-semibold text-[#64756A]">MT</span>
               </p>
-              <p className="text-[11px] text-agri-earth-500 mt-0.5">
+              <p className="text-[11px] text-[#64756A] mt-0.5">
                 Across {coreMetrics.totalRecordsCount} records
               </p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-amber-100 bg-gradient-to-br from-white to-amber-50/20">
+        <Card className="border-[#E2EAE3] bg-white">
           <CardContent className="p-5 flex items-center">
-            <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700 mr-4 shrink-0 shadow-sm">
+            <div className="w-12 h-12 rounded-xl bg-[#FFF7E2] flex items-center justify-center text-[#9C6E00] mr-4 shrink-0">
               <Activity size={24} />
             </div>
             <div>
-              <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">
+              <p className="text-xs font-semibold text-[#8F6500] uppercase tracking-wider">
                 Internal / Committed Use
               </p>
-              <p className="text-2xl font-extrabold text-gray-900 mt-0.5">
+              <p className="text-2xl font-extrabold text-[#1E3328] mt-0.5 tabular-nums">
                 {coreMetrics.usedOrCommittedVolumeTonnes.toLocaleString()}{' '}
-                <span className="text-sm font-semibold text-gray-500">MT</span>
+                <span className="text-sm font-semibold text-[#64756A]">MT</span>
               </p>
-              <p className="text-[11px] text-agri-earth-500 mt-0.5">
+              <p className="text-[11px] text-[#64756A] mt-0.5">
                 Internal utilization &amp; reserved
               </p>
             </div>
@@ -342,60 +342,60 @@ export const Reports: React.FC = () => {
         </Card>
 
         {user.role === Role.ADMINISTRATOR ? (
-          <Card className="border-purple-100 bg-gradient-to-br from-white to-purple-50/20">
+          <Card className="border-[#E2EAE3] bg-white">
             <CardContent className="p-5 flex items-center">
-              <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center text-purple-700 mr-4 shrink-0 shadow-sm">
+              <div className="w-12 h-12 rounded-xl bg-[#F7FAF7] border border-[#E2EAE3] flex items-center justify-center text-[#1E3328] mr-4 shrink-0">
                 <Users size={24} />
               </div>
               <div>
-                <p className="text-xs font-semibold text-purple-800 uppercase tracking-wider">
+                <p className="text-xs font-semibold text-[#64756A] uppercase tracking-wider">
                   Accounts &amp; Audit Events
                 </p>
-                <p className="text-2xl font-extrabold text-gray-900 mt-0.5">
+                <p className="text-2xl font-extrabold text-[#1E3328] mt-0.5 tabular-nums">
                   {profiles.length}{' '}
-                  <span className="text-xs font-medium text-gray-500">accounts</span>
+                  <span className="text-xs font-medium text-[#64756A]">accounts</span>
                 </p>
-                <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                <p className="text-[11px] text-[#64756A] mt-0.5">
                   {auditLogs.length} logged audit events
                 </p>
               </div>
             </CardContent>
           </Card>
         ) : user.role === Role.LGU ? (
-          <Card className="border-indigo-100 bg-gradient-to-br from-white to-indigo-50/20">
+          <Card className="border-[#E2EAE3] bg-white">
             <CardContent className="p-5 flex items-center">
-              <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-700 mr-4 shrink-0 shadow-sm">
+              <div className="w-12 h-12 rounded-xl bg-[#EAF4EC] flex items-center justify-center text-[#48A818] mr-4 shrink-0">
                 <Layers size={24} />
               </div>
               <div>
-                <p className="text-xs font-semibold text-indigo-800 uppercase tracking-wider">
+                <p className="text-xs font-semibold text-[#006B45] uppercase tracking-wider">
                   Active Aggregation Groups
                 </p>
-                <p className="text-2xl font-extrabold text-gray-900 mt-0.5">
+                <p className="text-2xl font-extrabold text-[#1E3328] mt-0.5 tabular-nums">
                   {aggregationSummary.groupCount}{' '}
-                  <span className="text-xs font-medium text-gray-500">groups</span>
+                  <span className="text-xs font-medium text-[#64756A]">groups</span>
                 </p>
-                <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                <p className="text-[11px] text-[#64756A] mt-0.5">
                   {aggregationSummary.totalConsolidatedTonnes.toLocaleString()} MT consolidated
                 </p>
               </div>
             </CardContent>
           </Card>
         ) : (
-          <Card className="border-purple-100 bg-gradient-to-br from-white to-purple-50/20">
+          <Card className="border-[#E2EAE3] bg-white">
             <CardContent className="p-5 flex items-center">
-              <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center text-purple-700 mr-4 shrink-0 shadow-sm">
+              <div className="w-12 h-12 rounded-xl bg-[#FFF7E2] flex items-center justify-center text-[#9C6E00] mr-4 shrink-0">
                 <AlertTriangle size={24} />
               </div>
               <div>
-                <p className="text-xs font-semibold text-purple-800 uppercase tracking-wider">
+                <p className="text-xs font-semibold text-[#8F6500] uppercase tracking-wider">
                   Pending Review &amp; Stale
                 </p>
-                <p className="text-2xl font-extrabold text-gray-900 mt-0.5">
+                <p className="text-2xl font-extrabold text-[#1E3328] mt-0.5 tabular-nums">
                   {coreMetrics.pendingValidationCount}{' '}
-                  <span className="text-xs font-medium text-gray-500">pending</span>
+                  <span className="text-xs font-medium text-[#64756A]">pending</span>
                 </p>
-                <p className="text-[11px] text-agri-earth-500 mt-0.5">
+                <p className="text-[11px] text-[#64756A] mt-0.5">
                   {coreMetrics.staleCount} records need revalidation
                 </p>
               </div>
@@ -445,14 +445,14 @@ export const Reports: React.FC = () => {
                   <Bar
                     dataKey="totalQuantityTonnes"
                     name="totalQuantityTonnes"
-                    fill="#94a3b8"
+                    fill="#C3DFC8"
                     radius={[4, 4, 0, 0]}
                     maxBarSize={32}
                   />
                   <Bar
                     dataKey="availableQuantityTonnes"
                     name="availableQuantityTonnes"
-                    fill="#16a34a"
+                    fill="#006B45"
                     radius={[4, 4, 0, 0]}
                     maxBarSize={32}
                   />

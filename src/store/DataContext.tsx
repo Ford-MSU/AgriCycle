@@ -25,6 +25,8 @@ import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { hasPermission, Permission } from '../utils/rbac';
 import {
   fetchAllDataFromSupabase,
+  fetchPublicDashboardDataFromSupabase,
+  PublicDashboardDataset,
   createLocationInSupabase,
   updateLocationCoordinatesInSupabase,
   createOrganizationInSupabase,
@@ -54,10 +56,14 @@ interface DataContextType {
   inquiryMessages: InquiryMessage[];
   profiles: User[];
   notifications: SystemNotification[];
+  publicDataset: PublicDashboardDataset;
+  isPublicLoading: boolean;
+  publicError: string | null;
   isLoading: boolean;
   error: string | null;
   isUsingSupabase: boolean;
   refreshData: () => Promise<void>;
+  refreshPublicData: () => Promise<void>;
 
   // Notification actions
   markNotificationRead: (id: string) => void;
@@ -252,6 +258,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [supabasePublicDataset, setSupabasePublicDataset] = useState<PublicDashboardDataset | null>(null);
+  const [isPublicLoading, setIsPublicLoading] = useState<boolean>(false);
+  const [publicError, setPublicError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -370,11 +379,95 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user, syncLocalStateFromMock]);
 
+  const refreshPublicData = useCallback(async () => {
+    if (!isSupabaseConfigured) {
+      setPublicError(null);
+      return;
+    }
+
+    setIsPublicLoading(true);
+    setPublicError(null);
+    try {
+      const data = await fetchPublicDashboardDataFromSupabase();
+      setSupabasePublicDataset(data);
+    } catch (err: any) {
+      console.error('Public validated overview fetch error:', err);
+      setPublicError(err?.message || 'Unable to load validated public biomass data.');
+    } finally {
+      setIsPublicLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (user) {
       refreshData();
+    } else if (isSupabaseConfigured) {
+      refreshPublicData();
     }
-  }, [user, refreshData]);
+  }, [user, refreshData, refreshPublicData]);
+
+  const publicDataset = React.useMemo<PublicDashboardDataset>(() => {
+    if (isSupabaseConfigured && !user) {
+      return (
+        supabasePublicDataset || {
+          records: [],
+          sources: [],
+          locations: [],
+          referenceData: [],
+          aggregationGroups: [],
+          aggregationMembers: [],
+        }
+      );
+    }
+
+    // Strictly sanitized validated-only projection from current state
+    const validatedRecords = records
+      .filter((r) => r.status === RecordStatus.VALIDATED)
+      .map((r) => ({
+        ...r,
+        submitterId: 'Validated Public Record',
+        rejectionReason: undefined,
+        returnReason: undefined,
+      }));
+
+    const validSourceIds = new Set(validatedRecords.map((r) => r.sourceId));
+    const sanitizedSources = sources
+      .filter((s) => validSourceIds.has(s.id))
+      .map((s) => ({
+        ...s,
+        contactPerson: '',
+      }));
+
+    const validLocIds = new Set<string>();
+    validatedRecords.forEach((r) => validLocIds.add(r.locationId));
+    sanitizedSources.forEach((s) => validLocIds.add(s.locationId));
+
+    const publicLocations = locations.filter((l) => validLocIds.has(l.id));
+    const activeGroups = aggregationGroups.filter((g) => g.status === AggregationStatus.ACTIVE);
+    const activeGroupIds = new Set(activeGroups.map((g) => g.id));
+    const validatedRecordIds = new Set(validatedRecords.map((r) => r.id));
+    const publicMembers = aggregationMembers.filter(
+      (m) => m.isActive && activeGroupIds.has(m.groupId) && validatedRecordIds.has(m.biomassRecordId)
+    );
+
+    return {
+      records: validatedRecords,
+      sources: sanitizedSources,
+      locations: publicLocations,
+      referenceData,
+      aggregationGroups: activeGroups,
+      aggregationMembers: publicMembers,
+    };
+  }, [
+    user,
+    supabasePublicDataset,
+    records,
+    sources,
+    locations,
+    referenceData,
+    aggregationGroups,
+    aggregationMembers,
+  ]);
 
   const getBiomassTypes = useCallback(
     () => referenceData.filter((r) => r.category === 'BIOMASS_TYPE' && r.isActive),
@@ -1032,10 +1125,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         inquiryMessages,
         profiles,
         notifications,
+        publicDataset,
+        isPublicLoading,
+        publicError,
         isLoading,
         error,
         isUsingSupabase: isSupabaseConfigured,
         refreshData,
+        refreshPublicData,
         markNotificationRead,
         markAllNotificationsRead,
         addNotification,

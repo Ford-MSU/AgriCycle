@@ -1,31 +1,67 @@
 @import "tailwindcss";
 
 @theme {
-  --color-agri-green-50: #f0f7f4;
-  --color-agri-green-100: #dcece3;
-  --color-agri-green-200: #bedbc8;
-  --color-agri-green-300: #96c4a8;
-  --color-agri-green-400: #6ca784;
-  --color-agri-green-500: #4e8a67; /* Primary sage green */
-  --color-agri-green-600: #3b6d50;
-  --color-agri-green-700: #315742;
-  
-  --color-agri-cream-50: #fdfbf7;
-  --color-agri-cream-100: #f8f4e6; /* Warm cream */
-  --color-agri-cream-200: #efe7d0; /* Light beige */
-  --color-agri-cream-300: #e2d3b2;
-  
-  --color-agri-earth-500: #8c7a6b; /* Soft earth tone */
-  --color-agri-earth-600: #716053;
-  
-  --color-agri-accent-500: #d67b5a; /* Muted terracotta */
-  --color-agri-accent-600: #ba6041;
+  /* Official AgriCycle Brand Color Palette */
+  --color-agri-green-50: #EAF4EC;   /* Light Green Surface */
+  --color-agri-green-100: #DCEEE0;
+  --color-agri-green-200: #C3DFC8;
+  --color-agri-green-300: #90C89B;
+  --color-agri-green-400: #48A818;  /* Leaf Green */
+  --color-agri-green-500: #006B45;  /* Primary Green */
+  --color-agri-green-600: #005838;  /* Primary Hover */
+  --color-agri-green-700: #00452C;  /* Primary Deep */
+  --color-agri-green-800: #1E3328;  /* Primary Text */
+
+  /* Supporting Brand Accents */
+  --color-agri-leaf-500: #48A818;   /* Leaf Green */
+  --color-agri-cycle-500: #008838;  /* Cycle Green */
+  --color-agri-gold-50: #FFF7E2;    /* Light Gold Surface */
+  --color-agri-gold-200: #F5DA8A;
+  --color-agri-gold-500: #E8A800;   /* Wheat Gold */
+  --color-agri-gold-700: #9C6E00;
+  --color-agri-fresh-500: #70C000;  /* Fresh Green */
+
+  /* Supporting Neutral & Surface Tokens */
+  --color-agri-cream-50: #F7FAF7;   /* Main Background */
+  --color-agri-cream-100: #EAF4EC;  /* Light Green Tint */
+  --color-agri-cream-200: #E2EAE3;  /* Border / Subtle Surface */
+  --color-agri-cream-300: #C8D8CB;
+
+  --color-agri-earth-500: #64756A;  /* Secondary Text */
+  --color-agri-earth-600: #3E5246;
+  --color-agri-earth-700: #1E3328;  /* Primary Text */
+
+  --color-agri-accent-500: #E8A800; /* Wheat Gold */
+  --color-agri-accent-600: #C98F00;
+
+  /* Semantic Surface & Border Aliases */
+  --color-agri-bg: #F7FAF7;
+  --color-agri-surface: #FFFFFF;
+  --color-agri-border: #E2EAE3;
+  --color-agri-text: #1E3328;
+  --color-agri-muted: #64756A;
 }
 
 @layer base {
-  body {
-    @apply bg-[var(--color-agri-cream-50)] text-gray-800 antialiased;
+  html {
+    scroll-behavior: smooth;
+    font-family: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
+
+  body {
+    background-color: #F7FAF7;
+    color: #1E3328;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Custom Leaflet Map Overrides */
@@ -38,8 +74,11 @@
   border: none;
 }
 .agricycle-popup .leaflet-popup-content-wrapper {
-  @apply rounded-lg shadow-lg border border-gray-100;
+  border-radius: 0.625rem;
+  box-shadow: 0 10px 25px -5px rgb(0 45 28 / 0.12);
+  border: 1px solid #E2EAE3;
 }
 .agricycle-popup .leaflet-popup-content {
-  @apply m-2 min-w-[200px];
+  margin: 0.5rem;
+  min-width: 210px;
 }

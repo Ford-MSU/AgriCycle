@@ -3,63 +3,63 @@ import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../store/AuthContext';
 import { useData } from '../store/DataContext';
 import { InactivityTracker } from '../components/InactivityTracker';
+import { BrandLogo } from '../components/BrandLogo';
 import { Role } from '../types';
 import { cn } from '../utils/cn';
-import { getRoleDisplayName, getRoleShortName } from '../utils/rbac';
+import { getRoleDisplayName, getRoleShortName, getRoleBadgeStyle } from '../utils/rbac';
 import { format } from 'date-fns';
-import { 
-  Leaf, 
-  LayoutDashboard, 
-  FileText, 
-  Map as MapIcon, 
-  Layers, 
-  List, 
-  MessageSquare, 
-  BarChart3, 
-  Users, 
+import {
+  LayoutDashboard,
+  FileText,
+  Map as MapIcon,
+  Layers,
+  List,
+  MessageSquare,
+  BarChart3,
+  Users,
   LogOut,
   Menu,
   X,
   Bell,
-  User as UserIcon,
   ClipboardList,
   AlertTriangle,
   RefreshCw,
   CheckCheck,
   CheckCircle2,
-  ShieldCheck
+  ShieldCheck,
 } from 'lucide-react';
 
 interface NavItem {
   name: string;
   path: string;
-  icon: React.ComponentType<{ size?: number }>;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   matchFn?: (pathname: string, search: string) => boolean;
 }
 
 const getRoleSpecificNavItems = (role: Role | undefined): NavItem[] => {
   if (!role) return [];
 
-  const baseItems: NavItem[] = [
-    {
-      name: 'Dashboard',
-      path: '/',
-      icon: LayoutDashboard,
-      matchFn: (pathname) => pathname === '/',
-    },
-  ];
-
   switch (role) {
     case Role.ADMINISTRATOR:
       return [
-        ...baseItems,
+        {
+          name: 'Dashboard',
+          path: '/',
+          icon: LayoutDashboard,
+          matchFn: (pathname) => pathname === '/',
+        },
         { name: 'Users', path: '/users', icon: Users },
         { name: 'Administrative Reports', path: '/reports', icon: BarChart3 },
         { name: 'Audit Logs', path: '/audit-logs', icon: ClipboardList },
       ];
     case Role.COORDINATOR:
       return [
-        ...baseItems,
+        {
+          name: 'Dashboard',
+          path: '/',
+          icon: LayoutDashboard,
+          matchFn: (pathname) => pathname === '/',
+        },
         {
           name: 'Biomass Sources & Records',
           path: '/biomass-records',
@@ -87,15 +87,20 @@ const getRoleSpecificNavItems = (role: Role | undefined): NavItem[] => {
       ];
     case Role.LGU:
       return [
-        ...baseItems,
         {
-          name: 'Validated Biomass Info',
+          name: 'Overview',
+          path: '/',
+          icon: LayoutDashboard,
+          matchFn: (pathname) => pathname === '/',
+        },
+        {
+          name: 'Validated Biomass Records',
           path: '/biomass-records',
           icon: CheckCircle2,
         },
         { name: 'GIS Map', path: '/map', icon: MapIcon },
         {
-          name: 'Availability & Aggregation',
+          name: 'Availability and Aggregation',
           path: '/aggregation-hubs',
           icon: Layers,
           matchFn: (pathname) =>
@@ -105,18 +110,30 @@ const getRoleSpecificNavItems = (role: Role | undefined): NavItem[] => {
       ];
     case Role.BUYER:
       return [
-        ...baseItems,
+        {
+          name: 'Dashboard',
+          path: '/',
+          icon: LayoutDashboard,
+          matchFn: (pathname) => pathname === '/',
+        },
         {
           name: 'Biomass Listings',
           path: '/listings',
           icon: List,
           matchFn: (pathname) => pathname.startsWith('/listings'),
         },
-        { name: 'Map View', path: '/map', icon: MapIcon },
+        { name: 'GIS Map', path: '/map', icon: MapIcon },
         { name: 'My Inquiries', path: '/inquiries', icon: MessageSquare },
       ];
     default:
-      return baseItems;
+      return [
+        {
+          name: 'Dashboard',
+          path: '/',
+          icon: LayoutDashboard,
+          matchFn: (pathname) => pathname === '/',
+        },
+      ];
   }
 };
 
@@ -151,8 +168,7 @@ export const MainLayout: React.FC = () => {
     };
   }, [notificationsOpen]);
 
-  // Strict recipient scoping: user-targeted notifications only go to that exact user;
-  // role-targeted notifications only go to matching role.
+  // Strict recipient scoping
   const userNotifications = notifications.filter((n) => {
     if (!user) return false;
     if (n.recipientUserId) {
@@ -174,8 +190,9 @@ export const MainLayout: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    setMobileMenuOpen(false);
     await logout();
-    navigate('/login');
+    navigate('/', { replace: true });
   };
 
   const navItems = getRoleSpecificNavItems(user?.role);
@@ -188,156 +205,102 @@ export const MainLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-agri-cream-50 overflow-hidden">
+    <div className="min-h-screen bg-[#F7FAF7] text-[#1E3328] flex flex-col">
       <InactivityTracker />
-      {/* Mobile sidebar backdrop */}
-      {mobileMenuOpen && (
-        <div 
-          className="fixed inset-0 z-20 bg-gray-900/50 lg:hidden"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
 
-      {/* Sidebar */}
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 z-30 w-64 bg-white border-r border-agri-green-100 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0",
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
-        <div className="h-full flex flex-col">
-          <div className="flex items-center justify-between h-16 px-6 border-b border-agri-green-50 bg-agri-green-500 text-white">
-            <div className="flex items-center gap-2">
-              <Leaf size={24} />
-              <span className="text-lg font-bold tracking-tight">AgriCycle</span>
-            </div>
-            <button className="lg:hidden text-white" onClick={() => setMobileMenuOpen(false)}>
-              <X size={20} />
-            </button>
-          </div>
+      {/* Sticky Horizontal Top Header Navigation (Zero Sidebar) */}
+      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-sm border-b border-[#E2EAE3]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+          {/* Left: Official AgriCycle Brand */}
+          <Link
+            to="/"
+            onClick={() => setMobileMenuOpen(false)}
+            className="flex items-center shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#006B45] rounded-lg py-1"
+          >
+            <BrandLogo size="sm" showText />
+          </Link>
 
-          <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+          {/* Center: Single-Line Horizontal Role Navigation */}
+          <nav
+            aria-label="Workspace Navigation"
+            className="hidden lg:flex items-center gap-1 overflow-x-auto no-scrollbar"
+          >
             {navItems.map((item) => {
               const active = isNavItemActive(item);
               return (
                 <Link
                   key={item.name}
                   to={item.path}
-                  onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                    'flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[13px] font-medium whitespace-nowrap transition-colors',
                     active
-                      ? "bg-agri-green-50 text-agri-green-700"
-                      : "text-agri-earth-600 hover:bg-agri-cream-100 hover:text-agri-green-700"
+                      ? 'bg-[#EAF4EC] text-[#006B45] font-semibold'
+                      : 'text-[#64756A] hover:text-[#1E3328] hover:bg-[#F7FAF7]'
                   )}
                 >
-                  <item.icon size={18} />
+                  <item.icon size={15} className="shrink-0" />
                   <span>{item.name}</span>
                 </Link>
               );
             })}
-          </div>
+          </nav>
 
-          <div className="p-4 border-t border-agri-green-100">
-            <div className="flex items-center gap-3 mb-4 px-2">
-              <div className="w-8 h-8 rounded-full bg-agri-green-100 flex items-center justify-center text-agri-green-600 shrink-0">
-                <UserIcon size={16} />
-              </div>
-              <div className="overflow-hidden">
-                <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
-                <p className="text-xs text-agri-earth-500 truncate" title={getRoleDisplayName(user?.role)}>
-                  {getRoleDisplayName(user?.role)}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="flex w-full items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
-            >
-              <LogOut size={18} />
-              Sign Out
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Topbar */}
-        <header className="h-16 bg-white border-b border-agri-green-100 flex items-center justify-between px-4 sm:px-6 z-10 shadow-sm">
-          <div className="flex items-center">
-            <button
-              className="lg:hidden text-agri-earth-600 hover:text-agri-green-600 mr-4"
-              onClick={() => setMobileMenuOpen(true)}
-            >
-              <Menu size={24} />
-            </button>
-            <h1 className="text-xl font-semibold text-gray-800 hidden sm:block">
-              Platform Dashboard
-            </h1>
-          </div>
-          
-          {!isUsingSupabase && (
-            <div className="hidden md:flex items-center justify-center flex-1">
-              <span className="bg-yellow-100 text-yellow-800 border border-yellow-200 text-[10px] uppercase font-bold tracking-wider px-3 py-1 rounded-full flex items-center gap-1 shadow-sm">
-                <AlertTriangle size={12} />
-                Local Fallback Mode — Configure VITE_SUPABASE_URL for Live Database
-              </span>
-            </div>
-          )}
-
-          <div className="flex items-center gap-4">
+          {/* Right: Actions, Notifications, User Badge, Sign Out */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {isUsingSupabase && (
               <button
+                type="button"
                 onClick={() => refreshData()}
                 disabled={isLoading}
                 title="Refresh data from database"
-                className="text-agri-earth-500 hover:text-agri-green-600 p-1.5 rounded-md hover:bg-agri-green-50 transition-colors"
+                className="text-[#64756A] hover:text-[#006B45] p-1.5 rounded-lg hover:bg-[#EAF4EC] transition-colors cursor-pointer"
               >
-                <RefreshCw size={18} className={isLoading ? 'animate-spin text-agri-green-600' : ''} />
+                <RefreshCw size={17} className={isLoading ? 'animate-spin text-[#006B45]' : ''} />
               </button>
             )}
 
-            {/* Notification Bell with Dropdown */}
+            {/* Notifications Dropdown */}
             <div className="relative" ref={dropdownRef}>
               <button
-                onClick={() => setNotificationsOpen(!notificationsOpen)}
-                className="text-agri-earth-500 hover:text-agri-green-600 relative p-1.5 rounded-lg hover:bg-agri-green-50 transition-colors"
+                type="button"
+                onClick={() => setNotificationsOpen((prev) => !prev)}
+                className="text-[#64756A] hover:text-[#006B45] relative p-1.5 rounded-lg hover:bg-[#EAF4EC] transition-colors cursor-pointer"
                 title="System Notifications"
                 aria-label="System Notifications"
               >
-                <Bell size={20} />
+                <Bell size={19} />
                 {unreadCount > 0 && (
-                  <span className="absolute top-0 right-0 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-red-500 rounded-full ring-2 ring-white shadow-sm animate-pulse">
+                  <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[17px] h-[17px] px-1 text-[10px] font-bold text-white bg-[#E8A800] rounded-full ring-2 ring-white tabular-nums">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
               </button>
 
               {notificationsOpen && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                  <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-xl border border-[#E2EAE3] py-2 z-50">
+                  <div className="px-4 py-2.5 border-b border-[#E2EAE3] flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-gray-900">Notifications</span>
+                      <span className="font-bold text-sm text-[#1E3328]">Notifications</span>
                       {unreadCount > 0 && (
-                        <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full font-semibold">
+                        <span className="bg-[#FFF7E2] text-[#8F6500] border border-[#F5DA8A] text-xs px-2 py-0.5 rounded-md font-semibold tabular-nums">
                           {unreadCount} new
                         </span>
                       )}
                     </div>
                     {unreadCount > 0 && (
                       <button
+                        type="button"
                         onClick={() => markAllNotificationsRead()}
-                        className="text-xs text-agri-green-600 hover:text-agri-green-700 font-semibold flex items-center gap-1"
+                        className="text-xs text-[#006B45] hover:underline font-semibold flex items-center gap-1 cursor-pointer"
                       >
                         <CheckCheck size={14} /> Mark all read
                       </button>
                     )}
                   </div>
 
-                  <div className="max-h-[380px] overflow-y-auto divide-y divide-gray-50">
+                  <div className="max-h-[360px] overflow-y-auto divide-y divide-[#E2EAE3]">
                     {userNotifications.length === 0 ? (
-                      <div className="py-8 text-center text-sm text-gray-400">
+                      <div className="py-8 text-center text-sm text-[#64756A]">
                         No notifications yet
                       </div>
                     ) : (
@@ -346,25 +309,27 @@ export const MainLayout: React.FC = () => {
                           key={n.id}
                           onClick={() => handleNotificationClick(n)}
                           className={cn(
-                            "px-4 py-3 hover:bg-agri-green-50/50 cursor-pointer transition-colors flex gap-3 items-start",
-                            !n.isRead ? "bg-emerald-50/30" : ""
+                            'px-4 py-3 hover:bg-[#EAF4EC]/50 cursor-pointer transition-colors flex gap-3 items-start',
+                            !n.isRead ? 'bg-[#EAF4EC]/30' : ''
                           )}
                         >
-                          <div className={cn(
-                            "w-2 h-2 mt-2 rounded-full shrink-0",
-                            !n.isRead ? "bg-agri-green-600 ring-4 ring-agri-green-100" : "bg-transparent"
-                          )} />
+                          <div
+                            className={cn(
+                              'w-2 h-2 mt-2 rounded-full shrink-0',
+                              !n.isRead ? 'bg-[#006B45]' : 'bg-transparent'
+                            )}
+                          />
                           <div className="flex-1 min-w-0">
-                            <p className={cn(
-                              "text-xs truncate",
-                              !n.isRead ? "font-bold text-gray-900" : "font-medium text-gray-700"
-                            )}>
+                            <p
+                              className={cn(
+                                'text-xs truncate',
+                                !n.isRead ? 'font-bold text-[#1E3328]' : 'font-medium text-[#1E3328]'
+                              )}
+                            >
                               {n.title}
                             </p>
-                            <p className="text-xs text-agri-earth-600 mt-0.5 line-clamp-2">
-                              {n.message}
-                            </p>
-                            <span className="text-[10px] text-gray-400 mt-1 block">
+                            <p className="text-xs text-[#64756A] mt-0.5 line-clamp-2">{n.message}</p>
+                            <span className="text-[10px] text-[#64756A] mt-1 block">
                               {format(new Date(n.createdAt), 'MMM d, h:mm a')}
                             </span>
                           </div>
@@ -376,37 +341,127 @@ export const MainLayout: React.FC = () => {
               )}
             </div>
 
-            <div className="hidden sm:flex items-center gap-2 border-l border-agri-green-100 pl-4">
-              <span className="text-sm font-medium text-gray-700">{user?.name}</span>
+            {/* User Display & Role Badge */}
+            <div className="hidden md:flex items-center gap-2 border-l border-[#E2EAE3] pl-3">
+              <span className="text-sm font-medium text-[#1E3328] max-w-[130px] truncate">
+                {user?.name}
+              </span>
               <span
-                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-agri-green-100 text-agri-green-800"
+                className={cn(
+                  'inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border whitespace-nowrap',
+                  getRoleBadgeStyle(user?.role)
+                )}
                 title={getRoleDisplayName(user?.role)}
               >
                 {getRoleShortName(user?.role)}
               </span>
             </div>
-          </div>
-        </header>
 
-        {/* Page Content */}
-        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
-          {error && (
-            <div className="max-w-7xl mx-auto mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2">
-                <AlertTriangle size={18} className="shrink-0" />
-                <span>{error}</span>
+            {/* Sign Out Button */}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#64756A] hover:text-red-700 hover:bg-red-50 border border-[#E2EAE3] hover:border-red-200 transition-colors cursor-pointer"
+              title="Sign Out"
+            >
+              <LogOut size={14} />
+              <span>Sign Out</span>
+            </button>
+
+            {/* Compact Mobile Menu Toggle */}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              className="lg:hidden p-2 rounded-lg text-[#1E3328] hover:bg-[#EAF4EC] border border-[#E2EAE3] transition-colors cursor-pointer"
+              aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile / Tablet Compact Dropdown Menu (Zero Left Sidebar) */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden border-t border-[#E2EAE3] bg-white px-4 py-3 space-y-1 shadow-sm">
+            <div className="pb-2 mb-2 border-b border-[#E2EAE3] flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[#1E3328] truncate">{user?.name}</p>
+                <p className="text-xs text-[#64756A] truncate">{getRoleDisplayName(user?.role)}</p>
               </div>
-              <button
-                onClick={() => refreshData()}
-                className="px-3 py-1 bg-white border border-red-200 rounded text-xs font-semibold hover:bg-red-100 transition-colors"
+              <span
+                className={cn(
+                  'inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border shrink-0',
+                  getRoleBadgeStyle(user?.role)
+                )}
               >
-                Retry
+                {getRoleShortName(user?.role)}
+              </span>
+            </div>
+
+            {navItems.map((item) => {
+              const active = isNavItemActive(item);
+              return (
+                <Link
+                  key={item.name}
+                  to={item.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={cn(
+                    'flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                    active
+                      ? 'bg-[#EAF4EC] text-[#006B45] font-semibold'
+                      : 'text-[#1E3328] hover:bg-[#F7FAF7]'
+                  )}
+                >
+                  <item.icon size={16} />
+                  <span>{item.name}</span>
+                </Link>
+              );
+            })}
+
+            <div className="pt-2 mt-2 border-t border-[#E2EAE3]">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="flex w-full items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
+              >
+                <LogOut size={16} />
+                <span>Sign Out</span>
               </button>
             </div>
-          )}
-          <Outlet />
-        </main>
-      </div>
+          </div>
+        )}
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {!isUsingSupabase && (
+          <div className="mb-5 bg-[#FFF7E2] border border-[#F5DA8A] text-[#8F6500] px-4 py-2 rounded-lg text-xs font-medium flex items-center gap-2">
+            <AlertTriangle size={14} className="shrink-0" />
+            <span>
+              Local Fallback Mode active — configure <code className="font-mono">VITE_SUPABASE_URL</code> for live Supabase PostgreSQL persistence.
+            </span>
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center justify-between text-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={18} className="shrink-0" />
+              <span>{error}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => refreshData()}
+              className="px-3 py-1 bg-white border border-red-200 rounded text-xs font-semibold hover:bg-red-100 transition-colors cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        <Outlet />
+      </main>
     </div>
   );
 };

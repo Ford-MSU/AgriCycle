@@ -109,15 +109,15 @@ export const getRoleShortName = (role?: Role | string | null): string => {
 export const getRoleBadgeStyle = (role?: Role | string | null): string => {
   switch (role) {
     case Role.ADMINISTRATOR:
-      return 'bg-purple-100 text-purple-800 border-purple-200';
+      return 'bg-slate-100 text-[#1E3328] border-[#C8D8CB]';
     case Role.COORDINATOR:
-      return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      return 'bg-[#EAF4EC] text-[#006B45] border-[#C3DFC8]';
     case Role.LGU:
-      return 'bg-blue-100 text-blue-800 border-blue-200';
+      return 'bg-[#EAF4EC] text-[#008838] border-[#B8DEC2]';
     case Role.BUYER:
-      return 'bg-amber-100 text-amber-800 border-amber-200';
+      return 'bg-[#FFF7E2] text-[#8F6500] border-[#F5DA8A]';
     default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-[#F7FAF7] text-[#64756A] border-[#E2EAE3]';
   }
 };
 
