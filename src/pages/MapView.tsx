@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import React, { useMemo, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import { SafeMapController } from '../components/SafeMapController';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { Button } from '../components/ui/Button';
@@ -41,39 +42,6 @@ const createStatusIcon = (status: RecordStatus) => {
 // Philippines geographic center and nationwide zoom
 const INITIAL_CENTER: [number, number] = [12.8797, 121.7740];
 const INITIAL_ZOOM = 6;
-
-interface ViewportControllerProps {
-  points: Array<[number, number]>;
-  fitKey: string;
-  resetCounter: number;
-}
-
-const MapViewportController: React.FC<ViewportControllerProps> = ({
-  points,
-  fitKey,
-  resetCounter,
-}) => {
-  const map = useMap();
-
-  useEffect(() => {
-    if (resetCounter > 0) {
-      map.setView(INITIAL_CENTER, INITIAL_ZOOM, { animate: true });
-    }
-  }, [resetCounter, map]);
-
-  useEffect(() => {
-    if (points.length === 0) return;
-    if (points.length === 1) {
-      map.setView(points[0], 13, { animate: true });
-      return;
-    }
-    const bounds = L.latLngBounds(points.map(([lat, lng]) => L.latLng(lat, lng)));
-    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 14, animate: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitKey, map]);
-
-  return null;
-};
 
 export const MapView: React.FC = () => {
   const { user } = useAuth();
@@ -253,8 +221,12 @@ export const MapView: React.FC = () => {
     locationFilter.city !== 'ALL' ||
     locationFilter.barangay !== 'ALL';
 
-  const fitPoints = mappedPointsWithOffsets.map((p) => p.displayPosition);
-  const fitKey = mappedPointsWithOffsets.map((p) => p.record.id).join('|') +
+  const fitPoints = useMemo(
+    () => mappedPointsWithOffsets.map((p) => p.displayPosition),
+    [mappedPointsWithOffsets]
+  );
+  const fitKey =
+    mappedPointsWithOffsets.map((p) => p.record.id).join('|') +
     `|${locationFilter.region}|${locationFilter.province}|${locationFilter.city}|${locationFilter.barangay}|${activeBiomassType}|${activeStatus}`;
 
   const openCoordinateEditor = (locId: string, label: string, current?: { lat: number; lng: number }) => {
@@ -304,7 +276,7 @@ export const MapView: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]">
+    <div className="flex flex-col md:h-[calc(100vh-8rem)] md:min-h-[560px]">
       <div className="mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
@@ -335,9 +307,9 @@ export const MapView: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 h-full min-h-0">
+      <div className="flex flex-col md:flex-row gap-4 md:flex-1 md:min-h-0">
         {/* Sidebar Filters & Pending Coordinates */}
-        <Card className="md:w-80 shrink-0 h-full overflow-y-auto">
+        <Card className="md:w-80 shrink-0 md:h-full max-h-[420px] md:max-h-none overflow-y-auto">
           <CardHeader className="pb-3 border-b border-gray-100">
             <CardTitle className="text-sm flex items-center gap-2">
               <Filter size={16} /> Map Filters ({mappedPointsWithOffsets.length} Plotted)
@@ -477,13 +449,15 @@ export const MapView: React.FC = () => {
         </Card>
 
         {/* Map Container */}
-        <div className="flex-1 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden relative z-0 shadow-inner">
+        <div className="w-full h-[440px] shrink-0 md:w-auto md:flex-1 md:h-full md:min-h-0 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden relative z-0 shadow-inner">
           <MapContainer
             center={INITIAL_CENTER}
             zoom={INITIAL_ZOOM}
             minZoom={5}
             maxZoom={18}
             scrollWheelZoom={true}
+            zoomAnimation={false}
+            markerZoomAnimation={false}
             className="w-full h-full"
           >
             <TileLayer
@@ -492,7 +466,17 @@ export const MapView: React.FC = () => {
               maxZoom={19}
             />
 
-            <MapViewportController points={fitPoints} fitKey={fitKey} resetCounter={resetCounter} />
+            <SafeMapController
+              points={fitPoints}
+              fitKey={fitKey}
+              resetCounter={resetCounter}
+              defaultCenter={INITIAL_CENTER}
+              defaultZoom={INITIAL_ZOOM}
+              singlePointZoom={13}
+              fitBoundsPadding={[48, 48]}
+              fitBoundsMaxZoom={14}
+              resetMode="default"
+            />
 
             {mappedPointsWithOffsets.map((item, index) => {
               if (!item.location?.coordinates) return null;

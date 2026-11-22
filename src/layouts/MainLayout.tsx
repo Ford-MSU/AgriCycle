@@ -155,18 +155,33 @@ export const MainLayout: React.FC = () => {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setMobileMenuOpen(false);
+    setNotificationsOpen(false);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setNotificationsOpen(false);
       }
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setNotificationsOpen(false);
+        setMobileMenuOpen(false);
+      }
+    };
     if (notificationsOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
+    if (notificationsOpen || mobileMenuOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [notificationsOpen]);
+  }, [notificationsOpen, mobileMenuOpen]);
 
   // Strict recipient scoping
   const userNotifications = notifications.filter((n) => {
@@ -204,60 +219,69 @@ export const MainLayout: React.FC = () => {
     return location.pathname === item.path.split('?')[0];
   };
 
+  const isWideRoleNav = navItems.length > 5;
+  const desktopNavVisibility = isWideRoleNav ? 'hidden min-[1410px]:flex' : 'hidden xl:flex';
+  const mobileToggleVisibility = isWideRoleNav ? 'min-[1410px]:hidden' : 'xl:hidden';
+
   return (
     <div className="min-h-screen bg-[#F7FAF7] text-[#1E3328] flex flex-col">
       <InactivityTracker />
 
-      {/* Sticky Horizontal Top Header Navigation (Zero Sidebar) */}
+      {/* Sticky Full-Width Horizontal Top Header Navigation (Zero Sidebar) */}
       <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-sm border-b border-[#E2EAE3]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
-          {/* Left: Official AgriCycle Brand */}
-          <Link
-            to="/"
-            onClick={() => setMobileMenuOpen(false)}
-            className="flex items-center shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#006B45] rounded-lg py-1"
-          >
-            <BrandLogo size="sm" showText />
-          </Link>
+        <div className="w-full px-3 sm:px-5 lg:px-6 xl:px-4 2xl:px-8 h-16 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 xl:gap-3 2xl:gap-6">
+          {/* Left Section: Official AgriCycle Brand + Role Navigation */}
+          <div className="flex items-center gap-2.5 xl:gap-3 2xl:gap-6 min-w-0">
+            <Link
+              to="/"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#006B45] rounded-lg py-1"
+            >
+              <BrandLogo size="sm" showText />
+            </Link>
 
-          {/* Center: Single-Line Horizontal Role Navigation */}
-          <nav
-            aria-label="Workspace Navigation"
-            className="hidden lg:flex items-center gap-1 overflow-x-auto no-scrollbar"
-          >
-            {navItems.map((item) => {
-              const active = isNavItemActive(item);
-              return (
-                <Link
-                  key={item.name}
-                  to={item.path}
-                  className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[13px] font-medium whitespace-nowrap transition-colors',
-                    active
-                      ? 'bg-[#EAF4EC] text-[#006B45] font-semibold'
-                      : 'text-[#64756A] hover:text-[#1E3328] hover:bg-[#F7FAF7]'
-                  )}
-                >
-                  <item.icon size={15} className="shrink-0" />
-                  <span>{item.name}</span>
-                </Link>
-              );
-            })}
-          </nav>
+            <nav
+              aria-label="Workspace Navigation"
+              className={cn(
+                desktopNavVisibility,
+                'items-center gap-0.5 2xl:gap-1 min-w-0'
+              )}
+            >
+              {navItems.map((item) => {
+                const active = isNavItemActive(item);
+                const showIconClass =
+                  !isWideRoleNav ? 'shrink-0' : 'hidden 2xl:block shrink-0';
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.path}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2 2xl:px-2.5 py-1.5 rounded-lg text-[12px] 2xl:text-[13px] font-medium whitespace-nowrap transition-colors shrink-0',
+                      active
+                        ? 'bg-[#EAF4EC] text-[#006B45] font-semibold'
+                        : 'text-[#64756A] hover:text-[#1E3328] hover:bg-[#F7FAF7]'
+                    )}
+                  >
+                    <item.icon size={14} className={showIconClass} />
+                    <span>{item.name}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
 
-          {/* Right: Actions, Notifications, User Badge, Sign Out */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {isUsingSupabase && (
-              <button
-                type="button"
-                onClick={() => refreshData()}
-                disabled={isLoading}
-                title="Refresh data from database"
-                className="text-[#64756A] hover:text-[#006B45] p-1.5 rounded-lg hover:bg-[#EAF4EC] transition-colors cursor-pointer"
-              >
-                <RefreshCw size={17} className={isLoading ? 'animate-spin text-[#006B45]' : ''} />
-              </button>
-            )}
+          {/* Right Section: Refresh, Notifications, User Info, Role Badge, Sign Out */}
+          <div className="flex items-center gap-1.5 sm:gap-2 2xl:gap-2.5 shrink-0 justify-self-end">
+            <button
+              type="button"
+              onClick={() => refreshData()}
+              disabled={isLoading}
+              title={isUsingSupabase ? 'Refresh data from database' : 'Refresh workspace data'}
+              aria-label="Refresh workspace data"
+              className="text-[#64756A] hover:text-[#006B45] disabled:opacity-60 p-1.5 rounded-lg hover:bg-[#EAF4EC] transition-colors cursor-pointer"
+            >
+              <RefreshCw size={17} className={isLoading ? 'animate-spin text-[#006B45]' : ''} />
+            </button>
 
             {/* Notifications Dropdown */}
             <div className="relative" ref={dropdownRef}>
@@ -342,8 +366,8 @@ export const MainLayout: React.FC = () => {
             </div>
 
             {/* User Display & Role Badge */}
-            <div className="hidden md:flex items-center gap-2 border-l border-[#E2EAE3] pl-3">
-              <span className="text-sm font-medium text-[#1E3328] max-w-[130px] truncate">
+            <div className="hidden md:flex items-center gap-1.5 2xl:gap-2 border-l border-[#E2EAE3] pl-2 2xl:pl-3">
+              <span className="text-sm font-medium text-[#1E3328] max-w-[105px] 2xl:max-w-[160px] truncate">
                 {user?.name}
               </span>
               <span
@@ -361,18 +385,21 @@ export const MainLayout: React.FC = () => {
             <button
               type="button"
               onClick={handleLogout}
-              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#64756A] hover:text-red-700 hover:bg-red-50 border border-[#E2EAE3] hover:border-red-200 transition-colors cursor-pointer"
+              className="hidden sm:inline-flex items-center gap-1.5 px-2 2xl:px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#64756A] hover:text-red-700 hover:bg-red-50 border border-[#E2EAE3] hover:border-red-200 transition-colors cursor-pointer whitespace-nowrap"
               title="Sign Out"
             >
               <LogOut size={14} />
               <span>Sign Out</span>
             </button>
 
-            {/* Compact Mobile Menu Toggle */}
+            {/* Compact Responsive Menu Toggle */}
             <button
               type="button"
               onClick={() => setMobileMenuOpen((prev) => !prev)}
-              className="lg:hidden p-2 rounded-lg text-[#1E3328] hover:bg-[#EAF4EC] border border-[#E2EAE3] transition-colors cursor-pointer"
+              className={cn(
+                mobileToggleVisibility,
+                'p-2 rounded-lg text-[#1E3328] hover:bg-[#EAF4EC] border border-[#E2EAE3] transition-colors cursor-pointer'
+              )}
               aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
               aria-expanded={mobileMenuOpen}
             >
@@ -381,9 +408,9 @@ export const MainLayout: React.FC = () => {
           </div>
         </div>
 
-        {/* Mobile / Tablet Compact Dropdown Menu (Zero Left Sidebar) */}
+        {/* Compact Top Dropdown Navigation on Medium/Tablet/Mobile (Zero Left Sidebar) */}
         {mobileMenuOpen && (
-          <div className="lg:hidden border-t border-[#E2EAE3] bg-white px-4 py-3 space-y-1 shadow-sm">
+          <div className={cn(mobileToggleVisibility, 'border-t border-[#E2EAE3] bg-white px-4 py-3 space-y-1 shadow-sm')}>
             <div className="pb-2 mb-2 border-b border-[#E2EAE3] flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-[#1E3328] truncate">{user?.name}</p>

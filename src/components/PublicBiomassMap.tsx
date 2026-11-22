@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import React, { useMemo, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import { SafeMapController } from './SafeMapController';
 import L from 'leaflet';
 import { format } from 'date-fns';
 import { Filter, MapPin, RotateCcw } from 'lucide-react';
@@ -28,47 +29,6 @@ const VALIDATED_MARKER_ICON = L.divIcon({
 
 const DEFAULT_CENTER: [number, number] = [8.9475, 125.5406]; // Butuan City / Caraga default when empty
 const DEFAULT_ZOOM = 11;
-
-interface MapViewportProps {
-  points: Array<[number, number]>;
-  fitKey: string;
-  resetCounter: number;
-}
-
-const PublicMapViewportController: React.FC<MapViewportProps> = ({
-  points,
-  fitKey,
-  resetCounter,
-}) => {
-  const map = useMap();
-
-  useEffect(() => {
-    if (resetCounter > 0) {
-      if (points.length === 0) {
-        map.setView(DEFAULT_CENTER, DEFAULT_ZOOM, { animate: true });
-      } else if (points.length === 1) {
-        map.setView(points[0], 13, { animate: true });
-      } else {
-        const bounds = L.latLngBounds(points.map(([lat, lng]) => L.latLng(lat, lng)));
-        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13, animate: true });
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetCounter, map]);
-
-  useEffect(() => {
-    if (points.length === 0) return;
-    if (points.length === 1) {
-      map.setView(points[0], 13, { animate: true });
-      return;
-    }
-    const bounds = L.latLngBounds(points.map(([lat, lng]) => L.latLng(lat, lng)));
-    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13, animate: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitKey, map]);
-
-  return null;
-};
 
 interface PublicBiomassMapProps {
   records: BiomassRecord[];
@@ -188,7 +148,7 @@ export const PublicBiomassMap: React.FC<PublicBiomassMapProps> = ({
   }, [filteredItems]);
 
   const unmappedCount = filteredItems.length - mappedMarkers.length;
-  const points = mappedMarkers.map((m) => m.position);
+  const points = useMemo(() => mappedMarkers.map((m) => m.position), [mappedMarkers]);
   const fitKey = `${mappedMarkers.map((m) => m.record.id).join('|')}-${selectedType}-${locationFilter.region}-${locationFilter.province}-${locationFilter.city}-${locationFilter.barangay}`;
 
   const hasLocationFilter =
@@ -296,6 +256,8 @@ export const PublicBiomassMap: React.FC<PublicBiomassMapProps> = ({
               minZoom={5}
               maxZoom={18}
               scrollWheelZoom={false}
+              zoomAnimation={false}
+              markerZoomAnimation={false}
               className="w-full h-full"
             >
               <TileLayer
@@ -303,10 +265,16 @@ export const PublicBiomassMap: React.FC<PublicBiomassMapProps> = ({
                 attribution='Map data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>'
                 maxZoom={19}
               />
-              <PublicMapViewportController
+              <SafeMapController
                 points={points}
                 fitKey={fitKey}
                 resetCounter={resetCounter}
+                defaultCenter={DEFAULT_CENTER}
+                defaultZoom={DEFAULT_ZOOM}
+                singlePointZoom={13}
+                fitBoundsPadding={[40, 40]}
+                fitBoundsMaxZoom={13}
+                resetMode="fitOrDefault"
               />
 
               {mappedMarkers.map((item, idx) => {
