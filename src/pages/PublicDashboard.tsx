@@ -444,6 +444,30 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({
           )}
         </section>
 
+        {/* SECTION 1A — About AgriCycle */}
+        <section
+          id="about-agricycle"
+          aria-labelledby="about-agricycle-heading"
+          className="scroll-mt-24"
+        >
+          <div className="bg-white border border-[#E2EAE3] rounded-2xl p-6 sm:p-8">
+            <div className="max-w-4xl space-y-3">
+              <h2
+                id="about-agricycle-heading"
+                className="text-xl sm:text-2xl font-bold text-[#1E3328] tracking-tight"
+              >
+                About AgriCycle
+              </h2>
+              <p className="text-sm sm:text-base text-[#64756A] leading-relaxed">
+                AgriCycle is a community-based Biomass Information Management and Inquiry-Based Market Linkage System designed to organize and present information about biomass resources. It helps make information about biomass sources, reported quantities, existing uses, availability periods, and locations easier to access and understand.
+              </p>
+              <p className="text-sm sm:text-base text-[#64756A] leading-relaxed">
+                By bringing these details together in one platform, AgriCycle supports better information sharing and helps connect potential biomass suppliers with interested buyers and institutions.
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* SECTION 2 — Biomass Volume and Key Indicators */}
         <section aria-label="Validated Biomass Key Indicators">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
