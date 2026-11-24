@@ -137,7 +137,7 @@ export const MainLayout: React.FC = () => {
               to="/"
               className="lg:hidden flex items-center shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#006B45] rounded-lg py-0.5"
             >
-              <BrandLogo size="sm" showText />
+              <BrandLogo variant="header" size="sm" />
             </Link>
 
             <div className="hidden lg:flex items-center gap-2 min-w-0">

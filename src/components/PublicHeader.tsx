@@ -36,11 +36,7 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
           className="flex items-center text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#006B45] rounded-lg py-1 cursor-pointer"
           aria-label="AgriCycle Overview"
         >
-          <BrandLogo
-            size="sm"
-            showText
-            subtitle="Biomass Information System"
-          />
+          <BrandLogo variant="header" size="md" />
         </button>
 
         {/* Desktop Single-Row Horizontal Navigation */}

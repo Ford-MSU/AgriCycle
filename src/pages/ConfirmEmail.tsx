@@ -345,7 +345,7 @@ export const ConfirmEmail: React.FC = () => {
       <div className="sm:mx-auto sm:w-full sm:max-w-lg relative z-10 px-4">
         {/* Brand header */}
         <div className="flex flex-col items-center mb-6 text-center">
-          <BrandLogo size="lg" />
+          <BrandLogo variant="icon" size="lg" />
           <h1 className="text-2xl font-bold tracking-tight text-[#1E3328] mt-3">AgriCycle</h1>
           <p className="text-xs uppercase tracking-widest text-[#006B45] font-semibold mt-0.5">
             Biomass Coordination & Verification Platform

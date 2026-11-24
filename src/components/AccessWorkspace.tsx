@@ -235,7 +235,7 @@ export const AccessWorkspace: React.FC<AccessWorkspaceProps> = ({ initialPortal 
             <div className="max-w-md mx-auto bg-[#F7FAF7] border border-[#E2EAE3] rounded-xl p-6">
               <div className="flex items-start justify-between gap-3 mb-5">
                 <div className="flex items-center gap-3">
-                  <BrandLogo size="sm" />
+                  <BrandLogo variant="icon" size="md" />
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wider text-[#006B45]">
                       {getRoleDisplayName(selectedPortal)}

@@ -226,7 +226,7 @@ export const AuthenticatedSidebar: React.FC<AuthenticatedSidebarProps> = ({
             title={collapsed ? 'AgriCycle Workspace' : undefined}
             className="flex items-center focus:outline-none focus-visible:ring-2 focus-visible:ring-[#006B45] rounded-lg py-0.5 min-w-0"
           >
-            <BrandLogo size="sm" showText={!collapsed} />
+            <BrandLogo variant="sidebar" size={collapsed ? 'sm' : 'md'} />
           </Link>
 
           {isDrawer ? (

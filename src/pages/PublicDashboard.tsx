@@ -363,7 +363,7 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
               <div className="space-y-4 max-w-3xl">
                 <div className="flex flex-wrap items-center gap-4">
-                  <BrandLogo size="lg" />
+                  <BrandLogo variant="icon" size="lg" />
                   <div className="border-l border-[#E2EAE3] pl-4">
                     <p className="text-xl font-bold text-[#1E3328] tracking-tight">
                       Agri<span className="text-[#48A818]">Cycle</span>
@@ -1046,7 +1046,7 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({
       <footer className="border-t border-[#E2EAE3] bg-white mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-[#64756A]">
           <div className="flex items-center gap-2.5">
-            <BrandLogo size="sm" />
+            <BrandLogo variant="icon" size="sm" />
             <span>
               <strong className="text-[#1E3328]">AgriCycle</strong> &bull; Community-Based Biomass Information Management &amp; Market Linkage System
             </span>
